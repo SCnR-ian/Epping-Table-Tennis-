@@ -35,11 +35,27 @@ router.get('/available', async (req, res) => {
   if (!date) return res.status(400).json({ message: 'date query param required.' })
   softAuth(req)
   try {
-    const { rows } = await pool.query(
+    const { rows: bookedRows } = await pool.query(
       `SELECT court_id, start_time, end_time FROM bookings
        WHERE date=$1 AND status='confirmed'`,
       [date]
     )
+    // Expand coaching sessions into 30-min slots so coached courts appear occupied
+    const { rows: coachingRows } = await pool.query(
+      `SELECT
+         cs.court_id,
+         slot_start                            AS start_time,
+         (slot_start + INTERVAL '30 minutes')  AS end_time
+       FROM coaching_sessions cs,
+       LATERAL generate_series(
+         cs.start_time::time,
+         cs.end_time::time - INTERVAL '30 minutes',
+         INTERVAL '30 minutes'
+       ) AS slot_start
+       WHERE cs.date=$1 AND cs.status='confirmed'`,
+      [date]
+    )
+    const booked = [...bookedRows, ...coachingRows]
     let userBooked = []
     if (req.user) {
       const { rows: ur } = await pool.query(
@@ -49,7 +65,7 @@ router.get('/available', async (req, res) => {
       )
       userBooked = ur
     }
-    res.json({ booked: rows, user_booked: userBooked })
+    res.json({ booked, user_booked: userBooked })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
@@ -75,8 +91,9 @@ router.get('/my', requireAuth, async (req, res) => {
        FROM bookings b
        JOIN courts c ON c.id = b.court_id
        WHERE b.user_id = $1
+         AND b.date >= CURRENT_DATE
        GROUP BY b.booking_group_id, b.court_id, b.date, c.name
-       ORDER BY b.date DESC, MIN(b.start_time) DESC`,
+       ORDER BY b.date ASC, MIN(b.start_time) ASC`,
       [req.user.id]
     )
     res.json({ bookings: rows })

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { adminAPI, bookingsAPI } from '@/api/api'
+import { adminAPI, bookingsAPI, coachingAPI } from '@/api/api'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -21,7 +21,10 @@ function toMins(t) {
 }
 
 function toISO(d) {
-  return d.toISOString().split('T')[0]
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 // Returns the next `count` dates that fall on opening days (Mon/Tue/Wed/Sat),
@@ -39,17 +42,24 @@ function getUpcomingOpenDates(count = 7) {
 }
 
 // Count how many of the 6 courts are free during a given time slot.
-function countFreeAtSlot(bookings, slotTime) {
+function countFreeAtSlot(bookings, sessions, slotTime) {
   const slotMins = toMins(slotTime)
-  const busyIds = new Set(
-    bookings
+  const busyIds = new Set([
+    ...bookings
       .filter(b => {
         const start = toMins(b.start_time)
         const end   = toMins(b.end_time)
         return slotMins >= start && slotMins < end
       })
-      .map(b => b.court_id)
-  )
+      .map(b => b.court_id),
+    ...sessions
+      .filter(s => {
+        const start = toMins(s.start_time)
+        const end   = toMins(s.end_time)
+        return slotMins >= start && slotMins < end
+      })
+      .map(s => s.court_id),
+  ])
   return BOOKABLE_COURTS.length - busyIds.size
 }
 
@@ -63,6 +73,16 @@ function getBookingsAtSlot(bookings, slotTime) {
   })
 }
 
+// Get all coaching sessions in progress during a given time slot.
+function getCoachingAtSlot(sessions, slotTime) {
+  const slotMins = toMins(slotTime)
+  return sessions.filter(s => {
+    const start = toMins(s.start_time)
+    const end   = toMins(s.end_time)
+    return slotMins >= start && slotMins < end
+  })
+}
+
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const STAT_CARDS = [
@@ -71,7 +91,7 @@ const STAT_CARDS = [
   { key: 'tournaments', label: 'Active Tournaments', icon: '🏆', color: 'text-yellow-400'  },
 ]
 
-const TABS = ['Members', 'Bookings']
+const TABS = ['Members', 'Bookings', 'Coaching']
 
 const BOOKABLE_COURTS = [
   { id: 1, label: 'Court 1' },
@@ -82,8 +102,8 @@ const BOOKABLE_COURTS = [
   { id: 6, label: 'Court 6' },
 ]
 
-const WEEKDAY_SLOTS  = ['16:00','16:30','17:00','17:30','18:00','18:30','19:00','19:30','20:00','20:30']
-const SATURDAY_SLOTS = ['12:00','12:30','13:00','13:30','14:00','14:30','15:00','15:30','16:00','16:30','17:00','17:30','18:00']
+const WEEKDAY_SLOTS  = ['15:30','16:00','16:30','17:00','17:30','18:00','18:30','19:00','19:30','20:00']
+const SATURDAY_SLOTS = ['12:00','12:30','13:00','13:30','14:00','14:30','15:00','15:30','16:00','16:30','17:00','17:30']
 
 const OPEN_DAYS = [
   { dow: 1, slots: WEEKDAY_SLOTS  },
@@ -98,8 +118,26 @@ export default function AdminDashboard() {
   const [activeTab,    setActiveTab]    = useState('Members')
   const [stats,        setStats]        = useState({ members: 0, bookings: 0, tournaments: 0 })
   const [members,      setMembers]      = useState([])
-  const [bookings,     setBookings]     = useState([])
+  const [bookings,           setBookings]           = useState([])
+  const [bookingViewSessions, setBookingViewSessions] = useState([])
+  const [memberSearch,       setMemberSearch]       = useState('')
   const [loading,      setLoading]      = useState(false)
+
+  // Coaching state
+  const [coaches,          setCoaches]          = useState([])
+  const [coachingSessions, setCoachingSessions] = useState([])
+  const [coachingDate,     setCoachingDate]     = useState(() => {
+    const dates = getUpcomingOpenDates(1)
+    return dates.length ? toISO(dates[0]) : ''
+  })
+  const [newCoachName,     setNewCoachName]     = useState('')
+  const [newCoachBio,      setNewCoachBio]      = useState('')
+  const [newCoachUserId,   setNewCoachUserId]   = useState('')
+  const [showSessionForm,  setShowSessionForm]  = useState(false)
+  const [sessionForm,      setSessionForm]      = useState({
+    coach_id: '', student_id: '', court_id: '',
+    date: '', start_time: '', end_time: '', notes: '', weeks: 1,
+  })
 
   // Default selected date = first upcoming open day
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -132,13 +170,21 @@ export default function AdminDashboard() {
     return () => { cancelled = true }
   }, [activeTab])
 
-  // Fetch bookings for the selected date when Bookings tab is active
+  // Fetch bookings + coaching sessions for the selected date when Bookings tab is active
   useEffect(() => {
     if (activeTab !== 'Bookings' || !selectedDate) return
     let cancelled = false
     setLoading(true)
-    adminAPI.getAllBookings({ date: selectedDate })
-      .then(({ data }) => { if (!cancelled) setBookings(data.bookings) })
+    Promise.all([
+      adminAPI.getAllBookings({ date: selectedDate }),
+      coachingAPI.getSessions({ date: selectedDate }),
+    ])
+      .then(([{ data: bd }, { data: cd }]) => {
+        if (!cancelled) {
+          setBookings(bd.bookings)
+          setBookingViewSessions(cd.sessions)
+        }
+      })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
@@ -172,6 +218,84 @@ export default function AdminDashboard() {
       setStats(prev => ({ ...prev, bookings: Math.max(0, prev.bookings - 1) }))
     } catch {
       alert('Could not cancel booking. Please try again.')
+    }
+  }
+
+  // Fetch coaches + sessions when Coaching tab is active
+  useEffect(() => {
+    if (activeTab !== 'Coaching') return
+    let cancelled = false
+    setLoading(true)
+    const membersFetch = members.length === 0
+      ? adminAPI.getAllMembers()
+      : Promise.resolve({ data: { members } })
+    Promise.all([
+      coachingAPI.getCoaches(),
+      coachingAPI.getSessions({ date: coachingDate }),
+      membersFetch,
+    ])
+      .then(([{ data: cd }, { data: sd }, { data: md }]) => {
+        if (!cancelled) {
+          setCoaches(cd.coaches)
+          setCoachingSessions(sd.sessions)
+          if (members.length === 0) setMembers(md.members)
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [activeTab, coachingDate])
+
+  const handleAddCoach = async () => {
+    if (!newCoachName.trim()) return
+    try {
+      const payload = { name: newCoachName, bio: newCoachBio }
+      if (newCoachUserId) payload.user_id = Number(newCoachUserId)
+      const { data } = await coachingAPI.createCoach(payload)
+      setCoaches(prev => [...prev, data.coach])
+      setNewCoachName('')
+      setNewCoachBio('')
+      setNewCoachUserId('')
+      // Refresh members so the role change is reflected
+      if (newCoachUserId) {
+        const { data: md } = await adminAPI.getAllMembers()
+        setMembers(md.members)
+      }
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not add coach.')
+    }
+  }
+
+  const handleDeleteCoach = async (id) => {
+    if (!window.confirm('Delete this coach?')) return
+    try {
+      await coachingAPI.deleteCoach(id)
+      setCoaches(prev => prev.filter(c => c.id !== id))
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not delete coach.')
+    }
+  }
+
+  const handleCreateSession = async () => {
+    try {
+      await coachingAPI.createSession(sessionForm)
+      setShowSessionForm(false)
+      setSessionForm({ coach_id: '', student_id: '', court_id: '', date: '', start_time: '', end_time: '', notes: '', weeks: 1 })
+      const { data } = await coachingAPI.getSessions({ date: coachingDate })
+      setCoachingSessions(data.sessions)
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not schedule session.')
+    }
+  }
+
+  const handleCancelSession = async (id) => {
+    if (!window.confirm('Cancel this coaching session?')) return
+    try {
+      await coachingAPI.cancelSession(id)
+      setCoachingSessions(prev => prev.filter(s => s.id !== id))
+      setBookingViewSessions(prev => prev.filter(s => s.id !== id))
+    } catch {
+      alert('Could not cancel session.')
     }
   }
 
@@ -273,6 +397,17 @@ export default function AdminDashboard() {
       {activeTab === 'Bookings' && (
         <div className="animate-fade-in">
 
+          {/* Member search */}
+          <div className="mb-5">
+            <input
+              type="text"
+              className="input w-full max-w-xs"
+              placeholder="Search member name…"
+              value={memberSearch}
+              onChange={e => setMemberSearch(e.target.value)}
+            />
+          </div>
+
           {/* Date selector */}
           <div className="flex gap-2 overflow-x-auto pb-2 mb-6">
             {upcomingDates.map(d => {
@@ -311,9 +446,13 @@ export default function AdminDashboard() {
                 </thead>
                 <tbody>
                   {slotsForDay.map(slot => {
-                    const free          = countFreeAtSlot(bookings, slot)
+                    const free          = countFreeAtSlot(bookings, bookingViewSessions, slot)
                     const total         = BOOKABLE_COURTS.length
+                    const search        = memberSearch.toLowerCase().trim()
                     const slotBookings  = getBookingsAtSlot(bookings, slot)
+                      .filter(b => !search || b.user_name.toLowerCase().includes(search))
+                    const slotSessions  = getCoachingAtSlot(bookingViewSessions, slot)
+                      .filter(s => !search || s.student_name.toLowerCase().includes(search))
                     const full          = free === 0
                     const freeColor     = free === 0
                       ? 'text-red-400'
@@ -334,7 +473,7 @@ export default function AdminDashboard() {
                           </div>
                         </td>
                         <td className="px-5 py-2">
-                          {slotBookings.length === 0 ? (
+                          {slotBookings.length === 0 && slotSessions.length === 0 ? (
                             <span className="text-xs text-slate-700">—</span>
                           ) : (
                             <div className="flex flex-wrap gap-2">
@@ -354,6 +493,23 @@ export default function AdminDashboard() {
                                   </button>
                                 </div>
                               ))}
+                              {slotSessions.map(s => (
+                                <div key={`cs-${s.id}`} className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-1.5 flex items-center gap-3">
+                                  <div>
+                                    <p className="text-emerald-400 font-semibold text-xs">{s.student_name}</p>
+                                    <p className="text-slate-500 text-[10px]">Coach: {s.coach_name}</p>
+                                    <p className="text-slate-500 text-[10px]">
+                                      {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() => handleCancelSession(s.id)}
+                                    className="text-[10px] text-red-400 hover:text-red-300 transition-colors"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ))}
                             </div>
                           )}
                         </td>
@@ -366,6 +522,254 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+      {/* ── Coaching tab ─────────────────────────────────────────────────── */}
+      {activeTab === 'Coaching' && (
+        <div className="animate-fade-in space-y-10">
+
+          {/* ── Coaches section ── */}
+          <div>
+            <h2 className="text-lg font-semibold text-white mb-4">Coaches</h2>
+
+            {/* Add coach form */}
+            <div className="card mb-4 space-y-3">
+              <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">Add Coach</p>
+              <input
+                className="input w-full"
+                placeholder="Name"
+                value={newCoachName}
+                onChange={e => setNewCoachName(e.target.value)}
+              />
+              <textarea
+                className="input w-full h-20 resize-none"
+                placeholder="Bio (optional)"
+                value={newCoachBio}
+                onChange={e => setNewCoachBio(e.target.value)}
+              />
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Link to Member Account (optional)</label>
+                <select
+                  className="input w-full"
+                  value={newCoachUserId}
+                  onChange={e => setNewCoachUserId(e.target.value)}
+                >
+                  <option value="">No linked account</option>
+                  {members.filter(m => m.role !== 'coach').map(m => (
+                    <option key={m.id} value={m.id}>{m.name} ({m.email})</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-500 mt-1">Linked member will have their role set to "coach" and can see their schedule on the dashboard.</p>
+              </div>
+              <button onClick={handleAddCoach} className="btn-primary text-sm">
+                Add Coach
+              </button>
+            </div>
+
+            {/* Coaches list */}
+            {loading ? (
+              <p className="text-slate-500 text-sm">Loading…</p>
+            ) : coaches.length === 0 ? (
+              <p className="text-slate-500 text-sm">No coaches yet.</p>
+            ) : (
+              <div className="card p-0 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-court-light">
+                      {['Name', 'Bio', 'Linked Account', 'Actions'].map(h => (
+                        <th key={h} className="text-left px-5 py-3 text-xs text-slate-500 uppercase tracking-wider font-semibold">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {coaches.map(c => (
+                      <tr key={c.id} className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors">
+                        <td className="px-5 py-3 font-medium text-white">{c.name}</td>
+                        <td className="px-5 py-3 text-slate-400 text-xs max-w-xs truncate">{c.bio ?? '—'}</td>
+                        <td className="px-5 py-3 text-xs">
+                          {c.user_id
+                            ? (() => {
+                                const u = members.find(m => m.id === c.user_id)
+                                return u
+                                  ? <span className="text-sky-400">{u.name}</span>
+                                  : <span className="text-slate-500">ID {c.user_id}</span>
+                              })()
+                            : <span className="text-slate-600">—</span>
+                          }
+                        </td>
+                        <td className="px-5 py-3">
+                          <button
+                            onClick={() => handleDeleteCoach(c.id)}
+                            className="text-xs text-red-400 hover:text-red-300 font-medium"
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* ── Sessions section ── */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">Coaching Sessions</h2>
+              <button
+                onClick={() => setShowSessionForm(v => !v)}
+                className="btn-primary text-sm"
+              >
+                {showSessionForm ? 'Cancel' : '+ Schedule Session'}
+              </button>
+            </div>
+
+            {/* Schedule session form */}
+            {showSessionForm && (
+              <div className="card mb-6 space-y-4">
+                <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">New Coaching Session</p>
+
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Coach</label>
+                  <select className="input w-full" value={sessionForm.coach_id}
+                    onChange={e => setSessionForm(f => ({ ...f, coach_id: e.target.value }))}>
+                    <option value="">Select coach…</option>
+                    {coaches.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Student (Member)</label>
+                  <select className="input w-full" value={sessionForm.student_id}
+                    onChange={e => setSessionForm(f => ({ ...f, student_id: e.target.value }))}>
+                    <option value="">Select student…</option>
+                    {members.map(m => (
+                      <option key={m.id} value={m.id}>{m.name} ({m.email})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Court</label>
+                  <select className="input w-full" value={sessionForm.court_id}
+                    onChange={e => setSessionForm(f => ({ ...f, court_id: e.target.value }))}>
+                    <option value="">Select court…</option>
+                    {BOOKABLE_COURTS.map(c => (
+                      <option key={c.id} value={c.id}>{c.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Date</label>
+                  <input type="date" className="input w-full" value={sessionForm.date}
+                    onChange={e => setSessionForm(f => ({ ...f, date: e.target.value }))} />
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-400 mb-1">Start Time (HH:MM)</label>
+                    <input type="text" className="input w-full" placeholder="e.g. 18:00" value={sessionForm.start_time}
+                      onChange={e => setSessionForm(f => ({ ...f, start_time: e.target.value }))} />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-400 mb-1">End Time (HH:MM)</label>
+                    <input type="text" className="input w-full" placeholder="e.g. 19:00" value={sessionForm.end_time}
+                      onChange={e => setSessionForm(f => ({ ...f, end_time: e.target.value }))} />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">
+                    Recurring — generate for N weeks (1 = one-off)
+                  </label>
+                  <input type="number" min={1} max={52} className="input w-32"
+                    value={sessionForm.weeks}
+                    onChange={e => setSessionForm(f => ({ ...f, weeks: Number(e.target.value) }))} />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Notes (optional)</label>
+                  <textarea className="input w-full h-20 resize-none"
+                    placeholder="e.g. Focus on backhand technique"
+                    value={sessionForm.notes}
+                    onChange={e => setSessionForm(f => ({ ...f, notes: e.target.value }))} />
+                </div>
+
+                <button onClick={handleCreateSession} className="btn-primary text-sm">
+                  Create Session{sessionForm.weeks > 1 ? ` (${sessionForm.weeks} weeks)` : ''}
+                </button>
+              </div>
+            )}
+
+            {/* Date picker */}
+            <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
+              {upcomingDates.map(d => {
+                const iso      = toISO(d)
+                const dowLabel = d.toLocaleDateString('en-AU', { weekday: 'short' })
+                const dayLabel = d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
+                return (
+                  <button key={iso} onClick={() => setCoachingDate(iso)}
+                    className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-medium border transition-all text-center min-w-[72px] ${
+                      coachingDate === iso
+                        ? 'bg-brand-500 border-brand-500 text-white'
+                        : 'border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white'
+                    }`}
+                  >
+                    <div className="font-semibold">{dowLabel}</div>
+                    <div className="text-xs opacity-80">{dayLabel}</div>
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Sessions table */}
+            {loading ? (
+              <p className="text-slate-500 text-sm">Loading sessions…</p>
+            ) : coachingSessions.length === 0 ? (
+              <p className="text-slate-500 text-sm">No coaching sessions on this date.</p>
+            ) : (
+              <div className="card p-0 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-court-light">
+                      {['Student', 'Coach', 'Court', 'Time', 'Notes', 'Actions'].map(h => (
+                        <th key={h} className="text-left px-5 py-3 text-xs text-slate-500 uppercase tracking-wider font-semibold">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {coachingSessions.map(s => (
+                      <tr key={s.id} className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors">
+                        <td className="px-5 py-3">
+                          <p className="font-medium text-white">{s.student_name}</p>
+                          <p className="text-slate-500 text-xs">{s.student_email}</p>
+                        </td>
+                        <td className="px-5 py-3 text-slate-300">{s.coach_name}</td>
+                        <td className="px-5 py-3 text-slate-300">{s.court_name}</td>
+                        <td className="px-5 py-3 text-slate-400 text-xs font-mono whitespace-nowrap">
+                          {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
+                        </td>
+                        <td className="px-5 py-3 text-slate-500 text-xs max-w-[160px] truncate">
+                          {s.notes ?? '—'}
+                        </td>
+                        <td className="px-5 py-3">
+                          <button
+                            onClick={() => handleCancelSession(s.id)}
+                            className="text-xs text-red-400 hover:text-red-300 font-medium"
+                          >
+                            Cancel
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }

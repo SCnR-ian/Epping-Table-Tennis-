@@ -33,6 +33,7 @@ app.use('/api/courts',        require('./routes/courts'))
 app.use('/api/bookings',      require('./routes/bookings'))
 app.use('/api/tournaments',   require('./routes/tournaments'))
 app.use('/api/admin',         require('./routes/admin'))
+app.use('/api/coaching',      require('./routes/coaching'))
 app.use('/api/schedule',      require('./routes/schedule'))
 app.use('/api/announcements', require('./routes/announcements'))
 

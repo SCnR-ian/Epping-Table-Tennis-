@@ -129,6 +129,25 @@ export const adminAPI = {
 };
 
 // ---------------------------------------------------------------------------
+// Coaching
+// ---------------------------------------------------------------------------
+export const coachingAPI = {
+  // Coach management (admin)
+  getCoaches:       ()       => api.get('/coaching/coaches'),
+  createCoach:      (data)   => api.post('/coaching/coaches', data),
+  deleteCoach:      (id)     => api.delete(`/coaching/coaches/${id}`),
+  // Session management (admin)
+  getSessions:      (params) => api.get('/coaching/sessions', { params }),
+  createSession:    (data)   => api.post('/coaching/sessions', data),
+  cancelSession:    (id)     => api.delete(`/coaching/sessions/${id}`),
+  cancelRecurrence: (recId)  => api.delete(`/coaching/sessions/recurrence/${recId}`),
+  // Student-facing
+  getMySessions:       ()       => api.get('/coaching/my'),
+  // Coach-facing
+  getMyCoachSessions:  ()       => api.get('/coaching/my-coach-sessions'),
+}
+
+// ---------------------------------------------------------------------------
 // Schedule / Announcements
 // ---------------------------------------------------------------------------
 export const scheduleAPI = {

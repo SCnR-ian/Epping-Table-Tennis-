@@ -74,8 +74,9 @@
            transition-all duration-300 cursor-pointer;
   }
 
-  .input-field {
-    @apply w-full bg-court-dark border border-court-light rounded-lg
+  .input-field,
+  .input {
+    @apply bg-court-dark border border-court-light rounded-lg
            px-4 py-2.5 text-slate-100 placeholder-slate-500
            focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent
            transition-all duration-200;
