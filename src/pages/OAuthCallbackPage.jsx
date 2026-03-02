@@ -1,8 +1,9 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import { authAPI } from '@/api/api'
 
-// The backend redirects here after OAuth: /auth/callback?token=xxx&user=xxx
+// The backend redirects here after OAuth: /auth/callback?token=xxx
 export default function OAuthCallbackPage() {
   const navigate = useNavigate()
   const { loginWithOAuth } = useAuth()
@@ -10,19 +11,23 @@ export default function OAuthCallbackPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const token = params.get('token')
-    const userRaw = params.get('user')
 
-    if (token && userRaw) {
-      try {
-        const user = JSON.parse(decodeURIComponent(userRaw))
-        loginWithOAuth(user, token)
-        navigate('/dashboard', { replace: true })
-      } catch {
-        navigate('/login?error=oauth_failed', { replace: true })
-      }
-    } else {
+    if (!token) {
       navigate('/login?error=oauth_failed', { replace: true })
+      return
     }
+
+    // Store token so authAPI.me() can attach it as Bearer header
+    localStorage.setItem('token', token)
+    authAPI.me()
+      .then(({ data }) => {
+        loginWithOAuth(data.user, token)
+        navigate('/dashboard', { replace: true })
+      })
+      .catch(() => {
+        localStorage.removeItem('token')
+        navigate('/login?error=oauth_failed', { replace: true })
+      })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
