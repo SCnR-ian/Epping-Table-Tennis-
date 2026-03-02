@@ -42,25 +42,40 @@ function getUpcomingOpenDates(count = 7) {
 }
 
 // Count how many of the 6 courts are free during a given time slot.
-function countFreeAtSlot(bookings, sessions, slotTime) {
+function countFreeAtSlot(bookings, sessions, socialSessions, slotTime) {
   const slotMins = toMins(slotTime)
-  const busyIds = new Set([
-    ...bookings
-      .filter(b => {
-        const start = toMins(b.start_time)
-        const end   = toMins(b.end_time)
-        return slotMins >= start && slotMins < end
-      })
-      .map(b => b.court_id),
-    ...sessions
-      .filter(s => {
-        const start = toMins(s.start_time)
-        const end   = toMins(s.end_time)
-        return slotMins >= start && slotMins < end
-      })
-      .map(s => s.court_id),
-  ])
-  return BOOKABLE_COURTS.length - busyIds.size
+
+  const inSlot = ({ start_time, end_time }) => {
+    const start = toMins(start_time)
+    const end   = toMins(end_time)
+    return slotMins >= start && slotMins < end
+  }
+
+  // Regular bookings: Set of court_ids so the same court isn't double-counted
+  // when multiple 30-min slot rows for the same booking pass the filter.
+  const bookingCourts = new Set(bookings.filter(inSlot).map(b => b.court_id)).size
+
+  // Coaching sessions: each session = 1 court, counted independently.
+  // Do NOT merge into the booking Set — court numbers are auto-assigned and
+  // a coaching session may share a court_id with a booking row by coincidence.
+  const coachingCourts = sessions.filter(inSlot).length
+
+  // Social play: count-based, no court IDs.
+  const socialCourts = socialSessions
+    .filter(inSlot)
+    .reduce((sum, s) => sum + (s.num_courts ?? 0), 0)
+
+  return Math.max(0, BOOKABLE_COURTS.length - bookingCourts - coachingCourts - socialCourts)
+}
+
+// Get social play sessions that are in progress during a given time slot.
+function getSocialAtSlot(socialSessions, slotTime) {
+  const slotMins = toMins(slotTime)
+  return socialSessions.filter(s => {
+    const start = toMins(s.start_time)
+    const end   = toMins(s.end_time)
+    return slotMins >= start && slotMins < end
+  })
 }
 
 // Get all bookings that are in progress during a given time slot.
@@ -118,8 +133,9 @@ export default function AdminDashboard() {
   const [activeTab,    setActiveTab]    = useState('Members')
   const [stats,        setStats]        = useState({ members: 0, bookings: 0, tournaments: 0 })
   const [members,      setMembers]      = useState([])
-  const [bookings,           setBookings]           = useState([])
-  const [bookingViewSessions, setBookingViewSessions] = useState([])
+  const [bookings,                setBookings]                = useState([])
+  const [bookingViewSessions,     setBookingViewSessions]     = useState([])
+  const [bookingViewSocialSessions, setBookingViewSocialSessions] = useState([])
   const [memberSearch,       setMemberSearch]       = useState('')
   const [loading,      setLoading]      = useState(false)
 
@@ -135,7 +151,7 @@ export default function AdminDashboard() {
   const [newCoachUserId,   setNewCoachUserId]   = useState('')
   const [showSessionForm,  setShowSessionForm]  = useState(false)
   const [sessionForm,      setSessionForm]      = useState({
-    coach_id: '', student_id: '', court_id: '',
+    coach_id: '', student_id: '',
     date: '', start_time: '', end_time: '', notes: '', weeks: 1,
   })
 
@@ -143,7 +159,7 @@ export default function AdminDashboard() {
   const [socialSessions,  setSocialSessions]  = useState([])
   const [showSocialForm,  setShowSocialForm]  = useState(false)
   const [socialForm,      setSocialForm]      = useState({
-    title: '', description: '', court_id: '', date: '', start_time: '', end_time: '', max_players: 12,
+    title: '', description: '', num_courts: 1, date: '', start_time: '', end_time: '', max_players: 12,
   })
 
   // Default selected date = first upcoming open day
@@ -177,7 +193,7 @@ export default function AdminDashboard() {
     return () => { cancelled = true }
   }, [activeTab])
 
-  // Fetch bookings + coaching sessions for the selected date when Bookings tab is active
+  // Fetch bookings + coaching + social sessions for the selected date when Bookings tab is active
   useEffect(() => {
     if (activeTab !== 'Bookings' || !selectedDate) return
     let cancelled = false
@@ -185,11 +201,13 @@ export default function AdminDashboard() {
     Promise.all([
       adminAPI.getAllBookings({ date: selectedDate }),
       coachingAPI.getSessions({ date: selectedDate }),
+      socialAPI.getAdminSessions({ date: selectedDate }),
     ])
-      .then(([{ data: bd }, { data: cd }]) => {
+      .then(([{ data: bd }, { data: cd }, { data: sd }]) => {
         if (!cancelled) {
           setBookings(bd.bookings)
           setBookingViewSessions(cd.sessions)
+          setBookingViewSocialSessions(sd.sessions)
         }
       })
       .catch(() => {})
@@ -266,22 +284,22 @@ export default function AdminDashboard() {
   }, [activeTab])
 
   const handleCreateSocialSession = async () => {
-    const { title, description, court_id, date, start_time, end_time, max_players } = socialForm
-    if (!court_id || !date || !start_time || !end_time) {
-      alert('Court, date, start time and end time are required.')
+    const { title, description, num_courts, date, start_time, end_time, max_players } = socialForm
+    if (!date || !start_time || !end_time) {
+      alert('Date, start time and end time are required.')
       return
     }
     try {
       const { data } = await socialAPI.createSession({
         title: title || 'Social Play',
         description: description || undefined,
-        court_id: Number(court_id),
+        num_courts: Number(num_courts),
         date, start_time, end_time,
         max_players: Number(max_players) || 12,
       })
       setSocialSessions(prev => [...prev, data.session])
       setShowSocialForm(false)
-      setSocialForm({ title: '', description: '', court_id: '', date: '', start_time: '', end_time: '', max_players: 12 })
+      setSocialForm({ title: '', description: '', num_courts: 1, date: '', start_time: '', end_time: '', max_players: 12 })
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not create session.')
     }
@@ -331,7 +349,7 @@ export default function AdminDashboard() {
     try {
       await coachingAPI.createSession(sessionForm)
       setShowSessionForm(false)
-      setSessionForm({ coach_id: '', student_id: '', court_id: '', date: '', start_time: '', end_time: '', notes: '', weeks: 1 })
+      setSessionForm({ coach_id: '', student_id: '', date: '', start_time: '', end_time: '', notes: '', weeks: 1 })
       const { data } = await coachingAPI.getSessions({ date: coachingDate })
       setCoachingSessions(data.sessions)
     } catch (err) {
@@ -497,13 +515,14 @@ export default function AdminDashboard() {
                 </thead>
                 <tbody>
                   {slotsForDay.map(slot => {
-                    const free          = countFreeAtSlot(bookings, bookingViewSessions, slot)
+                    const free          = countFreeAtSlot(bookings, bookingViewSessions, bookingViewSocialSessions, slot)
                     const total         = BOOKABLE_COURTS.length
                     const search        = memberSearch.toLowerCase().trim()
                     const slotBookings  = getBookingsAtSlot(bookings, slot)
                       .filter(b => !search || b.user_name.toLowerCase().includes(search))
                     const slotSessions  = getCoachingAtSlot(bookingViewSessions, slot)
                       .filter(s => !search || s.student_name.toLowerCase().includes(search))
+                    const slotSocial    = getSocialAtSlot(bookingViewSocialSessions, slot)
                     const full          = free === 0
                     const freeColor     = free === 0
                       ? 'text-red-400'
@@ -524,7 +543,7 @@ export default function AdminDashboard() {
                           </div>
                         </td>
                         <td className="px-5 py-2">
-                          {slotBookings.length === 0 && slotSessions.length === 0 ? (
+                          {slotBookings.length === 0 && slotSessions.length === 0 && slotSocial.length === 0 ? (
                             <span className="text-xs text-slate-700">—</span>
                           ) : (
                             <div className="flex flex-wrap gap-2">
@@ -559,6 +578,17 @@ export default function AdminDashboard() {
                                   >
                                     Cancel
                                   </button>
+                                </div>
+                              ))}
+                              {slotSocial.map(s => (
+                                <div key={`sp-${s.id}`} className="bg-orange-500/10 border border-orange-500/30 rounded-lg px-3 py-1.5">
+                                  <p className="text-orange-400 font-semibold text-xs">{s.title}</p>
+                                  <p className="text-slate-500 text-[10px]">
+                                    {s.num_courts} court{s.num_courts !== 1 ? 's' : ''} · {s.participant_count}/{s.max_players} players
+                                  </p>
+                                  <p className="text-slate-500 text-[10px]">
+                                    {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
+                                  </p>
                                 </div>
                               ))}
                             </div>
@@ -700,17 +730,6 @@ export default function AdminDashboard() {
                 </div>
 
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Court</label>
-                  <select className="input w-full" value={sessionForm.court_id}
-                    onChange={e => setSessionForm(f => ({ ...f, court_id: e.target.value }))}>
-                    <option value="">Select court…</option>
-                    {BOOKABLE_COURTS.map(c => (
-                      <option key={c.id} value={c.id}>{c.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
                   <label className="block text-xs text-slate-400 mb-1">Date</label>
                   <input type="date" className="input w-full" value={sessionForm.date}
                     onChange={e => setSessionForm(f => ({ ...f, date: e.target.value }))} />
@@ -783,7 +802,7 @@ export default function AdminDashboard() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-court-light">
-                      {['Student', 'Coach', 'Court', 'Time', 'Notes', 'Actions'].map(h => (
+                      {['Student', 'Coach', 'Time', 'Notes', 'Actions'].map(h => (
                         <th key={h} className="text-left px-5 py-3 text-xs text-slate-500 uppercase tracking-wider font-semibold">{h}</th>
                       ))}
                     </tr>
@@ -796,7 +815,6 @@ export default function AdminDashboard() {
                           <p className="text-slate-500 text-xs">{s.student_email}</p>
                         </td>
                         <td className="px-5 py-3 text-slate-300">{s.coach_name}</td>
-                        <td className="px-5 py-3 text-slate-300">{s.court_name}</td>
                         <td className="px-5 py-3 text-slate-400 text-xs font-mono whitespace-nowrap">
                           {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
                         </td>
@@ -860,14 +878,14 @@ export default function AdminDashboard() {
                 </div>
 
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Court</label>
+                  <label className="block text-xs text-slate-400 mb-1">Number of Courts</label>
                   <select
-                    className="input w-full" value={socialForm.court_id}
-                    onChange={e => setSocialForm(f => ({ ...f, court_id: e.target.value }))}
+                    className="input w-full"
+                    value={socialForm.num_courts}
+                    onChange={e => setSocialForm(f => ({ ...f, num_courts: Number(e.target.value) }))}
                   >
-                    <option value="">Select court…</option>
-                    {BOOKABLE_COURTS.map(c => (
-                      <option key={c.id} value={c.id}>{c.label}</option>
+                    {[1, 2, 3, 4, 5, 6].map(n => (
+                      <option key={n} value={n}>{n} court{n !== 1 ? 's' : ''}</option>
                     ))}
                   </select>
                 </div>
@@ -928,7 +946,7 @@ export default function AdminDashboard() {
                     <div>
                       <p className="font-semibold text-white">{s.title}</p>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        {s.court_name} · {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
+                        {s.num_courts} court{s.num_courts !== 1 ? 's' : ''} · {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
                         {' '}· {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
                       </p>
                       {s.description && (

@@ -44,29 +44,28 @@ router.get('/available', async (req, res) => {
     const { rows: coachingRows } = await pool.query(
       `SELECT
          cs.court_id,
-         slot_start                            AS start_time,
-         (slot_start + INTERVAL '30 minutes')  AS end_time
+         (cs.start_time + gs * INTERVAL '30 minutes')       AS start_time,
+         (cs.start_time + (gs + 1) * INTERVAL '30 minutes') AS end_time
        FROM coaching_sessions cs,
        LATERAL generate_series(
-         cs.start_time::time,
-         cs.end_time::time - INTERVAL '30 minutes',
-         INTERVAL '30 minutes'
-       ) AS slot_start
+         0,
+         EXTRACT(EPOCH FROM (cs.end_time - cs.start_time))::int / 1800 - 1
+       ) AS gs
        WHERE cs.date=$1 AND cs.status='confirmed'`,
       [date]
     )
-    // Expand social play sessions into 30-min slots so those courts appear occupied
+    // Expand social play sessions — block courts 1…num_courts for each time slot
     const { rows: socialRows } = await pool.query(
       `SELECT
-         sps.court_id,
-         slot_start                            AS start_time,
-         (slot_start + INTERVAL '30 minutes')  AS end_time
+         c.court_id,
+         (sps.start_time + gs * INTERVAL '30 minutes')       AS start_time,
+         (sps.start_time + (gs + 1) * INTERVAL '30 minutes') AS end_time
        FROM social_play_sessions sps,
        LATERAL generate_series(
-         sps.start_time::time,
-         sps.end_time::time - INTERVAL '30 minutes',
-         INTERVAL '30 minutes'
-       ) AS slot_start
+         0,
+         EXTRACT(EPOCH FROM (sps.end_time - sps.start_time))::int / 1800 - 1
+       ) AS gs,
+       LATERAL generate_series(1, sps.num_courts) AS c(court_id)
        WHERE sps.date=$1 AND sps.status='open'`,
       [date]
     )

@@ -33,16 +33,34 @@ router.get('/:id', async (req, res) => {
 
 // POST /api/tournaments/:id/register
 router.post('/:id/register', requireAuth, async (req, res) => {
+  const client = await pool.connect()
   try {
-    await pool.query(
+    await client.query('BEGIN')
+    const { rows } = await client.query(
+      `SELECT t.max_participants, COUNT(tr.id)::int AS registered
+       FROM tournaments t
+       LEFT JOIN tournament_registrations tr ON tr.tournament_id = t.id
+       WHERE t.id = $1
+       GROUP BY t.id`,
+      [req.params.id]
+    )
+    if (!rows[0]) return res.status(404).json({ message: 'Tournament not found.' })
+    if (rows[0].max_participants && rows[0].registered >= rows[0].max_participants)
+      return res.status(409).json({ message: 'Tournament is full.' })
+
+    await client.query(
       'INSERT INTO tournament_registrations (tournament_id, user_id) VALUES ($1,$2)',
       [req.params.id, req.user.id]
     )
+    await client.query('COMMIT')
     res.status(201).json({ message: 'Registered.' })
   } catch (err) {
+    await client.query('ROLLBACK')
     if (err.code === '23505')
       return res.status(409).json({ message: 'Already registered.' })
     res.status(500).json({ message: 'Server error.' })
+  } finally {
+    client.release()
   }
 })
 

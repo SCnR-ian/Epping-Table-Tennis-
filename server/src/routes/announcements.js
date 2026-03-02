@@ -3,7 +3,7 @@ const pool   = require('../db')
 
 router.get('/', async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 20
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100)
     const { rows } = await pool.query(
       'SELECT * FROM announcements ORDER BY created_at DESC LIMIT $1', [limit]
     )

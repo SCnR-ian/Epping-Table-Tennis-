@@ -6,6 +6,7 @@
 -- Coaches ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS coaches (
   id         SERIAL PRIMARY KEY,
+  user_id    INTEGER UNIQUE REFERENCES users(id) ON DELETE SET NULL,
   name       VARCHAR(120) NOT NULL,
   bio        TEXT,
   created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()

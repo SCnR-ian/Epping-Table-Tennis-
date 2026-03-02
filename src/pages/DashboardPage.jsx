@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import SocialPlayCard from '@/components/common/SocialPlayCard'
-import { bookingsAPI, coachingAPI, socialAPI } from '@/api/api'
+import { bookingsAPI, coachingAPI, socialAPI, membersAPI } from '@/api/api'
 
 function toMins(t) {
   const [h, m] = t.substring(0, 5).split(':').map(Number)
@@ -36,10 +36,8 @@ function mapBooking(b) {
 }
 
 const QUICK_STATS = [
-  { key: 'games',       label: 'Games Played',  icon: '🏓' },
-  { key: 'wins',        label: 'Wins',          icon: '🏆' },
-  { key: 'tournaments', label: 'Tournaments',   icon: '🥇' },
-  { key: 'hours',       label: 'Hours on Court', icon: '⏱️' },
+  { key: 'bookings',    label: 'Court Bookings',  icon: '🏓' },
+  { key: 'tournaments', label: 'Tournaments',     icon: '🥇' },
 ]
 
 // ── Calendar constants ──────────────────────────────────────────────────────
@@ -76,36 +74,27 @@ const TIME_SLOTS = Array.from({ length: SLOT_COUNT }, (_, i) => {
   }
 })
 
-// Get the 4 Mon→Sat weeks for the current month
-function getMonthWeeks() {
-  const now   = new Date()
-  const year  = now.getFullYear()
-  const month = now.getMonth()
-  const d     = new Date(year, month, 1)
-  while (d.getDay() !== 1) d.setDate(d.getDate() + 1)  // advance to first Monday
+// Rolling 4-week window starting from the current Monday.
+// Avoids the old month-boundary bug where bookings in the last ~2 weeks
+// of the month (made up to 14 days ahead) would fall off the calendar.
+function getRollingWeeks() {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  const dow = d.getDay() || 7          // 1=Mon … 7=Sun
+  d.setDate(d.getDate() - (dow - 1))   // rewind to Monday
   const weeks = []
-  while (d.getMonth() === month && weeks.length < 4) {
+  for (let i = 0; i < 4; i++) {
     const monday = new Date(d)
     const week   = {}
-    CAL_DAYS.forEach(({ dow }) => {
+    CAL_DAYS.forEach(({ dow: cd }) => {
       const date = new Date(monday)
-      date.setDate(monday.getDate() + (dow - 1))  // Mon+0, Tue+1, Wed+2, Sat+5
-      week[dow] = date
+      date.setDate(monday.getDate() + (cd - 1))  // Mon+0, Tue+1, Wed+2, Sat+5
+      week[cd] = date
     })
     weeks.push(week)
     d.setDate(d.getDate() + 7)
   }
   return weeks
-}
-
-function getCurrentWeekIdx(weeks) {
-  // Pick the first week that contains any open-day date >= today
-  const now = new Date()
-  now.setHours(0, 0, 0, 0)
-  for (let i = 0; i < weeks.length; i++) {
-    if (Object.values(weeks[i]).some(d => d >= now)) return i
-  }
-  return weeks.length - 1
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -116,11 +105,12 @@ export default function DashboardPage() {
   const [coachingSessions, setCoachingSessions] = useState([])
   const [coachSessions,    setCoachSessions]    = useState([])
   const [socialSessions,   setSocialSessions]   = useState([])
-  const [stats]                                 = useState({ games: 42, wins: 28, tournaments: 5, hours: 64 })
+  const [stats,            setStats]            = useState({ bookings: 0, tournaments: 0 })
   const [loadingData,      setLoadingData]      = useState(false)
 
-  const weeks          = useMemo(() => getMonthWeeks(), [])
-  const [selectedWeek, setSelectedWeek] = useState(() => getCurrentWeekIdx(weeks))
+  // Rolling weeks — week 0 is always the current week, so no getCurrentWeekIdx needed
+  const weeks          = useMemo(() => getRollingWeeks(), [])
+  const [selectedWeek, setSelectedWeek] = useState(0)
   const autoJumped     = useRef(false)
 
   useEffect(() => {
@@ -131,8 +121,9 @@ export default function DashboardPage() {
       coachingAPI.getMySessions(),
       coachingAPI.getMyCoachSessions(),
       socialAPI.getSessions(),
+      user?.id ? membersAPI.getStats(user.id) : Promise.reject(),
     ])
-      .then(([bookingRes, coachingRes, coachRes, socialRes]) => {
+      .then(([bookingRes, coachingRes, coachRes, socialRes, statsRes]) => {
         if (cancelled) return
         if (bookingRes.status === 'fulfilled')
           setBookings(bookingRes.value.data.bookings.map(mapBooking))
@@ -142,10 +133,12 @@ export default function DashboardPage() {
           setCoachSessions(coachRes.value.data.sessions)
         if (socialRes.status === 'fulfilled')
           setSocialSessions(socialRes.value.data.sessions)
+        if (statsRes.status === 'fulfilled')
+          setStats(statsRes.value.data)
       })
       .finally(() => { if (!cancelled) setLoadingData(false) })
     return () => { cancelled = true }
-  }, [])
+  }, [user?.id])
 
   // Once data loads, jump to the week containing the nearest upcoming event
   useEffect(() => {
@@ -155,6 +148,7 @@ export default function DashboardPage() {
       ...bookings.filter(b => b.status !== 'cancelled').map(b => b.date?.slice(0, 10)),
       ...coachingSessions.map(s => s.date?.slice(0, 10)),
       ...coachSessions.map(s => s.date?.slice(0, 10)),
+      ...socialSessions.filter(s => s.joined).map(s => s.date?.slice(0, 10)),
     ].filter(d => d && d >= today).sort()
     if (!dates.length) return
     const nearest = dates[0]
@@ -163,7 +157,7 @@ export default function DashboardPage() {
       setSelectedWeek(idx)
       autoJumped.current = true
     }
-  }, [bookings, coachingSessions, coachSessions, weeks])
+  }, [bookings, coachingSessions, coachSessions, socialSessions, weeks])
 
   const handleCancelBooking = async (booking) => {
     try {
@@ -199,6 +193,20 @@ export default function DashboardPage() {
     }
   }
 
+  const handleLeaveSocialSession = async (id) => {
+    if (!window.confirm('Leave this social play session?')) return
+    try {
+      await socialAPI.leave(id)
+      setSocialSessions(prev => prev.map(s =>
+        s.id === id
+          ? { ...s, joined: false, participant_count: Math.max(0, s.participant_count - 1) }
+          : s
+      ))
+    } catch {
+      alert('Could not leave session. Please try again.')
+    }
+  }
+
   const greeting = () => {
     const h = new Date().getHours()
     if (h < 12) return 'Good morning'
@@ -221,13 +229,17 @@ export default function DashboardPage() {
     coachSessions
       .filter(s => s.date?.slice(0, 10) === dateISO)
       .forEach(s => events.push({ id: `ck-${s.id}`, type: 'coach', data: s }))
+    socialSessions
+      .filter(s => s.joined && s.date?.slice(0, 10) === dateISO)
+      .forEach(s => events.push({ id: `sp-${s.id}`, type: 'social', data: s }))
     return events
   }
 
   const EVENT_STYLES = {
-    booking: { bg: 'bg-brand-500/90 border-brand-400',   text: 'text-white' },
+    booking: { bg: 'bg-brand-500/90 border-brand-400',    text: 'text-white' },
     student: { bg: 'bg-emerald-600/90 border-emerald-400', text: 'text-white' },
-    coach:   { bg: 'bg-sky-600/90 border-sky-400',        text: 'text-white' },
+    coach:   { bg: 'bg-sky-600/90 border-sky-400',         text: 'text-white' },
+    social:  { bg: 'bg-orange-500/90 border-orange-400',   text: 'text-white' },
   }
 
   return (
@@ -243,7 +255,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4 max-w-sm">
         {QUICK_STATS.map(({ key, label, icon }) => (
           <div key={key} className="card text-center">
             <span className="text-2xl">{icon}</span>
@@ -271,6 +283,7 @@ export default function DashboardPage() {
                   return bookings.some(b => b.date?.slice(0, 10) === iso && b.status !== 'cancelled')
                     || coachingSessions.some(s => s.date?.slice(0, 10) === iso)
                     || coachSessions.some(s => s.date?.slice(0, 10) === iso)
+                    || socialSessions.some(s => s.joined && s.date?.slice(0, 10) === iso)
                 })
                 return (
                   <button
@@ -400,13 +413,16 @@ export default function DashboardPage() {
                         ? data.court
                         : type === 'student'
                           ? `w/ ${data.coach_name}`
-                          : `→ ${data.student_name}`
+                          : type === 'coach'
+                            ? `→ ${data.student_name}`
+                            : data.title || 'Social Play'
 
                       const onCancel = (e) => {
                         e.stopPropagation()
-                        if (type === 'booking')       handleCancelBooking(data)
-                        else if (type === 'student')  handleCancelCoaching(data.id)
-                        else                          handleCancelCoachSession(data.id)
+                        if (type === 'booking')      handleCancelBooking(data)
+                        else if (type === 'student') handleCancelCoaching(data.id)
+                        else if (type === 'coach')   handleCancelCoachSession(data.id)
+                        else                         handleLeaveSocialSession(data.id)
                       }
 
                       return (
@@ -445,6 +461,7 @@ export default function DashboardPage() {
               { label: 'Court Booking',    color: 'bg-brand-500'   },
               { label: 'Coaching Session', color: 'bg-emerald-600' },
               { label: 'Teaching Session', color: 'bg-sky-600'     },
+              { label: 'Social Play',      color: 'bg-orange-500'  },
             ].map(({ label, color }) => (
               <div key={label} className="flex items-center gap-1.5">
                 <div className={`w-2.5 h-2.5 rounded-sm ${color}`} />

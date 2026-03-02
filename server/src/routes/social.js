@@ -12,27 +12,27 @@ function softAuth(req) {
   } catch { /* proceed as guest */ }
 }
 
+const SESSION_COLS = `
+  s.id, s.title, s.description, s.date, s.start_time, s.end_time,
+  s.max_players, s.num_courts, s.status, s.created_at,
+  COUNT(p.user_id)::int AS participant_count
+`
+
 // GET /api/social
-// Upcoming open sessions with participant count.
-// If authenticated: also returns participant names + whether user has joined.
+// Upcoming open sessions. If authenticated: participant names + joined flag.
 router.get('/', async (req, res) => {
   softAuth(req)
   const userId = req.user?.id ?? null
   try {
     const { rows: sessions } = await pool.query(
-      `SELECT
-         s.*,
-         c.name AS court_name,
-         COUNT(p.user_id)::int AS participant_count
+      `SELECT ${SESSION_COLS}
        FROM social_play_sessions s
-       JOIN courts c ON c.id = s.court_id
        LEFT JOIN social_play_participants p ON p.session_id = s.id
        WHERE s.date >= CURRENT_DATE AND s.status = 'open'
-       GROUP BY s.id, c.name
+       GROUP BY s.id
        ORDER BY s.date ASC, s.start_time ASC`
     )
 
-    // Only load participant names if user is authenticated
     let participantRows = []
     if (userId && sessions.length) {
       const ids = sessions.map(s => s.id)
@@ -63,22 +63,24 @@ router.get('/', async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
-// GET /api/social/admin — all sessions (past + future) for admin management
+// GET /api/social/admin?date=YYYY-MM-DD
+// Admin view — all upcoming sessions, optionally filtered to a single date.
 router.get('/admin', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin')
     return res.status(403).json({ message: 'Admin only.' })
+  const { date } = req.query
   try {
+    const whereClause = date ? 'WHERE s.date = $1' : 'WHERE s.date >= CURRENT_DATE'
+    const queryParams = date ? [date] : []
+
     const { rows: sessions } = await pool.query(
-      `SELECT
-         s.*,
-         c.name AS court_name,
-         COUNT(p.user_id)::int AS participant_count
+      `SELECT ${SESSION_COLS}
        FROM social_play_sessions s
-       JOIN courts c ON c.id = s.court_id
        LEFT JOIN social_play_participants p ON p.session_id = s.id
-       WHERE s.date >= CURRENT_DATE
-       GROUP BY s.id, c.name
-       ORDER BY s.date ASC, s.start_time ASC`
+       ${whereClause}
+       GROUP BY s.id
+       ORDER BY s.date ASC, s.start_time ASC`,
+      queryParams
     )
 
     const ids = sessions.map(s => s.id)
@@ -111,29 +113,31 @@ router.post('/', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin')
     return res.status(403).json({ message: 'Admin only.' })
 
-  const { title, description, court_id, date, start_time, end_time, max_players } = req.body
-  if (!court_id || !date || !start_time || !end_time)
-    return res.status(400).json({ message: 'court_id, date, start_time, end_time are required.' })
+  const { title, description, num_courts, date, start_time, end_time, max_players } = req.body
+  const courts = Math.min(Math.max(Number(num_courts) || 1, 1), 6)
+  if (!date || !start_time || !end_time)
+    return res.status(400).json({ message: 'date, start_time, end_time are required.' })
 
   try {
     const { rows } = await pool.query(
       `INSERT INTO social_play_sessions
-         (title, description, court_id, date, start_time, end_time, max_players, created_by)
+         (title, description, num_courts, date, start_time, end_time, max_players, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        RETURNING *`,
       [
         title || 'Social Play',
         description || null,
-        court_id, date, start_time, end_time,
+        courts, date, start_time, end_time,
         max_players || 12,
         req.user.id,
       ]
     )
     const { rows: full } = await pool.query(
-      `SELECT s.*, c.name AS court_name
+      `SELECT ${SESSION_COLS}
        FROM social_play_sessions s
-       JOIN courts c ON c.id = s.court_id
-       WHERE s.id = $1`,
+       LEFT JOIN social_play_participants p ON p.session_id = s.id
+       WHERE s.id = $1
+       GROUP BY s.id`,
       [rows[0].id]
     )
     res.status(201).json({
@@ -142,7 +146,7 @@ router.post('/', requireAuth, async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
-// DELETE /api/social/:id — admin cancels a session
+// DELETE /api/social/:id — admin deletes a session
 router.delete('/:id', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin')
     return res.status(403).json({ message: 'Admin only.' })
@@ -151,45 +155,52 @@ router.delete('/:id', requireAuth, async (req, res) => {
       'SELECT id FROM social_play_sessions WHERE id=$1', [req.params.id]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Session not found.' })
-    await pool.query(
-      "UPDATE social_play_sessions SET status='cancelled' WHERE id=$1", [req.params.id]
-    )
-    res.json({ message: 'Session cancelled.' })
+    await pool.query('DELETE FROM social_play_sessions WHERE id=$1', [req.params.id])
+    res.json({ message: 'Session deleted.' })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
 // POST /api/social/:id/join — member joins a session
 router.post('/:id/join', requireAuth, async (req, res) => {
+  const client = await pool.connect()
   try {
-    const { rows } = await pool.query(
+    await client.query('BEGIN')
+    // Lock the session row so concurrent joins can't both pass the capacity check
+    const { rows } = await client.query(
       `SELECT id, max_players,
          (SELECT COUNT(*)::int FROM social_play_participants WHERE session_id=$1) AS count
        FROM social_play_sessions
-       WHERE id=$1 AND status='open'`,
+       WHERE id=$1 AND status='open'
+       FOR UPDATE`,
       [req.params.id]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Session not found or not open.' })
     if (rows[0].count >= rows[0].max_players)
       return res.status(409).json({ message: 'Session is full.' })
 
-    await pool.query(
+    await client.query(
       'INSERT INTO social_play_participants (session_id, user_id) VALUES ($1,$2)',
       [req.params.id, req.user.id]
     )
+    await client.query('COMMIT')
     res.status(201).json({ message: 'Joined.' })
   } catch (err) {
+    await client.query('ROLLBACK')
     if (err.code === '23505') return res.status(409).json({ message: 'Already joined.' })
     res.status(500).json({ message: 'Server error.' })
+  } finally {
+    client.release()
   }
 })
 
 // DELETE /api/social/:id/join — member leaves a session
 router.delete('/:id/join', requireAuth, async (req, res) => {
   try {
-    await pool.query(
+    const { rowCount } = await pool.query(
       'DELETE FROM social_play_participants WHERE session_id=$1 AND user_id=$2',
       [req.params.id, req.user.id]
     )
+    if (rowCount === 0) return res.status(404).json({ message: 'Not a participant.' })
     res.json({ message: 'Left session.' })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })

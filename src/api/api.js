@@ -41,13 +41,9 @@ export const authAPI = {
   register: (userData) => api.post("/auth/register", userData),
   logout: () => api.post("/auth/logout"),
   me: () => api.get("/auth/me"),
-  refresh: () => api.post("/auth/refresh"),
   // OAuth – full-page redirects handled by the browser
   googleRedirect: () => {
     window.location.href = `${BASE}/auth/google`;
-  },
-  facebookRedirect: () => {
-    window.location.href = `${BASE}/auth/facebook`;
   },
 };
 
@@ -55,10 +51,7 @@ export const authAPI = {
 // Members
 // ---------------------------------------------------------------------------
 export const membersAPI = {
-  getAll: (params) => api.get("/members", { params }),
   getById: (id) => api.get(`/members/${id}`),
-  update: (id, data) => api.put(`/members/${id}`, data),
-  delete: (id) => api.delete(`/members/${id}`),
   getStats: (id) => api.get(`/members/${id}/stats`),
 };
 
@@ -68,13 +61,6 @@ export const membersAPI = {
 export const profileAPI = {
   get: () => api.get("/profile"),
   update: (data) => api.put("/profile", data),
-  updateAvatar: (file) => {
-    const form = new FormData();
-    form.append("avatar", file);
-    return api.post("/profile/avatar", form, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-  },
   changePassword: (data) => api.post("/profile/password", data),
 };
 
@@ -82,7 +68,6 @@ export const profileAPI = {
 // Bookings
 // ---------------------------------------------------------------------------
 export const bookingsAPI = {
-  getAll: (params) => api.get("/bookings", { params }),
   getMyBookings: () => api.get("/bookings/my"),
   getById: (id) => api.get(`/bookings/${id}`),
   create: (data) => api.post("/bookings", data),
@@ -90,7 +75,6 @@ export const bookingsAPI = {
   cancelGroup: (groupId) => api.delete(`/bookings/group/${groupId}`),
   extendGroup: (groupId, extraMins) =>
     api.post(`/bookings/group/${groupId}/extend`, { extra_minutes: extraMins }),
-  update: (id, d) => api.put(`/bookings/${id}`, d),
   getAvailable: (date) => api.get("/bookings/available", { params: { date } }),
 };
 
@@ -110,7 +94,6 @@ export const tournamentsAPI = {
   getById: (id) => api.get(`/tournaments/${id}`),
   register: (id) => api.post(`/tournaments/${id}/register`),
   withdraw: (id) => api.delete(`/tournaments/${id}/register`),
-  getResults: (id) => api.get(`/tournaments/${id}/results`),
 };
 
 // ---------------------------------------------------------------------------
@@ -120,7 +103,6 @@ export const adminAPI = {
   getDashboardStats: () => api.get("/admin/stats"),
   getAllMembers: (params) => api.get("/admin/members", { params }),
   getAllBookings: (params) => api.get("/admin/bookings", { params }),
-  getAllTournaments: (params) => api.get("/admin/tournaments", { params }),
   createTournament: (data) => api.post("/admin/tournaments", data),
   updateTournament: (id, d) => api.put(`/admin/tournaments/${id}`, d),
   deleteTournament: (id) => api.delete(`/admin/tournaments/${id}`),
@@ -152,7 +134,7 @@ export const coachingAPI = {
 // ---------------------------------------------------------------------------
 export const socialAPI = {
   getSessions:      ()     => api.get('/social'),
-  getAdminSessions: ()     => api.get('/social/admin'),
+  getAdminSessions: (params) => api.get('/social/admin', { params }),
   createSession:    (data) => api.post('/social', data),
   cancelSession:    (id)   => api.delete(`/social/${id}`),
   join:             (id)   => api.post(`/social/${id}/join`),
@@ -163,7 +145,6 @@ export const socialAPI = {
 // Schedule / Announcements
 // ---------------------------------------------------------------------------
 export const scheduleAPI = {
-  getUpcoming: () => api.get("/schedule/upcoming"),
   getAll: () => api.get("/schedule"),
 };
 

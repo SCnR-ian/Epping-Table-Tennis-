@@ -43,12 +43,15 @@ router.put('/members/:id/role', async (req, res) => {
       'UPDATE users SET role=$1, updated_at=NOW() WHERE id=$2 RETURNING *',
       [role, req.params.id]
     )
+    if (!rows[0]) return res.status(404).json({ message: 'Member not found.' })
     res.json({ member: safeUser(rows[0]) })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
 // DELETE /api/admin/members/:id
 router.delete('/members/:id', async (req, res) => {
+  if (String(req.params.id) === String(req.user.id))
+    return res.status(400).json({ message: 'You cannot delete your own account.' })
   try {
     await pool.query('DELETE FROM users WHERE id=$1', [req.params.id])
     res.json({ message: 'Member deleted.' })

@@ -18,15 +18,12 @@ const safeUser = (u) => ({
 
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
-  const { name, email, password, phone } = req.body
+  const { name, password, phone } = req.body
+  const email = req.body.email?.toLowerCase().trim()
   if (!name || !email || !password)
     return res.status(400).json({ message: 'Name, email and password are required.' })
 
   try {
-    const exists = await pool.query('SELECT id FROM users WHERE email=$1', [email])
-    if (exists.rows[0])
-      return res.status(409).json({ message: 'An account with that email already exists.' })
-
     const hash = await bcrypt.hash(password, 12)
     const { rows } = await pool.query(
       'INSERT INTO users (name, email, password_hash, phone) VALUES ($1,$2,$3,$4) RETURNING *',
@@ -35,6 +32,8 @@ router.post('/register', async (req, res) => {
     const user = rows[0]
     res.status(201).json({ token: sign(user), user: safeUser(user) })
   } catch (err) {
+    if (err.code === '23505')
+      return res.status(409).json({ message: 'An account with that email already exists.' })
     console.error(err)
     res.status(500).json({ message: 'Server error.' })
   }
@@ -50,7 +49,7 @@ router.post('/login', async (req, res) => {
   try {
     const { rows } = await pool.query(
       'SELECT * FROM users WHERE email=$1 OR phone=$1',
-      [identifier]
+      [identifier.toLowerCase().trim()]
     )
     const user = rows[0]
     if (!user || !user.password_hash)
@@ -92,8 +91,9 @@ router.get('/google/callback',
   passport.authenticate('google', { failureRedirect: `${process.env.FRONTEND_URL}/login?error=oauth_failed`, session: false }),
   (req, res) => {
     const token = sign(req.user)
-    const user  = encodeURIComponent(JSON.stringify(safeUser(req.user)))
-    res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${token}&user=${user}`)
+    // Pass only the token — frontend fetches user data via /auth/me to avoid
+    // exposing PII in the URL (browser history, server logs, Referer headers)
+    res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${token}`)
   }
 )
 

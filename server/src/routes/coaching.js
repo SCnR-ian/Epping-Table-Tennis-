@@ -79,13 +79,14 @@ router.get('/sessions', requireAuth, requireAdmin, async (req, res) => {
 })
 
 // POST /api/coaching/sessions
-// body: { coach_id, student_id, court_id, date, start_time, end_time, notes, weeks }
+// body: { coach_id, student_id, date, start_time, end_time, notes, weeks }
+// court_id is auto-assigned (first court not blocked by bookings or coaching at that time)
 // weeks >= 2 → generate that many weekly instances sharing a recurrence_id
 router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
-  const { coach_id, student_id, court_id, date, start_time, end_time, notes, weeks } = req.body
+  const { coach_id, student_id, date, start_time, end_time, notes, weeks } = req.body
 
-  if (!coach_id || !student_id || !court_id || !date || !start_time || !end_time)
-    return res.status(400).json({ message: 'coach_id, student_id, court_id, date, start_time and end_time are required.' })
+  if (!coach_id || !student_id || !date || !start_time || !end_time)
+    return res.status(400).json({ message: 'coach_id, student_id, date, start_time and end_time are required.' })
 
   const [sh, sm] = start_time.split(':').map(Number)
   const [eh, em] = end_time.split(':').map(Number)
@@ -109,12 +110,38 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
     await client.query('BEGIN')
     const inserted = []
     for (const sessionDate of dates) {
+      // Auto-assign the first court not blocked by bookings, coaching, or social play
+      const { rows: free } = await client.query(
+        `SELECT c.id
+         FROM courts c
+         WHERE c.id NOT IN (
+           SELECT cs2.court_id FROM coaching_sessions cs2
+           WHERE cs2.date = $1 AND cs2.status = 'confirmed'
+             AND cs2.start_time < $3::time AND cs2.end_time > $2::time
+         )
+         AND c.id NOT IN (
+           SELECT b.court_id FROM bookings b
+           WHERE b.date = $1 AND b.status = 'confirmed'
+             AND b.start_time < $3::time AND b.end_time > $2::time
+         )
+         AND c.id NOT IN (
+           SELECT generate_series(1, sps.num_courts)
+           FROM social_play_sessions sps
+           WHERE sps.date = $1 AND sps.status = 'open'
+             AND sps.start_time < $3::time AND sps.end_time > $2::time
+         )
+         ORDER BY c.id LIMIT 1`,
+        [sessionDate, start_time, end_time]
+      )
+      if (!free[0])
+        throw Object.assign(new Error('no_court'), { sessionDate })
+
       const { rows } = await client.query(
         `INSERT INTO coaching_sessions
            (coach_id, student_id, court_id, date, start_time, end_time, notes, recurrence_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
          RETURNING *`,
-        [coach_id, student_id, court_id, sessionDate, start_time, end_time, notes ?? null, recurrenceId]
+        [coach_id, student_id, free[0].id, sessionDate, start_time, end_time, notes ?? null, recurrenceId]
       )
       inserted.push(rows[0])
     }
@@ -122,8 +149,10 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
     res.status(201).json({ sessions: inserted, recurrence_id: recurrenceId })
   } catch (err) {
     await client.query('ROLLBACK')
+    if (err.message === 'no_court')
+      return res.status(409).json({ message: `No courts available on ${err.sessionDate} at that time.` })
     if (err.code === '23505')
-      return res.status(409).json({ message: 'One or more sessions conflict with an existing booking on that court or for that student.' })
+      return res.status(409).json({ message: 'One or more sessions conflict with an existing booking for that student.' })
     res.status(500).json({ message: 'Server error.' })
   } finally {
     client.release()
@@ -159,7 +188,7 @@ router.delete('/sessions/:id', requireAuth, async (req, res) => {
     if (!isAdmin && !isStudent && !isCoach)
       return res.status(403).json({ message: 'Forbidden.' })
 
-    await pool.query('DELETE FROM coaching_sessions WHERE id=$1', [req.params.id])
+    await pool.query("UPDATE coaching_sessions SET status='cancelled' WHERE id=$1", [req.params.id])
     res.json({ message: 'Session cancelled.' })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })

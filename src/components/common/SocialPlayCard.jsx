@@ -14,7 +14,7 @@ function fmtTime(t) {
 // SocialPlayCard
 // Props:
 //   session          – { id, title, description, date, start_time, end_time,
-//                        court_name, max_players, participant_count,
+//                        num_courts, max_players, participant_count,
 //                        participants: [{ id, name }], joined }
 //   isAuthenticated  – boolean
 //   onJoin           – () => void
@@ -26,12 +26,14 @@ export default function SocialPlayCard({ session, isAuthenticated, onJoin, onLea
     date,
     start_time,
     end_time,
-    court_name,
+    num_courts     = 1,
     max_players    = 12,
     participant_count = 0,
     participants   = [],
     joined         = false,
   } = session
+
+  const courtsLabel = `${num_courts} court${num_courts !== 1 ? 's' : ''}`
 
   const spotsLeft = max_players - participant_count
   const isFull    = spotsLeft <= 0
@@ -44,7 +46,7 @@ export default function SocialPlayCard({ session, isAuthenticated, onJoin, onLea
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="font-semibold text-white leading-tight">{title}</h3>
-          <p className="text-xs text-slate-500 mt-0.5">{court_name}</p>
+          <p className="text-xs text-slate-500 mt-0.5">{courtsLabel}</p>
         </div>
         <span className={`badge border flex-shrink-0 ${
           isFull
