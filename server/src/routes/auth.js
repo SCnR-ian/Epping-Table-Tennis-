@@ -41,19 +41,23 @@ router.post('/register', async (req, res) => {
 })
 
 // POST /api/auth/login
+// `identifier` accepts either an email address or a phone number
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body
-  if (!email || !password)
-    return res.status(400).json({ message: 'Email and password are required.' })
+  const { identifier, password } = req.body
+  if (!identifier || !password)
+    return res.status(400).json({ message: 'Email/phone and password are required.' })
 
   try {
-    const { rows } = await pool.query('SELECT * FROM users WHERE email=$1', [email])
+    const { rows } = await pool.query(
+      'SELECT * FROM users WHERE email=$1 OR phone=$1',
+      [identifier]
+    )
     const user = rows[0]
     if (!user || !user.password_hash)
-      return res.status(401).json({ message: 'Invalid email or password.' })
+      return res.status(401).json({ message: 'Invalid email/phone or password.' })
 
     const ok = await bcrypt.compare(password, user.password_hash)
-    if (!ok) return res.status(401).json({ message: 'Invalid email or password.' })
+    if (!ok) return res.status(401).json({ message: 'Invalid email/phone or password.' })
 
     res.json({ token: sign(user), user: safeUser(user) })
   } catch (err) {

@@ -55,7 +55,22 @@ router.get('/available', async (req, res) => {
        WHERE cs.date=$1 AND cs.status='confirmed'`,
       [date]
     )
-    const booked = [...bookedRows, ...coachingRows]
+    // Expand social play sessions into 30-min slots so those courts appear occupied
+    const { rows: socialRows } = await pool.query(
+      `SELECT
+         sps.court_id,
+         slot_start                            AS start_time,
+         (slot_start + INTERVAL '30 minutes')  AS end_time
+       FROM social_play_sessions sps,
+       LATERAL generate_series(
+         sps.start_time::time,
+         sps.end_time::time - INTERVAL '30 minutes',
+         INTERVAL '30 minutes'
+       ) AS slot_start
+       WHERE sps.date=$1 AND sps.status='open'`,
+      [date]
+    )
+    const booked = [...bookedRows, ...coachingRows, ...socialRows]
     let userBooked = []
     if (req.user) {
       const { rows: ur } = await pool.query(

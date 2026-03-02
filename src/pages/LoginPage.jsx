@@ -11,13 +11,13 @@ export default function LoginPage() {
   const location  = useLocation()
   const from      = location.state?.from?.pathname || '/dashboard'
 
-  const [form, setForm] = useState({ email: '', password: '' })
+  const [form, setForm] = useState({ identifier: '', password: '' })
   const [errors, setErrors] = useState({})
 
   const validate = () => {
     const e = {}
-    if (!form.email)    e.email    = 'Email is required'
-    if (!form.password) e.password = 'Password is required'
+    if (!form.identifier) e.identifier = 'Email or phone is required'
+    if (!form.password)   e.password   = 'Password is required'
     return e
   }
 
@@ -87,16 +87,16 @@ export default function LoginPage() {
               <div className="w-full border-t border-court-light" />
             </div>
             <div className="relative flex justify-center text-xs text-slate-500">
-              <span className="bg-court-mid px-3">or sign in with email</span>
+              <span className="bg-court-mid px-3">or sign in with email / phone</span>
             </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5" noValidate>
             <FormInput
-              id="email" name="email" label="Email Address" type="email"
-              placeholder="you@example.com" required autoComplete="email"
-              value={form.email} onChange={handleChange}
-              error={errors.email}
+              id="identifier" name="identifier" label="Email or Phone" type="text"
+              placeholder="you@example.com or 0400 000 000" required autoComplete="username"
+              value={form.identifier} onChange={handleChange}
+              error={errors.identifier}
             />
             <FormInput
               id="password" name="password" label="Password" type="password"

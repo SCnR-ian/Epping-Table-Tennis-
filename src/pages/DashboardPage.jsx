@@ -1,12 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import TournamentCard from '@/components/common/TournamentCard'
-import { bookingsAPI, coachingAPI } from '@/api/api'
-
-const MOCK_TOURNAMENTS = [
-  { id: 1, name: 'Summer Singles Cup', date: '2025-03-15', prize: '$500', status: 'open', participants: 18, maxParticipants: 32, format: 'Singles' },
-]
+import SocialPlayCard from '@/components/common/SocialPlayCard'
+import { bookingsAPI, coachingAPI, socialAPI } from '@/api/api'
 
 function toMins(t) {
   const [h, m] = t.substring(0, 5).split(':').map(Number)
@@ -119,7 +115,7 @@ export default function DashboardPage() {
   const [bookings,         setBookings]         = useState([])
   const [coachingSessions, setCoachingSessions] = useState([])
   const [coachSessions,    setCoachSessions]    = useState([])
-  const [tournaments]                           = useState(MOCK_TOURNAMENTS)
+  const [socialSessions,   setSocialSessions]   = useState([])
   const [stats]                                 = useState({ games: 42, wins: 28, tournaments: 5, hours: 64 })
   const [loadingData,      setLoadingData]      = useState(false)
 
@@ -134,8 +130,9 @@ export default function DashboardPage() {
       bookingsAPI.getMyBookings(),
       coachingAPI.getMySessions(),
       coachingAPI.getMyCoachSessions(),
+      socialAPI.getSessions(),
     ])
-      .then(([bookingRes, coachingRes, coachRes]) => {
+      .then(([bookingRes, coachingRes, coachRes, socialRes]) => {
         if (cancelled) return
         if (bookingRes.status === 'fulfilled')
           setBookings(bookingRes.value.data.bookings.map(mapBooking))
@@ -143,6 +140,8 @@ export default function DashboardPage() {
           setCoachingSessions(coachingRes.value.data.sessions)
         if (coachRes.status === 'fulfilled')
           setCoachSessions(coachRes.value.data.sessions)
+        if (socialRes.status === 'fulfilled')
+          setSocialSessions(socialRes.value.data.sessions)
       })
       .finally(() => { if (!cancelled) setLoadingData(false) })
     return () => { cancelled = true }
@@ -457,23 +456,38 @@ export default function DashboardPage() {
 
         {/* ── Sidebar ──────────────────────────────────────────────────── */}
         <div className="space-y-6">
+
+          {/* Social Play */}
           <div>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-white">Tournaments</h2>
-              <Link to="/tournaments" className="text-xs text-brand-400 hover:text-brand-300">View all →</Link>
+              <h2 className="text-lg font-semibold text-white">Social Play</h2>
+              <Link to="/social-play" className="text-xs text-brand-400 hover:text-brand-300">View all →</Link>
             </div>
-            <div className="space-y-3">
-              {tournaments.map(t => <TournamentCard key={t.id} tournament={t} />)}
-            </div>
+            {socialSessions.length === 0 ? (
+              <p className="text-xs text-slate-500">No upcoming social play sessions.</p>
+            ) : (
+              <div className="space-y-3">
+                {socialSessions.slice(0, 3).map(s => (
+                  <SocialPlayCard
+                    key={s.id}
+                    session={s}
+                    isAuthenticated={true}
+                    onJoin={() => socialAPI.join(s.id).then(() => socialAPI.getSessions().then(({ data }) => setSocialSessions(data.sessions)))}
+                    onLeave={() => socialAPI.leave(s.id).then(() => socialAPI.getSessions().then(({ data }) => setSocialSessions(data.sessions)))}
+                  />
+                ))}
+              </div>
+            )}
           </div>
 
+          {/* Quick Links */}
           <div className="card">
             <h3 className="text-sm font-semibold text-white mb-3">Quick Links</h3>
             <nav className="space-y-1">
               {[
                 ['Profile Settings', '/profile'],
                 ['Book a Court',     '/booking'],
-                ['All Tournaments',  '/tournaments'],
+                ['Social Play',      '/social-play'],
               ].map(([label, to]) => (
                 <Link
                   key={to}
@@ -488,6 +502,7 @@ export default function DashboardPage() {
               ))}
             </nav>
           </div>
+
         </div>
 
       </div>

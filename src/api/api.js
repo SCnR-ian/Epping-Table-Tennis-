@@ -148,6 +148,18 @@ export const coachingAPI = {
 }
 
 // ---------------------------------------------------------------------------
+// Social Play
+// ---------------------------------------------------------------------------
+export const socialAPI = {
+  getSessions:      ()     => api.get('/social'),
+  getAdminSessions: ()     => api.get('/social/admin'),
+  createSession:    (data) => api.post('/social', data),
+  cancelSession:    (id)   => api.delete(`/social/${id}`),
+  join:             (id)   => api.post(`/social/${id}/join`),
+  leave:            (id)   => api.delete(`/social/${id}/join`),
+}
+
+// ---------------------------------------------------------------------------
 // Schedule / Announcements
 // ---------------------------------------------------------------------------
 export const scheduleAPI = {

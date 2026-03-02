@@ -7,7 +7,7 @@ import LoginPage         from '@/pages/LoginPage'
 import RegisterPage      from '@/pages/RegisterPage'
 import DashboardPage     from '@/pages/DashboardPage'
 import BookingPage       from '@/pages/BookingPage'
-import TournamentPage    from '@/pages/TournamentPage'
+import SocialPlayPage    from '@/pages/SocialPlayPage'
 import ProfilePage       from '@/pages/ProfilePage'
 import AdminDashboard    from '@/pages/admin/AdminDashboard'
 import CoachingPage      from '@/pages/CoachingPage'
@@ -22,8 +22,7 @@ const router = createBrowserRouter([
       { path: '/',              element: <HomePage /> },
       { path: '/login',         element: <LoginPage /> },
       { path: '/register',      element: <RegisterPage /> },
-      { path: '/tournaments',   element: <TournamentPage /> },
-      { path: '/tournaments/:id', element: <TournamentPage /> },
+      { path: '/social-play',   element: <SocialPlayPage /> },
       { path: '/booking',       element: <BookingPage /> },
       { path: '/coaching',      element: <CoachingPage /> },
       { path: '/auth/callback', element: <OAuthCallbackPage /> },

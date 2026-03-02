@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { adminAPI, bookingsAPI, coachingAPI } from '@/api/api'
+import { adminAPI, bookingsAPI, coachingAPI, socialAPI } from '@/api/api'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -91,7 +91,7 @@ const STAT_CARDS = [
   { key: 'tournaments', label: 'Active Tournaments', icon: '🏆', color: 'text-yellow-400'  },
 ]
 
-const TABS = ['Members', 'Bookings', 'Coaching']
+const TABS = ['Members', 'Bookings', 'Coaching', 'Social Play']
 
 const BOOKABLE_COURTS = [
   { id: 1, label: 'Court 1' },
@@ -137,6 +137,13 @@ export default function AdminDashboard() {
   const [sessionForm,      setSessionForm]      = useState({
     coach_id: '', student_id: '', court_id: '',
     date: '', start_time: '', end_time: '', notes: '', weeks: 1,
+  })
+
+  // Social Play state
+  const [socialSessions,  setSocialSessions]  = useState([])
+  const [showSocialForm,  setShowSocialForm]  = useState(false)
+  const [socialForm,      setSocialForm]      = useState({
+    title: '', description: '', court_id: '', date: '', start_time: '', end_time: '', max_players: 12,
   })
 
   // Default selected date = first upcoming open day
@@ -245,6 +252,50 @@ export default function AdminDashboard() {
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [activeTab, coachingDate])
+
+  // Fetch social play sessions when Social Play tab is active
+  useEffect(() => {
+    if (activeTab !== 'Social Play') return
+    let cancelled = false
+    setLoading(true)
+    socialAPI.getAdminSessions()
+      .then(({ data }) => { if (!cancelled) setSocialSessions(data.sessions) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [activeTab])
+
+  const handleCreateSocialSession = async () => {
+    const { title, description, court_id, date, start_time, end_time, max_players } = socialForm
+    if (!court_id || !date || !start_time || !end_time) {
+      alert('Court, date, start time and end time are required.')
+      return
+    }
+    try {
+      const { data } = await socialAPI.createSession({
+        title: title || 'Social Play',
+        description: description || undefined,
+        court_id: Number(court_id),
+        date, start_time, end_time,
+        max_players: Number(max_players) || 12,
+      })
+      setSocialSessions(prev => [...prev, data.session])
+      setShowSocialForm(false)
+      setSocialForm({ title: '', description: '', court_id: '', date: '', start_time: '', end_time: '', max_players: 12 })
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not create session.')
+    }
+  }
+
+  const handleCancelSocialSession = async (id) => {
+    if (!window.confirm('Cancel this social play session?')) return
+    try {
+      await socialAPI.cancelSession(id)
+      setSocialSessions(prev => prev.filter(s => s.id !== id))
+    } catch {
+      alert('Could not cancel session.')
+    }
+  }
 
   const handleAddCoach = async () => {
     if (!newCoachName.trim()) return
@@ -767,6 +818,157 @@ export default function AdminDashboard() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── Social Play tab ──────────────────────────────────────────────── */}
+      {activeTab === 'Social Play' && (
+        <div className="animate-fade-in space-y-8">
+
+          {/* Create session button + form */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">Social Play Sessions</h2>
+              <button
+                onClick={() => setShowSocialForm(v => !v)}
+                className="btn-primary text-sm"
+              >
+                {showSocialForm ? 'Cancel' : '+ Open a Slot'}
+              </button>
+            </div>
+
+            {showSocialForm && (
+              <div className="card mb-6 space-y-4">
+                <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">New Social Play Session</p>
+
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Title (optional — default: "Social Play")</label>
+                  <input
+                    type="text" className="input w-full" placeholder="e.g. Saturday Casual"
+                    value={socialForm.title}
+                    onChange={e => setSocialForm(f => ({ ...f, title: e.target.value }))}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Description (optional)</label>
+                  <textarea
+                    className="input w-full h-20 resize-none" placeholder="Any notes for members…"
+                    value={socialForm.description}
+                    onChange={e => setSocialForm(f => ({ ...f, description: e.target.value }))}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Court</label>
+                  <select
+                    className="input w-full" value={socialForm.court_id}
+                    onChange={e => setSocialForm(f => ({ ...f, court_id: e.target.value }))}
+                  >
+                    <option value="">Select court…</option>
+                    {BOOKABLE_COURTS.map(c => (
+                      <option key={c.id} value={c.id}>{c.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Date</label>
+                  <input
+                    type="date" className="input w-full" value={socialForm.date}
+                    onChange={e => setSocialForm(f => ({ ...f, date: e.target.value }))}
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-400 mb-1">Start Time (HH:MM)</label>
+                    <input
+                      type="text" className="input w-full" placeholder="e.g. 18:00"
+                      value={socialForm.start_time}
+                      onChange={e => setSocialForm(f => ({ ...f, start_time: e.target.value }))}
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-400 mb-1">End Time (HH:MM)</label>
+                    <input
+                      type="text" className="input w-full" placeholder="e.g. 20:00"
+                      value={socialForm.end_time}
+                      onChange={e => setSocialForm(f => ({ ...f, end_time: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Max Players</label>
+                  <input
+                    type="number" min={2} max={50} className="input w-32"
+                    value={socialForm.max_players}
+                    onChange={e => setSocialForm(f => ({ ...f, max_players: e.target.value }))}
+                  />
+                </div>
+
+                <button onClick={handleCreateSocialSession} className="btn-primary text-sm">
+                  Open Session
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Sessions list */}
+          {loading ? (
+            <p className="text-slate-500 text-sm">Loading sessions…</p>
+          ) : socialSessions.length === 0 ? (
+            <p className="text-slate-500 text-sm">No upcoming social play sessions. Open a slot above.</p>
+          ) : (
+            <div className="space-y-4">
+              {socialSessions.map(s => (
+                <div key={s.id} className="card flex flex-col gap-3">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-semibold text-white">{s.title}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {s.court_name} · {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
+                        {' '}· {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
+                      </p>
+                      {s.description && (
+                        <p className="text-xs text-slate-400 mt-1">{s.description}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleCancelSocialSession(s.id)}
+                      className="text-xs text-red-400 hover:text-red-300 font-medium flex-shrink-0"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+
+                  {/* Participant count + names */}
+                  <div>
+                    <div className="flex justify-between text-xs text-slate-500 mb-1.5">
+                      <span>{s.participant_count} / {s.max_players} players joined</span>
+                    </div>
+                    <div className="h-1.5 bg-court-dark rounded-full overflow-hidden mb-2">
+                      <div
+                        className={`h-full rounded-full ${s.participant_count / s.max_players >= 0.9 ? 'bg-red-500' : 'bg-brand-500'}`}
+                        style={{ width: `${Math.min(Math.round(s.participant_count / s.max_players * 100), 100)}%` }}
+                      />
+                    </div>
+                    {s.participants.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {s.participants.map(p => (
+                          <span key={p.id} className="text-xs bg-court-light text-slate-300 rounded-full px-2.5 py-0.5">
+                            {p.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
         </div>
       )}
 
