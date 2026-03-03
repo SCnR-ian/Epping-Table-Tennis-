@@ -161,6 +161,8 @@ export default function AdminDashboard() {
   const [socialForm,      setSocialForm]      = useState({
     title: '', description: '', num_courts: 1, date: '', start_time: '', end_time: '', max_players: 12,
   })
+  // { [sessionId]: { start_time: 'HH:MM', end_time: 'HH:MM' } } — open when admin is editing times
+  const [editingTimes, setEditingTimes] = useState({})
 
   // Default selected date = first upcoming open day
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -312,6 +314,34 @@ export default function AdminDashboard() {
       setSocialSessions(prev => prev.filter(s => s.id !== id))
     } catch {
       alert('Could not cancel session.')
+    }
+  }
+
+  const handleCourtChange = async (id, delta) => {
+    const session = socialSessions.find(s => s.id === id)
+    if (!session) return
+    const newCount = Math.min(Math.max(session.num_courts + delta, 1), 6)
+    if (newCount === session.num_courts) return
+    try {
+      const { data } = await socialAPI.updateSession(id, { num_courts: newCount })
+      setSocialSessions(prev => prev.map(s => s.id === id ? { ...s, ...data.session } : s))
+    } catch {
+      alert('Could not update courts.')
+    }
+  }
+
+  const handleSaveTime = async (id) => {
+    const edits = editingTimes[id]
+    if (!edits) return
+    try {
+      const { data } = await socialAPI.updateSession(id, {
+        start_time: edits.start_time,
+        end_time:   edits.end_time,
+      })
+      setSocialSessions(prev => prev.map(s => s.id === id ? { ...s, ...data.session } : s))
+      setEditingTimes(prev => { const n = { ...prev }; delete n[id]; return n })
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not update time.')
     }
   }
 
@@ -940,50 +970,122 @@ export default function AdminDashboard() {
             <p className="text-slate-500 text-sm">No upcoming social play sessions. Open a slot above.</p>
           ) : (
             <div className="space-y-4">
-              {socialSessions.map(s => (
-                <div key={s.id} className="card flex flex-col gap-3">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="font-semibold text-white">{s.title}</p>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        {s.num_courts} court{s.num_courts !== 1 ? 's' : ''} · {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
-                        {' '}· {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
-                      </p>
-                      {s.description && (
-                        <p className="text-xs text-slate-400 mt-1">{s.description}</p>
+              {socialSessions.map(s => {
+                const timeEdit = editingTimes[s.id]
+                return (
+                  <div key={s.id} className="card flex flex-col gap-3">
+                    {/* Header row */}
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="font-semibold text-white">{s.title}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
+                        </p>
+                        {s.description && (
+                          <p className="text-xs text-slate-400 mt-1">{s.description}</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleCancelSocialSession(s.id)}
+                        className="text-xs text-red-400 hover:text-red-300 font-medium flex-shrink-0"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+
+                    {/* Courts adjuster */}
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-slate-400 w-20">Courts</span>
+                      <button
+                        onClick={() => handleCourtChange(s.id, -1)}
+                        disabled={s.num_courts <= 1}
+                        className="w-7 h-7 rounded border border-court-light text-slate-300 hover:border-brand-500/60 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
+                      >
+                        −
+                      </button>
+                      <span className="text-white font-semibold w-4 text-center">{s.num_courts}</span>
+                      <button
+                        onClick={() => handleCourtChange(s.id, +1)}
+                        disabled={s.num_courts >= 6}
+                        className="w-7 h-7 rounded border border-court-light text-slate-300 hover:border-brand-500/60 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
+                      >
+                        +
+                      </button>
+                    </div>
+
+                    {/* Time adjuster */}
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-slate-400 w-20">Time</span>
+                      {timeEdit ? (
+                        <>
+                          <input
+                            type="time"
+                            className="input py-1 px-2 text-xs w-28"
+                            value={timeEdit.start_time}
+                            onChange={e => setEditingTimes(prev => ({ ...prev, [s.id]: { ...prev[s.id], start_time: e.target.value } }))}
+                          />
+                          <span className="text-slate-600 text-xs">–</span>
+                          <input
+                            type="time"
+                            className="input py-1 px-2 text-xs w-28"
+                            value={timeEdit.end_time}
+                            onChange={e => setEditingTimes(prev => ({ ...prev, [s.id]: { ...prev[s.id], end_time: e.target.value } }))}
+                          />
+                          <button
+                            onClick={() => handleSaveTime(s.id)}
+                            className="text-xs text-emerald-400 hover:text-emerald-300 font-medium"
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={() => setEditingTimes(prev => { const n = { ...prev }; delete n[s.id]; return n })}
+                            className="text-xs text-slate-500 hover:text-slate-300"
+                          >
+                            ✕
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-slate-300 text-xs font-mono">
+                            {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
+                          </span>
+                          <button
+                            onClick={() => setEditingTimes(prev => ({
+                              ...prev,
+                              [s.id]: { start_time: s.start_time.substring(0, 5), end_time: s.end_time.substring(0, 5) },
+                            }))}
+                            className="text-xs text-sky-400 hover:text-sky-300 font-medium"
+                          >
+                            Edit
+                          </button>
+                        </>
                       )}
                     </div>
-                    <button
-                      onClick={() => handleCancelSocialSession(s.id)}
-                      className="text-xs text-red-400 hover:text-red-300 font-medium flex-shrink-0"
-                    >
-                      Cancel
-                    </button>
-                  </div>
 
-                  {/* Participant count + names */}
-                  <div>
-                    <div className="flex justify-between text-xs text-slate-500 mb-1.5">
-                      <span>{s.participant_count} / {s.max_players} players joined</span>
-                    </div>
-                    <div className="h-1.5 bg-court-dark rounded-full overflow-hidden mb-2">
-                      <div
-                        className={`h-full rounded-full ${s.participant_count / s.max_players >= 0.9 ? 'bg-red-500' : 'bg-brand-500'}`}
-                        style={{ width: `${Math.min(Math.round(s.participant_count / s.max_players * 100), 100)}%` }}
-                      />
-                    </div>
-                    {s.participants.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mt-1">
-                        {s.participants.map(p => (
-                          <span key={p.id} className="text-xs bg-court-light text-slate-300 rounded-full px-2.5 py-0.5">
-                            {p.name}
-                          </span>
-                        ))}
+                    {/* Participant count + names */}
+                    <div>
+                      <div className="flex justify-between text-xs text-slate-500 mb-1.5">
+                        <span>{s.participant_count} / {s.max_players} players joined</span>
                       </div>
-                    )}
+                      <div className="h-1.5 bg-court-dark rounded-full overflow-hidden mb-2">
+                        <div
+                          className={`h-full rounded-full ${s.participant_count / s.max_players >= 0.9 ? 'bg-red-500' : 'bg-brand-500'}`}
+                          style={{ width: `${Math.min(Math.round(s.participant_count / s.max_players * 100), 100)}%` }}
+                        />
+                      </div>
+                      {s.participants.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {s.participants.map(p => (
+                            <span key={p.id} className="text-xs bg-court-light text-slate-300 rounded-full px-2.5 py-0.5">
+                              {p.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
 

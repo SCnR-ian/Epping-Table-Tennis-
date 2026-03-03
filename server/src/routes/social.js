@@ -146,6 +146,43 @@ router.post('/', requireAuth, async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
+// PATCH /api/social/:id — admin updates num_courts and/or time window
+router.patch('/:id', requireAuth, async (req, res) => {
+  if (req.user.role !== 'admin')
+    return res.status(403).json({ message: 'Admin only.' })
+
+  const { num_courts, start_time, end_time } = req.body
+  const updates = []
+  const values  = []
+
+  if (num_courts !== undefined) {
+    const n = Math.min(Math.max(Number(num_courts), 1), 6)
+    updates.push(`num_courts=$${values.length + 1}`)
+    values.push(n)
+  }
+  if (start_time !== undefined) {
+    updates.push(`start_time=$${values.length + 1}`)
+    values.push(start_time)
+  }
+  if (end_time !== undefined) {
+    updates.push(`end_time=$${values.length + 1}`)
+    values.push(end_time)
+  }
+  if (updates.length === 0)
+    return res.status(400).json({ message: 'Nothing to update.' })
+
+  values.push(req.params.id)
+  try {
+    const { rows } = await pool.query(
+      `UPDATE social_play_sessions SET ${updates.join(', ')}
+       WHERE id=$${values.length} RETURNING *`,
+      values
+    )
+    if (!rows[0]) return res.status(404).json({ message: 'Session not found.' })
+    res.json({ session: rows[0] })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
 // DELETE /api/social/:id — admin deletes a session
 router.delete('/:id', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin')

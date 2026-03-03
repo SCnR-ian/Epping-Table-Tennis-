@@ -133,12 +133,13 @@ export const coachingAPI = {
 // Social Play
 // ---------------------------------------------------------------------------
 export const socialAPI = {
-  getSessions:      ()     => api.get('/social'),
-  getAdminSessions: (params) => api.get('/social/admin', { params }),
-  createSession:    (data) => api.post('/social', data),
-  cancelSession:    (id)   => api.delete(`/social/${id}`),
-  join:             (id)   => api.post(`/social/${id}/join`),
-  leave:            (id)   => api.delete(`/social/${id}/join`),
+  getSessions:      ()         => api.get('/social'),
+  getAdminSessions: (params)   => api.get('/social/admin', { params }),
+  createSession:    (data)     => api.post('/social', data),
+  updateSession:    (id, data) => api.patch(`/social/${id}`, data),
+  cancelSession:    (id)       => api.delete(`/social/${id}`),
+  join:             (id)       => api.post(`/social/${id}/join`),
+  leave:            (id)       => api.delete(`/social/${id}/join`),
 }
 
 // ---------------------------------------------------------------------------
