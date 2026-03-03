@@ -72,12 +72,24 @@ router.get('/available', async (req, res) => {
     const booked = [...bookedRows, ...coachingRows, ...socialRows]
     let userBooked = []
     if (req.user) {
-      const { rows: ur } = await pool.query(
+      const { rows: ubBookings } = await pool.query(
         `SELECT start_time, end_time FROM bookings
          WHERE date=$1 AND user_id=$2 AND status='confirmed'`,
         [date, req.user.id]
       )
-      userBooked = ur
+      const { rows: ubCoaching } = await pool.query(
+        `SELECT start_time, end_time FROM coaching_sessions
+         WHERE date=$1 AND student_id=$2 AND status='confirmed'`,
+        [date, req.user.id]
+      )
+      const { rows: ubSocial } = await pool.query(
+        `SELECT sps.start_time, sps.end_time
+         FROM social_play_sessions sps
+         JOIN social_play_participants spp ON spp.session_id = sps.id
+         WHERE sps.date=$1 AND spp.user_id=$2 AND sps.status='open'`,
+        [date, req.user.id]
+      )
+      userBooked = [...ubBookings, ...ubCoaching, ...ubSocial]
     }
     res.json({ booked, user_booked: userBooked })
   } catch { res.status(500).json({ message: 'Server error.' }) }
@@ -139,8 +151,8 @@ router.post('/', requireAuth, async (req, res) => {
   const startMins = toMins(start_time)
   const endMins   = toMins(end_time)
 
-  if (endMins <= startMins || (endMins - startMins) % 30 !== 0)
-    return res.status(400).json({ message: 'Duration must be a positive multiple of 30 minutes.' })
+  if (endMins <= startMins || (endMins - startMins) < 60 || (endMins - startMins) % 30 !== 0)
+    return res.status(400).json({ message: 'Duration must be at least 60 minutes and a multiple of 30.' })
 
   const slots = []
   for (let t = startMins; t < endMins; t += 30)
@@ -151,6 +163,32 @@ router.post('/', requireAuth, async (req, res) => {
 
   try {
     await client.query('BEGIN')
+
+    // Ensure no coaching session for this member overlaps the requested time
+    const { rows: coachConflict } = await client.query(
+      `SELECT 1 FROM coaching_sessions
+       WHERE student_id=$1 AND date=$2 AND status='confirmed'
+         AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
+      [req.user.id, date, start_time, end_time]
+    )
+    if (coachConflict.length) {
+      await client.query('ROLLBACK')
+      return res.status(409).json({ message: 'You have a coaching session during that time.' })
+    }
+
+    // Ensure no social play sign-up for this member overlaps the requested time
+    const { rows: socialConflict } = await client.query(
+      `SELECT 1 FROM social_play_sessions sps
+       JOIN social_play_participants spp ON spp.session_id = sps.id
+       WHERE spp.user_id=$1 AND sps.date=$2 AND sps.status='open'
+         AND sps.start_time < $4::time AND sps.end_time > $3::time LIMIT 1`,
+      [req.user.id, date, start_time, end_time]
+    )
+    if (socialConflict.length) {
+      await client.query('ROLLBACK')
+      return res.status(409).json({ message: 'You are signed up for social play during that time.' })
+    }
+
     for (const [s, e] of slots) {
       await client.query(
         `INSERT INTO bookings (user_id, court_id, date, start_time, end_time, booking_group_id)

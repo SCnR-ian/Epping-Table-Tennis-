@@ -167,7 +167,7 @@ router.post('/:id/join', requireAuth, async (req, res) => {
     await client.query('BEGIN')
     // Lock the session row so concurrent joins can't both pass the capacity check
     const { rows } = await client.query(
-      `SELECT id, max_players,
+      `SELECT id, date, start_time, end_time, max_players,
          (SELECT COUNT(*)::int FROM social_play_participants WHERE session_id=$1) AS count
        FROM social_play_sessions
        WHERE id=$1 AND status='open'
@@ -177,6 +177,28 @@ router.post('/:id/join', requireAuth, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ message: 'Session not found or not open.' })
     if (rows[0].count >= rows[0].max_players)
       return res.status(409).json({ message: 'Session is full.' })
+
+    const { date, start_time, end_time } = rows[0]
+
+    // Ensure no regular booking for this member overlaps the session time
+    const { rows: bookConflict } = await client.query(
+      `SELECT 1 FROM bookings
+       WHERE user_id=$1 AND date=$2 AND status='confirmed'
+         AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
+      [req.user.id, date, start_time, end_time]
+    )
+    if (bookConflict.length)
+      return res.status(409).json({ message: 'You have a court booking during that time.' })
+
+    // Ensure no coaching session for this member overlaps the session time
+    const { rows: coachConflict } = await client.query(
+      `SELECT 1 FROM coaching_sessions
+       WHERE student_id=$1 AND date=$2 AND status='confirmed'
+         AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
+      [req.user.id, date, start_time, end_time]
+    )
+    if (coachConflict.length)
+      return res.status(409).json({ message: 'You have a coaching session during that time.' })
 
     await client.query(
       'INSERT INTO social_play_participants (session_id, user_id) VALUES ($1,$2)',

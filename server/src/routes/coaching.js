@@ -136,6 +136,27 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
       if (!free[0])
         throw Object.assign(new Error('no_court'), { sessionDate })
 
+      // Ensure student has no regular booking overlapping this time
+      const { rows: stdBook } = await client.query(
+        `SELECT 1 FROM bookings
+         WHERE user_id=$1 AND date=$2 AND status='confirmed'
+           AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
+        [student_id, sessionDate, start_time, end_time]
+      )
+      if (stdBook.length)
+        throw Object.assign(new Error('student_conflict'), { sessionDate, reason: 'booking' })
+
+      // Ensure student has no social play sign-up overlapping this time
+      const { rows: stdSocial } = await client.query(
+        `SELECT 1 FROM social_play_sessions sps
+         JOIN social_play_participants spp ON spp.session_id = sps.id
+         WHERE spp.user_id=$1 AND sps.date=$2 AND sps.status='open'
+           AND sps.start_time < $4::time AND sps.end_time > $3::time LIMIT 1`,
+        [student_id, sessionDate, start_time, end_time]
+      )
+      if (stdSocial.length)
+        throw Object.assign(new Error('student_conflict'), { sessionDate, reason: 'social' })
+
       const { rows } = await client.query(
         `INSERT INTO coaching_sessions
            (coach_id, student_id, court_id, date, start_time, end_time, notes, recurrence_id)
@@ -151,6 +172,10 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
     await client.query('ROLLBACK')
     if (err.message === 'no_court')
       return res.status(409).json({ message: `No courts available on ${err.sessionDate} at that time.` })
+    if (err.message === 'student_conflict') {
+      const what = err.reason === 'booking' ? 'a court booking' : 'a social play session'
+      return res.status(409).json({ message: `Student already has ${what} on ${err.sessionDate} at that time.` })
+    }
     if (err.code === '23505')
       return res.status(409).json({ message: 'One or more sessions conflict with an existing booking for that student.' })
     res.status(500).json({ message: 'Server error.' })
