@@ -78,14 +78,12 @@ function getSocialAtSlot(socialSessions, slotTime) {
   })
 }
 
-// Get all bookings that are in progress during a given time slot.
+// Get bookings whose session STARTS at the given time slot.
+// Each booking is now one grouped row spanning its full duration, so we
+// only show it in the row where it begins (not in every overlapping slot).
 function getBookingsAtSlot(bookings, slotTime) {
   const slotMins = toMins(slotTime)
-  return bookings.filter(b => {
-    const start = toMins(b.start_time)
-    const end   = toMins(b.end_time)
-    return slotMins >= start && slotMins < end
-  })
+  return bookings.filter(b => toMins(b.start_time) === slotMins)
 }
 
 // Get all coaching sessions in progress during a given time slot.
@@ -238,10 +236,10 @@ export default function AdminDashboard() {
     }
   }
 
-  const handleCancelBooking = async (id) => {
+  const handleCancelBooking = async (bookingGroupId) => {
     try {
-      await bookingsAPI.cancel(id)
-      setBookings(prev => prev.filter(b => b.id !== id))
+      await bookingsAPI.cancelGroup(bookingGroupId)
+      setBookings(prev => prev.filter(b => b.booking_group_id !== bookingGroupId))
       setStats(prev => ({ ...prev, bookings: Math.max(0, prev.bookings - 1) }))
     } catch {
       alert('Could not cancel booking. Please try again.')
@@ -578,7 +576,7 @@ export default function AdminDashboard() {
                           ) : (
                             <div className="flex flex-wrap gap-2">
                               {slotBookings.map(b => (
-                                <div key={b.id} className="bg-brand-500/10 border border-brand-500/30 rounded-lg px-3 py-1.5 flex items-center gap-3">
+                                <div key={b.booking_group_id} className="bg-brand-500/10 border border-brand-500/30 rounded-lg px-3 py-1.5 flex items-center gap-3">
                                   <div>
                                     <p className="text-brand-400 font-semibold text-xs">{b.user_name}</p>
                                     <p className="text-slate-500 text-[10px]">
@@ -586,7 +584,7 @@ export default function AdminDashboard() {
                                     </p>
                                   </div>
                                   <button
-                                    onClick={() => handleCancelBooking(b.id)}
+                                    onClick={() => handleCancelBooking(b.booking_group_id)}
                                     className="text-[10px] text-red-400 hover:text-red-300 transition-colors"
                                   >
                                     Cancel

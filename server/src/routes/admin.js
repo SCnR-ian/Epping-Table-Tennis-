@@ -59,16 +59,30 @@ router.delete('/members/:id', async (req, res) => {
 })
 
 // GET /api/admin/bookings?date=YYYY-MM-DD
+// Returns one row per booking session (grouped by booking_group_id),
+// with the full time span (min start → max end) so each session appears
+// as a single block in the admin calendar view.
 router.get('/bookings', async (req, res) => {
   const { date } = req.query
   try {
     const { rows } = await pool.query(
-      `SELECT b.*, u.name AS user_name, u.email AS user_email, c.name AS court_name
+      `SELECT
+         b.booking_group_id,
+         b.court_id,
+         b.date,
+         b.user_id,
+         MIN(b.start_time) AS start_time,
+         MAX(b.end_time)   AS end_time,
+         b.status,
+         u.name  AS user_name,
+         u.email AS user_email,
+         c.name  AS court_name
        FROM bookings b
-       JOIN users u ON u.id=b.user_id
-       JOIN courts c ON c.id=b.court_id
-       WHERE b.status='confirmed' ${date ? 'AND b.date = $1' : ''}
-       ORDER BY b.date DESC, b.start_time DESC`,
+       JOIN users u ON u.id  = b.user_id
+       JOIN courts c ON c.id = b.court_id
+       WHERE b.status = 'confirmed' ${date ? 'AND b.date = $1' : ''}
+       GROUP BY b.booking_group_id, b.court_id, b.date, b.user_id, b.status, u.name, u.email, c.name
+       ORDER BY b.date DESC, MIN(b.start_time) DESC`,
       date ? [date] : []
     )
     res.json({ bookings: rows })
