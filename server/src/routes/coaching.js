@@ -2,7 +2,6 @@ const router         = require('express').Router()
 const pool           = require('../db')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
 const { randomUUID } = require('crypto')
-const { checkOpenHours } = require('../utils/scheduleCheck')
 
 // ─── COACH CRUD (admin only) ──────────────────────────────────────────────────
 
@@ -109,12 +108,6 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
-
-    const scheduleError = await checkOpenHours(date, start_time, end_time)
-    if (scheduleError) {
-      await client.query('ROLLBACK')
-      return res.status(409).json({ message: scheduleError })
-    }
 
     // Fetch the coach's linked user_id once (for conflict checks on their personal schedule)
     const { rows: coachRows } = await client.query(
