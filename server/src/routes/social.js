@@ -2,6 +2,7 @@ const router = require('express').Router()
 const pool   = require('../db')
 const jwt    = require('jsonwebtoken')
 const { requireAuth } = require('../middleware/auth')
+const { checkOpenHours } = require('../utils/scheduleCheck')
 
 // Reads JWT if present but never rejects — optional auth
 function softAuth(req) {
@@ -108,6 +109,48 @@ router.get('/admin', requireAuth, async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
+// Returns an error string if `requestedCourts` courts are not free during
+// [startTime, endTime) on `date`, excluding session `excludeId` (null = no exclusion).
+async function checkCourtsAvailable(date, startTime, endTime, excludeId, requestedCourts) {
+  // Use generate_series(0, n-1) with integer offsets to avoid any time-type ambiguity.
+  // Slot n starts at startTime + n*30min.
+  const { rows } = await pool.query(
+    `SELECT COALESCE(MAX(bk.cnt + cs.cnt + sp.cnt), 0) AS max_other
+     FROM generate_series(
+       0,
+       (  EXTRACT(HOUR   FROM $3::time)::int * 60 + EXTRACT(MINUTE FROM $3::time)::int
+        - EXTRACT(HOUR   FROM $2::time)::int * 60 - EXTRACT(MINUTE FROM $2::time)::int
+       ) / 30 - 1
+     ) AS gs(slot_n)
+     CROSS JOIN LATERAL (
+       SELECT COUNT(*)::int AS cnt FROM bookings
+       WHERE date=$1 AND status='confirmed'
+         AND start_time <= ($2::time + gs.slot_n * INTERVAL '30 minutes')
+         AND end_time   >  ($2::time + gs.slot_n * INTERVAL '30 minutes')
+     ) bk
+     CROSS JOIN LATERAL (
+       SELECT COUNT(*)::int AS cnt FROM coaching_sessions
+       WHERE date=$1 AND status='confirmed'
+         AND start_time <= ($2::time + gs.slot_n * INTERVAL '30 minutes')
+         AND end_time   >  ($2::time + gs.slot_n * INTERVAL '30 minutes')
+     ) cs
+     CROSS JOIN LATERAL (
+       SELECT COALESCE(SUM(num_courts), 0)::int AS cnt FROM social_play_sessions
+       WHERE date=$1 AND status='open'
+         AND ($4::int IS NULL OR id != $4)
+         AND start_time <= ($2::time + gs.slot_n * INTERVAL '30 minutes')
+         AND end_time   >  ($2::time + gs.slot_n * INTERVAL '30 minutes')
+     ) sp`,
+    [date, startTime, endTime, excludeId ?? null]
+  )
+  const maxOther = Number(rows[0].max_other)
+  if (maxOther + requestedCourts > 6) {
+    const free = 6 - maxOther
+    return `Only ${free} court${free !== 1 ? 's' : ''} free during that window. Cannot assign ${requestedCourts}.`
+  }
+  return null
+}
+
 // POST /api/social — admin creates a session
 router.post('/', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin')
@@ -119,6 +162,12 @@ router.post('/', requireAuth, async (req, res) => {
     return res.status(400).json({ message: 'date, start_time, end_time are required.' })
 
   try {
+    const scheduleError = await checkOpenHours(date, start_time, end_time)
+    if (scheduleError) return res.status(409).json({ message: scheduleError })
+
+    const availError = await checkCourtsAvailable(date, start_time, end_time, null, courts)
+    if (availError) return res.status(409).json({ message: availError })
+
     const { rows } = await pool.query(
       `INSERT INTO social_play_sessions
          (title, description, num_courts, date, start_time, end_time, max_players, created_by)
@@ -143,7 +192,7 @@ router.post('/', requireAuth, async (req, res) => {
     res.status(201).json({
       session: { ...full[0], participant_count: 0, participants: [], joined: false },
     })
-  } catch { res.status(500).json({ message: 'Server error.' }) }
+  } catch (err) { res.status(500).json({ message: err.message ?? 'Server error.' }) }
 })
 
 // PATCH /api/social/:id — admin updates num_courts and/or time window
@@ -151,28 +200,52 @@ router.patch('/:id', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin')
     return res.status(403).json({ message: 'Admin only.' })
 
-  const { num_courts, start_time, end_time } = req.body
-  const updates = []
-  const values  = []
-
-  if (num_courts !== undefined) {
-    const n = Math.min(Math.max(Number(num_courts), 1), 6)
-    updates.push(`num_courts=$${values.length + 1}`)
-    values.push(n)
-  }
-  if (start_time !== undefined) {
-    updates.push(`start_time=$${values.length + 1}`)
-    values.push(start_time)
-  }
-  if (end_time !== undefined) {
-    updates.push(`end_time=$${values.length + 1}`)
-    values.push(end_time)
-  }
-  if (updates.length === 0)
-    return res.status(400).json({ message: 'Nothing to update.' })
-
-  values.push(req.params.id)
   try {
+    const { num_courts, start_time, end_time } = req.body
+    const updates = []
+    const values  = []
+
+    // Fetch current session
+    const { rows: cur } = await pool.query(
+      'SELECT date, start_time, end_time, num_courts FROM social_play_sessions WHERE id=$1',
+      [req.params.id]
+    )
+    if (!cur[0]) return res.status(404).json({ message: 'Session not found.' })
+    const sess = cur[0]
+
+    const toM = t => { const [h, m] = t.substring(0, 5).split(':').map(Number); return h * 60 + m }
+
+    const finalCourts = num_courts !== undefined ? Math.min(Math.max(Number(num_courts), 1), 6) : sess.num_courts
+    const finalStart  = start_time !== undefined ? start_time : sess.start_time.substring(0, 5)
+    const finalEnd    = end_time   !== undefined ? end_time   : sess.end_time.substring(0, 5)
+
+    const courtsIncreasing = finalCourts > sess.num_courts
+    const timeExpanding    = toM(finalStart) < toM(sess.start_time.substring(0, 5)) ||
+                             toM(finalEnd)   > toM(sess.end_time.substring(0, 5))
+
+    if (courtsIncreasing || timeExpanding) {
+      const availError = await checkCourtsAvailable(
+        sess.date, finalStart, finalEnd, Number(req.params.id), finalCourts
+      )
+      if (availError) return res.status(409).json({ message: availError })
+    }
+
+    if (num_courts !== undefined) {
+      updates.push(`num_courts=$${values.length + 1}`)
+      values.push(finalCourts)
+    }
+    if (start_time !== undefined) {
+      updates.push(`start_time=$${values.length + 1}`)
+      values.push(start_time)
+    }
+    if (end_time !== undefined) {
+      updates.push(`end_time=$${values.length + 1}`)
+      values.push(end_time)
+    }
+    if (updates.length === 0)
+      return res.status(400).json({ message: 'Nothing to update.' })
+
+    values.push(req.params.id)
     const { rows } = await pool.query(
       `UPDATE social_play_sessions SET ${updates.join(', ')}
        WHERE id=$${values.length} RETURNING *`,
@@ -180,7 +253,7 @@ router.patch('/:id', requireAuth, async (req, res) => {
     )
     if (!rows[0]) return res.status(404).json({ message: 'Session not found.' })
     res.json({ session: rows[0] })
-  } catch { res.status(500).json({ message: 'Server error.' }) }
+  } catch (err) { res.status(500).json({ message: err.message ?? 'Server error.' }) }
 })
 
 // DELETE /api/social/:id — admin deletes a session
@@ -236,6 +309,29 @@ router.post('/:id/join', requireAuth, async (req, res) => {
     )
     if (coachConflict.length)
       return res.status(409).json({ message: 'You have a coaching session during that time.' })
+
+    // Ensure the member is not already signed up for another social play session at the same time
+    const { rows: socialConflict } = await client.query(
+      `SELECT 1 FROM social_play_sessions sps
+       JOIN social_play_participants spp ON spp.session_id = sps.id
+       WHERE spp.user_id=$1 AND sps.date=$2 AND sps.status='open'
+         AND sps.start_time < $4::time AND sps.end_time > $3::time
+         AND sps.id != $5 LIMIT 1`,
+      [req.user.id, date, start_time, end_time, req.params.id]
+    )
+    if (socialConflict.length)
+      return res.status(409).json({ message: 'You are already signed up for another social play session during that time.' })
+
+    // Ensure the user (if they are a coach) is not teaching during this time
+    const { rows: coachTeachConflict } = await client.query(
+      `SELECT 1 FROM coaching_sessions cs
+       JOIN coaches co ON co.id = cs.coach_id
+       WHERE co.user_id=$1 AND cs.date=$2 AND cs.status='confirmed'
+         AND cs.start_time < $4::time AND cs.end_time > $3::time LIMIT 1`,
+      [req.user.id, date, start_time, end_time]
+    )
+    if (coachTeachConflict.length)
+      return res.status(409).json({ message: 'You have a coaching session to teach during that time.' })
 
     await client.query(
       'INSERT INTO social_play_participants (session_id, user_id) VALUES ($1,$2)',

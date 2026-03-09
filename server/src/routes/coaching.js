@@ -2,6 +2,7 @@ const router         = require('express').Router()
 const pool           = require('../db')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
 const { randomUUID } = require('crypto')
+const { checkOpenHours } = require('../utils/scheduleCheck')
 
 // ─── COACH CRUD (admin only) ──────────────────────────────────────────────────
 
@@ -108,33 +109,59 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
+
+    const scheduleError = await checkOpenHours(date, start_time, end_time)
+    if (scheduleError) {
+      await client.query('ROLLBACK')
+      return res.status(409).json({ message: scheduleError })
+    }
+
+    // Fetch the coach's linked user_id once (for conflict checks on their personal schedule)
+    const { rows: coachRows } = await client.query(
+      'SELECT user_id FROM coaches WHERE id=$1',
+      [coach_id]
+    )
+    if (!coachRows[0]) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: 'Coach not found.' })
+    }
+    const coachUserId = coachRows[0].user_id
+
     const inserted = []
     for (const sessionDate of dates) {
-      // Auto-assign the first court not blocked by bookings, coaching, or social play
-      const { rows: free } = await client.query(
-        `SELECT c.id
-         FROM courts c
-         WHERE c.id NOT IN (
-           SELECT cs2.court_id FROM coaching_sessions cs2
-           WHERE cs2.date = $1 AND cs2.status = 'confirmed'
-             AND cs2.start_time < $3::time AND cs2.end_time > $2::time
-         )
-         AND c.id NOT IN (
-           SELECT b.court_id FROM bookings b
-           WHERE b.date = $1 AND b.status = 'confirmed'
-             AND b.start_time < $3::time AND b.end_time > $2::time
-         )
-         AND c.id NOT IN (
-           SELECT generate_series(1, sps.num_courts)
-           FROM social_play_sessions sps
-           WHERE sps.date = $1 AND sps.status = 'open'
-             AND sps.start_time < $3::time AND sps.end_time > $2::time
-         )
-         ORDER BY c.id LIMIT 1`,
-        [sessionDate, start_time, end_time]
+      // ── Conflict checks first so errors are always specific ──
+
+      // Ensure the coach is not already teaching another session at this time
+      const { rows: coachBusy } = await client.query(
+        `SELECT 1 FROM coaching_sessions
+         WHERE coach_id=$1 AND date=$2 AND status='confirmed'
+           AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
+        [coach_id, sessionDate, start_time, end_time]
       )
-      if (!free[0])
-        throw Object.assign(new Error('no_court'), { sessionDate })
+      if (coachBusy.length)
+        throw Object.assign(new Error('coach_conflict'), { sessionDate, reason: 'coaching' })
+
+      // If the coach has a linked user account, also check their personal booking/social schedule
+      if (coachUserId) {
+        const { rows: coachBook } = await client.query(
+          `SELECT 1 FROM bookings
+           WHERE user_id=$1 AND date=$2 AND status='confirmed'
+             AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
+          [coachUserId, sessionDate, start_time, end_time]
+        )
+        if (coachBook.length)
+          throw Object.assign(new Error('coach_conflict'), { sessionDate, reason: 'booking' })
+
+        const { rows: coachSocial } = await client.query(
+          `SELECT 1 FROM social_play_sessions sps
+           JOIN social_play_participants spp ON spp.session_id = sps.id
+           WHERE spp.user_id=$1 AND sps.date=$2 AND sps.status='open'
+             AND sps.start_time < $4::time AND sps.end_time > $3::time LIMIT 1`,
+          [coachUserId, sessionDate, start_time, end_time]
+        )
+        if (coachSocial.length)
+          throw Object.assign(new Error('coach_conflict'), { sessionDate, reason: 'social' })
+      }
 
       // Ensure student has no regular booking overlapping this time
       const { rows: stdBook } = await client.query(
@@ -157,6 +184,53 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
       if (stdSocial.length)
         throw Object.assign(new Error('student_conflict'), { sessionDate, reason: 'social' })
 
+      // Ensure student has no other coaching session overlapping this time
+      const { rows: stdCoaching } = await client.query(
+        `SELECT 1 FROM coaching_sessions
+         WHERE student_id=$1 AND date=$2 AND status='confirmed'
+           AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
+        [student_id, sessionDate, start_time, end_time]
+      )
+      if (stdCoaching.length)
+        throw Object.assign(new Error('student_conflict'), { sessionDate, reason: 'coaching' })
+
+      // ── Auto-assign the first court not blocked by bookings or coaching,
+      //    accounting for social sessions as a court count (not specific IDs).
+      //    Social sessions don't own specific courts, so we rank the free courts
+      //    and skip the first N (where N = total courts claimed by social sessions),
+      //    then take the next one.
+      const { rows: free } = await client.query(
+        `WITH social_count AS (
+           SELECT COALESCE(SUM(num_courts), 0)::int AS total
+           FROM social_play_sessions
+           WHERE date = $1 AND status = 'open'
+             AND start_time < $3::time AND end_time > $2::time
+         ),
+         free_courts AS (
+           SELECT c.id,
+                  ROW_NUMBER() OVER (ORDER BY c.id) AS rn
+           FROM courts c
+           WHERE c.id NOT IN (
+             SELECT cs2.court_id FROM coaching_sessions cs2
+             WHERE cs2.date = $1 AND cs2.status = 'confirmed'
+               AND cs2.start_time < $3::time AND cs2.end_time > $2::time
+           )
+           AND c.id NOT IN (
+             SELECT b.court_id FROM bookings b
+             WHERE b.date = $1 AND b.status = 'confirmed'
+               AND b.start_time < $3::time AND b.end_time > $2::time
+           )
+         )
+         SELECT fc.id
+         FROM free_courts fc, social_count sc
+         WHERE fc.rn > sc.total
+         ORDER BY fc.rn
+         LIMIT 1`,
+        [sessionDate, start_time, end_time]
+      )
+      if (!free[0])
+        throw Object.assign(new Error('no_court'), { sessionDate })
+
       const { rows } = await client.query(
         `INSERT INTO coaching_sessions
            (coach_id, student_id, court_id, date, start_time, end_time, notes, recurrence_id)
@@ -173,11 +247,22 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
     if (err.message === 'no_court')
       return res.status(409).json({ message: `No courts available on ${err.sessionDate} at that time.` })
     if (err.message === 'student_conflict') {
-      const what = err.reason === 'booking' ? 'a court booking' : 'a social play session'
+      const what = err.reason === 'booking' ? 'a court booking' : err.reason === 'social' ? 'a social play session' : 'another coaching session'
       return res.status(409).json({ message: `Student already has ${what} on ${err.sessionDate} at that time.` })
     }
-    if (err.code === '23505')
-      return res.status(409).json({ message: 'One or more sessions conflict with an existing booking for that student.' })
+    if (err.message === 'coach_conflict') {
+      const what = err.reason === 'coaching' ? 'another session to teach' : err.reason === 'booking' ? 'a court booking' : 'a social play session'
+      return res.status(409).json({ message: `Coach already has ${what} on ${err.sessionDate} at that time.` })
+    }
+    if (err.code === '23505') {
+      if (err.constraint === 'coaching_no_coach_overlap')
+        return res.status(409).json({ message: 'Coach already has another session to teach at that time.' })
+      if (err.constraint === 'coaching_no_student_overlap')
+        return res.status(409).json({ message: 'Student already has another coaching session at that time.' })
+      if (err.constraint === 'coaching_no_court_overlap')
+        return res.status(409).json({ message: 'That court is already booked for coaching at that time.' })
+      return res.status(409).json({ message: 'One or more sessions conflict with an existing booking.' })
+    }
     res.status(500).json({ message: 'Server error.' })
   } finally {
     client.release()
@@ -215,6 +300,93 @@ router.delete('/sessions/:id', requireAuth, async (req, res) => {
 
     await pool.query("UPDATE coaching_sessions SET status='cancelled' WHERE id=$1", [req.params.id])
     res.json({ message: 'Session cancelled.' })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// GET /api/coaching/payment-report?from=YYYY-MM-DD&to=YYYY-MM-DD  (admin only)
+// Returns all confirmed sessions in the date range, grouped by coach, with
+// per-session check-in status for both the student and the coach.
+// A session "counts" toward pay only when BOTH have checked in.
+router.get('/payment-report', requireAuth, requireAdmin, async (req, res) => {
+  const { from, to } = req.query
+  if (!from || !to) return res.status(400).json({ message: 'from and to dates are required.' })
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         co.id          AS coach_id,
+         co.name        AS coach_name,
+         co.user_id     AS coach_user_id,
+         cs.id          AS session_id,
+         cs.date,
+         cs.start_time,
+         cs.end_time,
+         cs.notes,
+         u.id           AS student_id,
+         u.name         AS student_name,
+         ct.name        AS court_name,
+         EXISTS(
+           SELECT 1 FROM check_ins ci
+           WHERE ci.type='coaching'
+             AND ci.reference_id = cs.id::text
+             AND ci.user_id = cs.student_id
+         ) AS student_checked_in,
+         CASE
+           WHEN co.user_id IS NULL THEN NULL
+           ELSE EXISTS(
+             SELECT 1 FROM check_ins ci
+             WHERE ci.type='coaching'
+               AND ci.reference_id = cs.id::text
+               AND ci.user_id = co.user_id
+           )
+         END AS coach_checked_in,
+         EXISTS(
+           SELECT 1 FROM check_ins ci
+           WHERE ci.type='coaching'
+             AND ci.reference_id = cs.id::text
+             AND ci.checked_in_by IS NOT NULL
+         ) AS admin_checked_in
+       FROM coaching_sessions cs
+       JOIN coaches co ON co.id  = cs.coach_id
+       JOIN users   u  ON u.id   = cs.student_id
+       JOIN courts  ct ON ct.id  = cs.court_id
+       WHERE cs.status = 'confirmed'
+         AND cs.date >= $1 AND cs.date <= $2
+       ORDER BY co.name ASC, cs.date ASC, cs.start_time ASC`,
+      [from, to]
+    )
+
+    // Group rows by coach
+    const byCoach = {}
+    for (const row of rows) {
+      if (!byCoach[row.coach_id]) {
+        byCoach[row.coach_id] = {
+          coach_id:    row.coach_id,
+          coach_name:  row.coach_name,
+          has_account: row.coach_user_id != null,
+          sessions:    [],
+          counted:     0,
+          total:       0,
+        }
+      }
+      const counted = row.admin_checked_in === true ||
+                      (row.student_checked_in === true && row.coach_checked_in === true)
+      byCoach[row.coach_id].sessions.push({
+        session_id:          row.session_id,
+        date:                row.date,
+        start_time:          row.start_time,
+        end_time:            row.end_time,
+        notes:               row.notes,
+        student_name:        row.student_name,
+        court_name:          row.court_name,
+        student_checked_in:  row.student_checked_in,
+        coach_checked_in:    row.coach_checked_in,   // true | false | null (no account)
+        admin_checked_in:    row.admin_checked_in,
+        counted,
+      })
+      byCoach[row.coach_id].total++
+      if (counted) byCoach[row.coach_id].counted++
+    }
+    res.json({ coaches: Object.values(byCoach) })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 

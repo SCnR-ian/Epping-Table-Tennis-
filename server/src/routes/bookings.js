@@ -3,6 +3,7 @@ const pool   = require('../db')
 const { requireAuth } = require('../middleware/auth')
 const { randomUUID } = require('crypto')
 const jwt    = require('jsonwebtoken')
+const { checkOpenHours } = require('../utils/scheduleCheck')
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -49,7 +50,9 @@ router.get('/available', async (req, res) => {
        FROM coaching_sessions cs,
        LATERAL generate_series(
          0,
-         EXTRACT(EPOCH FROM (cs.end_time - cs.start_time))::int / 1800 - 1
+         (  EXTRACT(HOUR   FROM cs.end_time)::int * 60 + EXTRACT(MINUTE FROM cs.end_time)::int
+          - EXTRACT(HOUR   FROM cs.start_time)::int * 60 - EXTRACT(MINUTE FROM cs.start_time)::int
+         ) / 30 - 1
        ) AS gs
        WHERE cs.date=$1 AND cs.status='confirmed'`,
       [date]
@@ -63,13 +66,21 @@ router.get('/available', async (req, res) => {
        FROM social_play_sessions sps,
        LATERAL generate_series(
          0,
-         EXTRACT(EPOCH FROM (sps.end_time - sps.start_time))::int / 1800 - 1
+         (  EXTRACT(HOUR   FROM sps.end_time)::int * 60 + EXTRACT(MINUTE FROM sps.end_time)::int
+          - EXTRACT(HOUR   FROM sps.start_time)::int * 60 - EXTRACT(MINUTE FROM sps.start_time)::int
+         ) / 30 - 1
        ) AS gs,
        LATERAL generate_series(1, sps.num_courts) AS c(court_id)
        WHERE sps.date=$1 AND sps.status='open'`,
       [date]
     )
-    const booked = [...bookedRows, ...coachingRows, ...socialRows]
+    const seen = new Set()
+    const booked = [...bookedRows, ...coachingRows, ...socialRows].filter(r => {
+      const key = `${r.court_id}:${r.start_time}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
     let userBooked = []
     if (req.user) {
       const { rows: ubBookings } = await pool.query(
@@ -164,6 +175,12 @@ router.post('/', requireAuth, async (req, res) => {
   try {
     await client.query('BEGIN')
 
+    const scheduleError = await checkOpenHours(date, start_time, end_time)
+    if (scheduleError) {
+      await client.query('ROLLBACK')
+      return res.status(409).json({ message: scheduleError })
+    }
+
     // Ensure no coaching session for this member overlaps the requested time
     const { rows: coachConflict } = await client.query(
       `SELECT 1 FROM coaching_sessions
@@ -187,6 +204,19 @@ router.post('/', requireAuth, async (req, res) => {
     if (socialConflict.length) {
       await client.query('ROLLBACK')
       return res.status(409).json({ message: 'You are signed up for social play during that time.' })
+    }
+
+    // Ensure the user (if they are a coach) is not teaching during this time
+    const { rows: coachTeachConflict } = await client.query(
+      `SELECT 1 FROM coaching_sessions cs
+       JOIN coaches co ON co.id = cs.coach_id
+       WHERE co.user_id=$1 AND cs.date=$2 AND cs.status='confirmed'
+         AND cs.start_time < $4::time AND cs.end_time > $3::time LIMIT 1`,
+      [req.user.id, date, start_time, end_time]
+    )
+    if (coachTeachConflict.length) {
+      await client.query('ROLLBACK')
+      return res.status(409).json({ message: 'You have a coaching session to teach during that time.' })
     }
 
     for (const [s, e] of slots) {
@@ -264,22 +294,22 @@ router.post('/group/:groupId/extend', requireAuth, async (req, res) => {
 router.delete('/group/:groupId', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT user_id FROM bookings WHERE booking_group_id=$1 LIMIT 1',
-      [req.params.groupId]
+      'SELECT user_id FROM bookings WHERE booking_group_id=$1 AND status=$2 LIMIT 1',
+      [req.params.groupId, 'confirmed']
     )
     if (!rows[0]) return res.status(404).json({ message: 'Booking not found.' })
     if (rows[0].user_id !== req.user.id && req.user.role !== 'admin')
       return res.status(403).json({ message: 'Forbidden.' })
 
     await pool.query(
-      'DELETE FROM bookings WHERE booking_group_id=$1',
+      "UPDATE bookings SET status='cancelled' WHERE booking_group_id=$1",
       [req.params.groupId]
     )
     res.json({ message: 'Booking cancelled.' })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
-// DELETE /api/bookings/:id  (delete a single 30-min slot — used by admin)
+// DELETE /api/bookings/:id  (cancel a single 30-min slot — used by admin)
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM bookings WHERE id=$1', [req.params.id])
@@ -287,7 +317,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
     if (rows[0].user_id !== req.user.id && req.user.role !== 'admin')
       return res.status(403).json({ message: 'Forbidden.' })
 
-    await pool.query('DELETE FROM bookings WHERE id=$1', [req.params.id])
+    await pool.query("UPDATE bookings SET status='cancelled' WHERE id=$1", [req.params.id])
     res.json({ message: 'Slot deleted.' })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })

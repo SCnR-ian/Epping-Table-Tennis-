@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import SocialPlayCard from '@/components/common/SocialPlayCard'
-import { bookingsAPI, coachingAPI, socialAPI, membersAPI } from '@/api/api'
+import { bookingsAPI, coachingAPI, socialAPI, membersAPI, checkinAPI } from '@/api/api'
 
 function toMins(t) {
   const [h, m] = t.substring(0, 5).split(':').map(Number)
@@ -106,6 +106,7 @@ export default function DashboardPage() {
   const [coachSessions,    setCoachSessions]    = useState([])
   const [socialSessions,   setSocialSessions]   = useState([])
   const [stats,            setStats]            = useState({ bookings: 0, tournaments: 0 })
+  const [checkedIn,        setCheckedIn]        = useState(new Set()) // "type:refId" keys
   const [loadingData,      setLoadingData]      = useState(false)
 
   // Rolling weeks — week 0 is always the current week, so no getCurrentWeekIdx needed
@@ -122,8 +123,9 @@ export default function DashboardPage() {
       coachingAPI.getMyCoachSessions(),
       socialAPI.getSessions(),
       user?.id ? membersAPI.getStats(user.id) : Promise.reject(),
+      checkinAPI.getToday(),
     ])
-      .then(([bookingRes, coachingRes, coachRes, socialRes, statsRes]) => {
+      .then(([bookingRes, coachingRes, coachRes, socialRes, statsRes, checkinRes]) => {
         if (cancelled) return
         if (bookingRes.status === 'fulfilled')
           setBookings(bookingRes.value.data.bookings.map(mapBooking))
@@ -135,6 +137,10 @@ export default function DashboardPage() {
           setSocialSessions(socialRes.value.data.sessions)
         if (statsRes.status === 'fulfilled')
           setStats(statsRes.value.data)
+        if (checkinRes.status === 'fulfilled')
+          setCheckedIn(new Set(
+            checkinRes.value.data.checkIns.map(ci => `${ci.type}:${ci.reference_id}`)
+          ))
       })
       .finally(() => { if (!cancelled) setLoadingData(false) })
     return () => { cancelled = true }
@@ -207,6 +213,17 @@ export default function DashboardPage() {
     }
   }
 
+  const handleCheckIn = async (type, refId) => {
+    try {
+      if (type === 'booking')  await checkinAPI.checkInBooking(refId)
+      if (type === 'coaching') await checkinAPI.checkInCoaching(refId)
+      if (type === 'social')   await checkinAPI.checkInSocial(refId)
+      setCheckedIn(prev => new Set([...prev, `${type}:${refId}`]))
+    } catch {
+      alert('Could not check in. Please try again.')
+    }
+  }
+
   const greeting = () => {
     const h = new Date().getHours()
     if (h < 12) return 'Good morning'
@@ -216,6 +233,42 @@ export default function DashboardPage() {
 
   const currentWeekDates = weeks[selectedWeek] ?? weeks[0]
   const todayISO         = toISO(new Date())
+
+  // Activities that have a check-in button today
+  const todayActivities = useMemo(() => {
+    const acts = []
+    bookings
+      .filter(b => b.date?.slice(0, 10) === todayISO && b.status !== 'cancelled')
+      .forEach(b => acts.push({
+        type: 'booking', refId: b.groupId,
+        title: 'Court Booking', subtitle: b.court,
+        time: `${fmtTime(b.startTime)} – ${fmtTime(b.endTime)}`,
+      }))
+    coachingSessions
+      .filter(s => s.date?.slice(0, 10) === todayISO)
+      .forEach(s => acts.push({
+        type: 'coaching', refId: String(s.id),
+        title: 'Coaching Session', subtitle: `w/ ${s.coach_name}`,
+        time: `${fmtTime(s.start_time)} – ${fmtTime(s.end_time)}`,
+      }))
+    coachSessions
+      .filter(s => s.date?.slice(0, 10) === todayISO)
+      .forEach(s => acts.push({
+        type: 'coaching', refId: String(s.id),
+        title: 'Teaching Session', subtitle: `→ ${s.student_name}`,
+        time: `${fmtTime(s.start_time)} – ${fmtTime(s.end_time)}`,
+      }))
+    socialSessions
+      .filter(s => s.joined && s.date?.slice(0, 10) === todayISO)
+      .forEach(s => acts.push({
+        type: 'social', refId: String(s.id),
+        title: s.title || 'Social Play',
+        subtitle: `${s.participant_count}/${s.max_players} players`,
+        time: `${fmtTime(s.start_time)} – ${fmtTime(s.end_time)}`,
+      }))
+    return acts
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookings, coachingSessions, coachSessions, socialSessions, todayISO])
 
   // Collect all events for a given date ISO string
   function getEvents(dateISO) {
@@ -473,6 +526,37 @@ export default function DashboardPage() {
 
         {/* ── Sidebar ──────────────────────────────────────────────────── */}
         <div className="space-y-6">
+
+          {/* Today's Check-In */}
+          {todayActivities.length > 0 && (
+            <div className="card">
+              <h3 className="text-sm font-semibold text-white mb-3">Today's Check-In</h3>
+              <div className="divide-y divide-court-light">
+                {todayActivities.map(act => {
+                  const key  = `${act.type}:${act.refId}`
+                  const done = checkedIn.has(key)
+                  return (
+                    <div key={key} className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0 gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm text-white font-medium truncate">{act.title}</p>
+                        <p className="text-xs text-slate-500 truncate">{act.subtitle} · {act.time}</p>
+                      </div>
+                      {done ? (
+                        <span className="text-xs text-emerald-400 font-semibold flex-shrink-0">✓ Checked In</span>
+                      ) : (
+                        <button
+                          onClick={() => handleCheckIn(act.type, act.refId)}
+                          className="btn-primary text-xs py-1 px-3 flex-shrink-0"
+                        >
+                          Check In
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Social Play */}
           <div>

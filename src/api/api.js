@@ -127,6 +127,8 @@ export const coachingAPI = {
   getMySessions:       ()       => api.get('/coaching/my'),
   // Coach-facing
   getMyCoachSessions:  ()       => api.get('/coaching/my-coach-sessions'),
+  // Admin pay period report
+  getPaymentReport: (from, to) => api.get('/coaching/payment-report', { params: { from, to } }),
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +142,23 @@ export const socialAPI = {
   cancelSession:    (id)       => api.delete(`/social/${id}`),
   join:             (id)       => api.post(`/social/${id}/join`),
   leave:            (id)       => api.delete(`/social/${id}/join`),
+}
+
+// ---------------------------------------------------------------------------
+// Check-In
+// ---------------------------------------------------------------------------
+export const checkinAPI = {
+  // Member self-check-in
+  checkInBooking:  (groupId)   => api.post(`/checkin/booking/${groupId}`),
+  checkInSocial:   (sessionId) => api.post(`/checkin/social/${sessionId}`),
+  checkInCoaching: (sessionId) => api.post(`/checkin/coaching/${sessionId}`),
+  // Member: today's check-in statuses
+  getToday: () => api.get('/checkin/today'),
+  // Admin: all check-ins for a date, and admin-initiated check-in (pass user_id in body)
+  getByDate:          (date)              => api.get('/checkin/admin', { params: { date } }),
+  adminCheckInBooking:  (groupId, userId) => api.post(`/checkin/booking/${groupId}`, { user_id: userId }),
+  adminCheckInCoaching: (sessionId, userId) => api.post(`/checkin/coaching/${sessionId}`, { user_id: userId }),
+  adminCheckInSocial:   (sessionId, userId) => api.post(`/checkin/social/${sessionId}`, { user_id: userId }),
 }
 
 // ---------------------------------------------------------------------------
