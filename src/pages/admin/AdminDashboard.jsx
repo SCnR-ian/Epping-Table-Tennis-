@@ -1364,24 +1364,44 @@ export default function AdminDashboard() {
                   />
                 </div>
 
-                <div className="flex gap-3">
-                  <div className="flex-1">
-                    <label className="block text-xs text-slate-200 mb-1">Start Time (HH:MM)</label>
-                    <input
-                      type="text" className="input w-full" placeholder="e.g. 18:00"
-                      value={socialForm.start_time}
-                      onChange={e => setSocialForm(f => ({ ...f, start_time: e.target.value }))}
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="block text-xs text-slate-200 mb-1">End Time (HH:MM)</label>
-                    <input
-                      type="text" className="input w-full" placeholder="e.g. 20:00"
-                      value={socialForm.end_time}
-                      onChange={e => setSocialForm(f => ({ ...f, end_time: e.target.value }))}
-                    />
-                  </div>
-                </div>
+                {(() => {
+                  const dow = socialForm.date ? new Date(socialForm.date + 'T12:00:00').getDay() : null
+                  const slots = OPEN_DAYS.find(d => d.dow === dow)?.slots ?? WEEKDAY_SLOTS
+                  // end-time options: every slot after the selected start, plus a closing slot
+                  const lastSlot = slots[slots.length - 1]
+                  const [lh, lm] = lastSlot.split(':').map(Number)
+                  const closingSlot = `${String(lh + (lm === 30 ? 1 : 0)).padStart(2,'0')}:${lm === 30 ? '00' : '30'}`
+                  const endSlots = [...slots.slice(1), closingSlot]
+                  const startIdx = slots.indexOf(socialForm.start_time)
+                  const validEndSlots = startIdx >= 0 ? endSlots.slice(startIdx) : endSlots
+                  return (
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <label className="block text-xs text-slate-200 mb-1">Start Time</label>
+                        <select
+                          className="input w-full"
+                          value={socialForm.start_time}
+                          onChange={e => setSocialForm(f => ({ ...f, start_time: e.target.value, end_time: '' }))}
+                        >
+                          <option value="">-- select --</option>
+                          {slots.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex-1">
+                        <label className="block text-xs text-slate-200 mb-1">End Time</label>
+                        <select
+                          className="input w-full"
+                          value={socialForm.end_time}
+                          onChange={e => setSocialForm(f => ({ ...f, end_time: e.target.value }))}
+                          disabled={!socialForm.start_time}
+                        >
+                          <option value="">-- select --</option>
+                          {validEndSlots.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  )
+                })()}
 
                 <div>
                   <label className="block text-xs text-slate-200 mb-1">Max Players</label>
