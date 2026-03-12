@@ -81,7 +81,7 @@ router.post('/members/:id/make-coach', upload.single('resume'), async (req, res)
     const { rows } = await client.query(
       `INSERT INTO coaches (user_id, name, bio, availability_start, availability_end, resume_filename, resume_data)
        VALUES ($1,$2,$3,$4,$5,$6,$7)
-       ON CONFLICT (user_id) DO UPDATE SET
+       ON CONFLICT (user_id) WHERE user_id IS NOT NULL DO UPDATE SET
          bio=$3, availability_start=$4, availability_end=$5,
          resume_filename=COALESCE($6, coaches.resume_filename),
          resume_data=COALESCE($7, coaches.resume_data)
@@ -93,7 +93,8 @@ router.post('/members/:id/make-coach', upload.single('resume'), async (req, res)
     res.status(201).json({ coach: rows[0] })
   } catch (err) {
     await client.query('ROLLBACK')
-    res.status(500).json({ message: 'Server error.' })
+    console.error('make-coach error:', err.message, err.stack)
+    res.status(500).json({ message: err.message })
   } finally { client.release() }
 })
 
