@@ -199,7 +199,7 @@ export default function BookingPage() {
       <div className="flex items-center gap-3 mb-10">
         {STEPS.map((label, i) => (
           <div key={i} className="flex items-center gap-3">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-colors ${
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-normal transition-colors ${
               step > i + 1
                 ? "bg-brand-500 text-white"
                 : step === i + 1
@@ -222,11 +222,11 @@ export default function BookingPage() {
 
           {/* Date picker */}
           <div className="card">
-            <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">Select a Date</h2>
+            <h2 className="text-sm font-normal text-slate-300 uppercase tracking-wider mb-4">Select a Date</h2>
 
             {thisWeekDates.length > 0 && (
               <div className="mb-5">
-                <p className="text-[11px] text-slate-600 uppercase tracking-widest font-semibold mb-2">This Week</p>
+                <p className="text-[11px] text-slate-600 uppercase tracking-widest font-normal mb-2">This Week</p>
                 <div className="flex gap-2 flex-wrap">
                   {thisWeekDates.map(d => {
                     const iso    = toISO(d);
@@ -241,7 +241,7 @@ export default function BookingPage() {
                             : "border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white"
                         }`}
                       >
-                        <div className="font-bold">{d.toLocaleDateString("en-AU", { weekday: "short" })}</div>
+                        <div className="font-normal">{d.toLocaleDateString("en-AU", { weekday: "short" })}</div>
                         <div className="opacity-80">{d.toLocaleDateString("en-AU", { day: "numeric", month: "short" })}</div>
                       </button>
                     );
@@ -252,7 +252,7 @@ export default function BookingPage() {
 
             {nextWeekDates.length > 0 && (
               <div>
-                <p className="text-[11px] text-slate-600 uppercase tracking-widest font-semibold mb-2">Next Week</p>
+                <p className="text-[11px] text-slate-600 uppercase tracking-widest font-normal mb-2">Next Week</p>
                 <div className="flex gap-2 flex-wrap">
                   {nextWeekDates.map(d => {
                     const iso    = toISO(d);
@@ -267,7 +267,7 @@ export default function BookingPage() {
                             : "border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white"
                         }`}
                       >
-                        <div className="font-bold">{d.toLocaleDateString("en-AU", { weekday: "short" })}</div>
+                        <div className="font-normal">{d.toLocaleDateString("en-AU", { weekday: "short" })}</div>
                         <div className="opacity-80">{d.toLocaleDateString("en-AU", { day: "numeric", month: "short" })}</div>
                       </button>
                     );
@@ -283,7 +283,7 @@ export default function BookingPage() {
 
               {/* Duration */}
               <div>
-                <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">Duration</h2>
+                <h2 className="text-sm font-normal text-slate-300 uppercase tracking-wider mb-3">Duration</h2>
                 <div className="flex gap-2">
                   {DURATIONS.map(d => (
                     <button
@@ -303,7 +303,7 @@ export default function BookingPage() {
 
               {/* Time slots */}
               <div>
-                <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">Start Time</h2>
+                <h2 className="text-sm font-normal text-slate-300 uppercase tracking-wider mb-3">Start Time</h2>
                 {slotsLoading ? (
                   <p className="text-slate-500 text-sm">Loading availability…</p>
                 ) : (
@@ -327,7 +327,7 @@ export default function BookingPage() {
                                 : "border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white"
                           }`}
                         >
-                          <span className="font-semibold text-xs">{fmtTime(t)}</span>
+                          <span className="font-normal text-xs">{fmtTime(t)}</span>
                           <span className={`text-[10px] ${active ? "text-white/70" : disabled ? "" : "text-emerald-500"}`}>
                             {mine ? "Yours" : full ? "Full" : "Available"}
                           </span>
@@ -347,7 +347,7 @@ export default function BookingPage() {
                 ? "bg-emerald-500/5 border-emerald-500/20"
                 : "bg-red-500/5 border-red-500/20"
             }`}>
-              <div className={`font-display text-4xl font-bold ${availableCount > 0 ? "text-emerald-400" : "text-red-400"}`}>
+              <div className={`font-display text-4xl font-normal ${availableCount > 0 ? "text-emerald-400" : "text-red-400"}`}>
                 {availableCount}
               </div>
               <div>
@@ -371,7 +371,7 @@ export default function BookingPage() {
       {/* ── Step 2: Confirm ──────────────────────────────────────────────────── */}
       {step === 2 && (
         <div className="card max-w-lg space-y-6 animate-fade-in">
-          <h2 className="font-semibold text-white">Confirm Your Booking</h2>
+          <h2 className="font-normal text-white">Confirm Your Booking</h2>
 
           <div className="space-y-0 text-sm">
             {[

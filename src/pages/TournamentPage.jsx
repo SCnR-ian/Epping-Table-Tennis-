@@ -32,7 +32,7 @@ export default function TournamentPage() {
     <div className="page-wrapper py-10 px-4 max-w-7xl mx-auto">
       {/* Header */}
       <div className="mb-10">
-        <p className="text-brand-500 text-xs uppercase tracking-widest font-semibold mb-2">Compete & Win</p>
+        <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">Compete & Win</p>
         <h1 className="font-display text-5xl md:text-6xl text-white tracking-wider mb-3">Tournaments</h1>
         <p className="text-slate-400 max-w-xl">
           From beginner-friendly opens to club championships — there's a level for everyone. Register early, spots fill fast.

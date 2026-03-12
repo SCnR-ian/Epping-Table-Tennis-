@@ -45,7 +45,7 @@ export default function SocialPlayCard({ session, isAuthenticated, onJoin, onLea
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="font-semibold text-white leading-tight">{title}</h3>
+          <h3 className="font-normal text-white leading-tight">{title}</h3>
           <p className="text-xs text-slate-500 mt-0.5">{courtsLabel}</p>
         </div>
         <span className={`badge border flex-shrink-0 ${

@@ -83,7 +83,7 @@ export default function HomePage() {
         </div>
 
         <div className="relative z-10 text-center px-4 max-w-4xl mx-auto">
-          <p className="text-brand-400 font-semibold text-sm uppercase tracking-widest mb-4 animate-fade-in">
+          <p className="text-brand-400 font-normal text-sm uppercase tracking-widest mb-4 animate-fade-in">
             Sydney's Premier Table Tennis Club
           </p>
           <h1 className="section-title text-6xl md:text-8xl lg:text-9xl leading-none mb-6 animate-slide-up">
@@ -129,7 +129,7 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
           {/* Text */}
           <div>
-            <p className="text-brand-500 text-xs uppercase tracking-widest font-semibold mb-3">
+            <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-3">
               About Us
             </p>
             <h2 className="section-title text-4xl md:text-5xl mb-6">
@@ -199,7 +199,7 @@ export default function HomePage() {
       <section className="py-20 px-4 max-w-7xl mx-auto">
         <div className="flex items-end justify-between mb-10">
           <div>
-            <p className="text-brand-500 text-xs uppercase tracking-widest font-semibold mb-2">
+            <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">
               Opening Hours
             </p>
             <h2 className="section-title text-4xl">Weekly Schedule</h2>
@@ -228,7 +228,7 @@ export default function HomePage() {
       <section className="py-20 px-4 bg-court-mid border-t border-court-light">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12">
-            <p className="text-brand-500 text-xs uppercase tracking-widest font-semibold mb-2">
+            <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">
               Expert Guidance
             </p>
             <h2 className="section-title text-4xl">Meet Our Coaches</h2>
@@ -251,7 +251,7 @@ export default function HomePage() {
                 <p className="font-display text-xl text-white tracking-wide">
                   {coach.name}
                 </p>
-                <p className="text-brand-500 text-xs uppercase tracking-widest font-semibold mt-1 mb-3">
+                <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mt-1 mb-3">
                   {coach.title}
                 </p>
                 <p className="text-slate-400 text-sm leading-relaxed">
@@ -267,7 +267,7 @@ export default function HomePage() {
       <section className="py-20 px-4">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12">
-            <p className="text-brand-500 text-xs uppercase tracking-widest font-semibold mb-2">
+            <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">
               Location
             </p>
             <h2 className="section-title text-4xl">Find Us</h2>
@@ -276,7 +276,7 @@ export default function HomePage() {
             {/* Address & details */}
             <div className="space-y-6">
               <div className="card">
-                <p className="text-brand-500 text-xs uppercase tracking-widest font-semibold mb-2">
+                <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">
                   Address
                 </p>
                 <p className="text-white font-medium">
@@ -291,7 +291,7 @@ export default function HomePage() {
                 </p>
               </div>
               <div className="card">
-                <p className="text-brand-500 text-xs uppercase tracking-widest font-semibold mb-2">
+                <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">
                   Getting Here
                 </p>
                 <ul className="text-slate-400 text-sm space-y-2">
@@ -301,7 +301,7 @@ export default function HomePage() {
                 </ul>
               </div>
               <div className="card">
-                <p className="text-brand-500 text-xs uppercase tracking-widest font-semibold mb-2">
+                <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">
                   Contact
                 </p>
                 <p className="text-slate-400 text-sm">📞 (02) 9876 5432</p>

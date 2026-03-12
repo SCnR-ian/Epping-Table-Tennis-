@@ -35,7 +35,7 @@ export default function TournamentCard({ tournament, onRegister }) {
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="font-semibold text-white leading-tight">{name}</h3>
+          <h3 className="font-normal text-white leading-tight">{name}</h3>
           <p className="text-xs text-slate-500 mt-0.5 uppercase tracking-wide">{format}</p>
         </div>
         <span className={`badge border flex-shrink-0 ${style}`}>{label}</span>
@@ -50,7 +50,7 @@ export default function TournamentCard({ tournament, onRegister }) {
         {prize && (
           <div>
             <p className="text-xs text-slate-500 uppercase tracking-wider mb-0.5">Prize Pool</p>
-            <p className="text-brand-400 font-bold">{prize}</p>
+            <p className="text-brand-400 font-normal">{prize}</p>
           </div>
         )}
       </div>

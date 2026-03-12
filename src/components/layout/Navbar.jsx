@@ -87,7 +87,7 @@ export default function Navbar() {
                   to="/profile"
                   className="flex items-center gap-2 text-sm text-slate-300 hover:text-white transition-colors"
                 >
-                  <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center font-semibold text-white text-xs uppercase">
+                  <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center font-normal text-white text-xs uppercase">
                     {user?.name?.[0] ?? "U"}
                   </div>
                   <span className="hidden lg:block font-medium">
@@ -184,7 +184,7 @@ export default function Navbar() {
                   className="flex items-center gap-2 px-3 py-2 text-sm text-slate-300"
                   onClick={() => setMobileOpen(false)}
                 >
-                  <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center text-xs font-bold text-white uppercase">
+                  <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center text-xs font-normal text-white uppercase">
                     {user?.name?.[0] ?? "U"}
                   </div>
                   {user?.name}

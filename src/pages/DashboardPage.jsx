@@ -328,7 +328,7 @@ export default function DashboardPage() {
 
           {/* Header + week selector */}
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-white">My Schedule</h2>
+            <h2 className="text-lg font-normal text-white">My Schedule</h2>
             <div className="flex gap-1.5">
               {weeks.map((weekDates, i) => {
                 const hasEvents = Object.values(weekDates).some(date => {
@@ -376,10 +376,10 @@ export default function DashboardPage() {
                     key={dow}
                     className={`py-2.5 text-center border-l border-court-light ${isToday ? 'bg-brand-500/10' : ''}`}
                   >
-                    <p className={`text-[11px] font-semibold uppercase tracking-wide ${isToday ? 'text-brand-400' : 'text-slate-500'}`}>
+                    <p className={`text-[11px] font-normal uppercase tracking-wide ${isToday ? 'text-brand-400' : 'text-slate-500'}`}>
                       {short}
                     </p>
-                    <p className={`text-base font-bold leading-tight ${isToday ? 'text-brand-300' : 'text-white'}`}>
+                    <p className={`text-base font-normal leading-tight ${isToday ? 'text-brand-300' : 'text-white'}`}>
                       {date.getDate()}
                     </p>
                     <p className="text-[10px] text-slate-600">
@@ -486,7 +486,7 @@ export default function DashboardPage() {
                           title={`${title} · ${fmtTime(startTime)}–${fmtTime(endTime)}`}
                         >
                           <div className="p-1 h-full flex flex-col justify-between">
-                            <p className="font-semibold truncate">{title}</p>
+                            <p className="font-normal truncate">{title}</p>
                             {height > 38 && (
                               <p className="opacity-70 truncate">{fmtTime(startTime)}</p>
                             )}
@@ -530,7 +530,7 @@ export default function DashboardPage() {
           {/* Today's Check-In */}
           {todayActivities.length > 0 && (
             <div className="card">
-              <h3 className="text-sm font-semibold text-white mb-3">Today's Check-In</h3>
+              <h3 className="text-sm font-normal text-white mb-3">Today's Check-In</h3>
               <div className="divide-y divide-court-light">
                 {todayActivities.map(act => {
                   const key  = `${act.type}:${act.refId}`
@@ -542,7 +542,7 @@ export default function DashboardPage() {
                         <p className="text-xs text-slate-500 truncate">{act.subtitle} · {act.time}</p>
                       </div>
                       {done ? (
-                        <span className="text-xs text-emerald-400 font-semibold flex-shrink-0">✓ Checked In</span>
+                        <span className="text-xs text-emerald-400 font-normal flex-shrink-0">✓ Checked In</span>
                       ) : (
                         <button
                           onClick={() => handleCheckIn(act.type, act.refId)}
@@ -561,7 +561,7 @@ export default function DashboardPage() {
           {/* Social Play */}
           <div>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-white">Social Play</h2>
+              <h2 className="text-lg font-normal text-white">Social Play</h2>
               <Link to="/social-play" className="text-xs text-brand-400 hover:text-brand-300">View all →</Link>
             </div>
             {socialSessions.length === 0 ? (
@@ -583,7 +583,7 @@ export default function DashboardPage() {
 
           {/* Quick Links */}
           <div className="card">
-            <h3 className="text-sm font-semibold text-white mb-3">Quick Links</h3>
+            <h3 className="text-sm font-normal text-white mb-3">Quick Links</h3>
             <nav className="space-y-1">
               {[
                 ['Profile Settings', '/profile'],

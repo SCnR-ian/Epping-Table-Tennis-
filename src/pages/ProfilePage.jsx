@@ -160,7 +160,7 @@ export default function ProfilePage() {
               return (
                 <div key={b.id} className="card max-w-lg flex items-start justify-between gap-4">
                   <div className="space-y-1 min-w-0">
-                    <p className="font-semibold text-white truncate">{b.court_name}</p>
+                    <p className="font-normal text-white truncate">{b.court_name}</p>
                     <p className="text-sm text-slate-400">{fmtDate(b.date)}</p>
                     <p className="text-sm text-slate-400">
                       {fmtTime(b.start_time)} – {fmtTime(b.end_time)}
@@ -190,7 +190,7 @@ export default function ProfilePage() {
       {/* Security tab */}
       {activeTab === 'Security' && (
         <form onSubmit={handlePasswordSave} className="card max-w-lg space-y-5 animate-fade-in">
-          <h2 className="font-semibold text-white">Change Password</h2>
+          <h2 className="font-normal text-white">Change Password</h2>
           <FormInput id="current" name="current" label="Current Password" type="password" value={pwForm.current} onChange={handlePwChange} />
           <FormInput id="next"    name="next"    label="New Password"     type="password" value={pwForm.next}    onChange={handlePwChange} />
           <FormInput id="confirm" name="confirm" label="Confirm New Password" type="password" value={pwForm.confirm} onChange={handlePwChange} />
@@ -203,7 +203,7 @@ export default function ProfilePage() {
       {/* Preferences tab */}
       {activeTab === 'Preferences' && (
         <div className="card max-w-lg space-y-5 animate-fade-in">
-          <h2 className="font-semibold text-white">Notifications</h2>
+          <h2 className="font-normal text-white">Notifications</h2>
           {[
             ['Email me about upcoming tournaments', true],
             ['Email me about booking reminders',   true],

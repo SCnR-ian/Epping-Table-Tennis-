@@ -40,7 +40,7 @@ export default function SocialPlayPage() {
 
       {/* Header */}
       <div className="mb-10">
-        <p className="text-brand-500 text-xs uppercase tracking-widest font-semibold mb-2">Join &amp; Play</p>
+        <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">Join &amp; Play</p>
         <h1 className="font-display text-5xl md:text-6xl text-white tracking-wider mb-3">Social Play</h1>
         <p className="text-slate-400 max-w-xl">
           Drop-in sessions open to all members — come along, meet other players,

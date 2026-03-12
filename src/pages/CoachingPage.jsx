@@ -62,7 +62,7 @@ export default function CoachingPage() {
     <div className="page-wrapper py-16 px-4 max-w-6xl mx-auto">
       {/* Header */}
       <div className="text-center mb-14">
-        <p className="text-brand-500 text-xs uppercase tracking-widest font-semibold mb-2">
+        <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">
           Professional Coaching
         </p>
         <h1 className="font-display text-5xl text-white tracking-wider mb-4">
@@ -82,7 +82,7 @@ export default function CoachingPage() {
             className="card flex flex-col gap-5 relative overflow-hidden hover:border-court-light/80 transition-colors"
           >
             {/* Tag */}
-            <span className={`absolute top-4 right-4 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full border ${p.accent} ${p.color}`}>
+            <span className={`absolute top-4 right-4 text-[10px] font-normal uppercase tracking-wider px-2 py-0.5 rounded-full border ${p.accent} ${p.color}`}>
               {p.tag}
             </span>
 
@@ -97,7 +97,7 @@ export default function CoachingPage() {
 
             {/* Price */}
             <div>
-              <span className="text-white font-semibold text-3xl">{p.price}</span>
+              <span className="text-white font-normal text-3xl">{p.price}</span>
               <span className="text-slate-500 text-xs ml-1">per session</span>
             </div>
 
