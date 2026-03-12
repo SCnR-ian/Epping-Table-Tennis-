@@ -195,32 +195,37 @@ export default function DashboardPage() {
   const currentWeekDates = weeks[selectedWeek] ?? weeks[0]
   const todayISO         = toISO(new Date())
 
-  // Activities that have a check-in button today
-  const todayActivities = useMemo(() => {
+  // Upcoming coaching + social activities within the next 7 days (for check-in section)
+  const upcomingActivities = useMemo(() => {
+    const cutoff = new Date(todayISO); cutoff.setDate(cutoff.getDate() + 7)
+    const cutoffISO = toISO(cutoff)
     const acts = []
     coachingSessions
-      .filter(s => s.date?.slice(0, 10) === todayISO)
+      .filter(s => { const d = s.date?.slice(0, 10); return d >= todayISO && d <= cutoffISO })
       .forEach(s => acts.push({
         type: 'coaching', refId: String(s.id),
         title: 'Coaching Session', subtitle: `w/ ${s.coach_name}`,
+        date: s.date?.slice(0, 10),
         time: `${fmtTime(s.start_time)} – ${fmtTime(s.end_time)}`,
       }))
     coachSessions
-      .filter(s => s.date?.slice(0, 10) === todayISO)
+      .filter(s => { const d = s.date?.slice(0, 10); return d >= todayISO && d <= cutoffISO })
       .forEach(s => acts.push({
         type: 'coaching', refId: String(s.id),
         title: 'Teaching Session', subtitle: `→ ${s.student_name}`,
+        date: s.date?.slice(0, 10),
         time: `${fmtTime(s.start_time)} – ${fmtTime(s.end_time)}`,
       }))
     socialSessions
-      .filter(s => s.joined && s.date?.slice(0, 10) === todayISO)
+      .filter(s => { const d = s.date?.slice(0, 10); return s.joined && d >= todayISO && d <= cutoffISO })
       .forEach(s => acts.push({
         type: 'social', refId: String(s.id),
         title: s.title || 'Social Play',
         subtitle: `${s.participant_count}/${s.max_players} players`,
+        date: s.date?.slice(0, 10),
         time: `${fmtTime(s.start_time)} – ${fmtTime(s.end_time)}`,
       }))
-    return acts
+    return acts.sort((a, b) => a.date.localeCompare(b.date))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coachingSessions, coachSessions, socialSessions, todayISO])
 
@@ -460,31 +465,35 @@ export default function DashboardPage() {
         {/* ── Sidebar ──────────────────────────────────────────────────── */}
         <div className="space-y-6">
 
-          {/* Today's Check-In */}
-          {todayActivities.length > 0 && (
+          {/* Check-In */}
+          {upcomingActivities.length > 0 && (
             <div className="card">
-              <h3 className="text-sm font-normal text-white mb-3">Today's Check-In</h3>
+              <h3 className="text-sm font-normal text-white mb-3">Check-In</h3>
               <div className="divide-y divide-court-light">
-                {todayActivities.map(act => {
-                  const key  = `${act.type}:${act.refId}`
-                  const done = checkedIn.has(key)
+                {upcomingActivities.map(act => {
+                  const key     = `${act.type}:${act.refId}`
+                  const done    = checkedIn.has(key)
+                  const isToday = act.date === todayISO
+                  const dateLabel = isToday ? 'Today' : new Date(act.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
                   return (
                     <div key={key} className="py-2.5 first:pt-0 last:pb-0">
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <p className="text-sm text-white truncate">{act.title}</p>
                           <p className="text-xs text-slate-400 truncate">{act.subtitle}</p>
-                          <p className="text-xs text-slate-500">{act.time}</p>
+                          <p className="text-xs text-slate-500">{dateLabel} · {act.time}</p>
                         </div>
                         {done ? (
                           <span className="text-xs text-emerald-400 flex-shrink-0">✓ Checked In</span>
-                        ) : (
+                        ) : isToday ? (
                           <button
                             onClick={() => setConfirmCheckIn(act)}
                             className="btn-primary text-xs py-1 px-3 flex-shrink-0"
                           >
                             Check In
                           </button>
+                        ) : (
+                          <span className="text-xs text-slate-600 flex-shrink-0">Upcoming</span>
                         )}
                       </div>
                     </div>
