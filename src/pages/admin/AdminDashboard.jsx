@@ -122,7 +122,7 @@ const STAT_CARDS = [
   { key: 'tournaments', label: 'Active Tournaments', icon: '🏆', color: 'text-yellow-400'  },
 ]
 
-const TABS = ['Members', 'Bookings', 'Coaching', 'Social Play']
+const TABS = ['Members', 'Bookings', 'Coaching', 'Social Play', 'Pay Report']
 
 const BOOKABLE_COURTS = [
   { id: 1, label: 'Court 1' },
@@ -201,9 +201,6 @@ export default function AdminDashboard() {
   const [studentSearch,    setStudentSearch]    = useState('')
   // Set of session IDs the admin has checked in during this tab visit
   const [adminCheckedIn,   setAdminCheckedIn]   = useState(new Set())
-  const [showCoachesSection, setShowCoachesSection] = useState(false)
-  const [showPayReport,      setShowPayReport]      = useState(false)
-
   // Pay period report state
   const [payFrom, setPayFrom] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() - 13); return toISO(d)
@@ -1104,232 +1101,113 @@ export default function AdminDashboard() {
             )}
           </div>
 
-          {/* ── Coaches section ── */}
-          <div>
-            <button
-              onClick={() => setShowCoachesSection(v => !v)}
-              className="flex items-center gap-2 text-lg text-white mb-4 hover:text-slate-300 transition-colors"
-            >
-              <span>{showCoachesSection ? '▾' : '▸'}</span>
-              Coaches
-            </button>
+        </div>
+      )}
 
-            {showCoachesSection && <>
-            {/* Add coach form */}
-            <div className="card mb-4 space-y-3">
-              <p className="text-xs text-slate-300 uppercase tracking-widest">Add Coach</p>
-              <input
-                className="input w-full"
-                placeholder="Name"
-                value={newCoachName}
-                onChange={e => setNewCoachName(e.target.value)}
-              />
-              <textarea
-                className="input w-full h-20 resize-none"
-                placeholder="Bio (optional)"
-                value={newCoachBio}
-                onChange={e => setNewCoachBio(e.target.value)}
-              />
+      {/* ── Pay Report tab ───────────────────────────────────────────────── */}
+      {activeTab === 'Pay Report' && (
+        <div className="animate-fade-in space-y-6">
+          <p className="text-xs text-slate-300">
+            A session counts toward pay when <span className="text-white">an admin checks in</span>, or when <span className="text-white">both the student and the coach</span> have self-checked in.
+          </p>
+
+          {/* Date range picker */}
+          <div className="card">
+            <div className="flex items-end gap-4 flex-wrap">
               <div>
-                <label className="block text-xs text-slate-200 mb-1">Link to Member Account (optional)</label>
-                <select
-                  className="input w-full"
-                  value={newCoachUserId}
-                  onChange={e => setNewCoachUserId(e.target.value)}
-                >
-                  <option value="">No linked account</option>
-                  {members.filter(m => m.role !== 'coach').map(m => (
-                    <option key={m.id} value={m.id}>{m.name} ({m.email})</option>
-                  ))}
-                </select>
-                <p className="text-[10px] text-slate-500 mt-1">Linked member will have their role set to "coach" and can see their schedule on the dashboard.</p>
+                <label className="block text-xs text-slate-200 mb-1">From</label>
+                <input type="date" className="input" value={payFrom}
+                  onChange={e => setPayFrom(e.target.value)} />
               </div>
-              <button onClick={handleAddCoach} className="btn-primary text-sm">
-                Add Coach
+              <div>
+                <label className="block text-xs text-slate-200 mb-1">To</label>
+                <input type="date" className="input" value={payTo}
+                  onChange={e => setPayTo(e.target.value)} />
+              </div>
+              <button
+                onClick={handleLoadPayReport}
+                disabled={payLoading}
+                className="btn-primary text-sm disabled:opacity-50"
+              >
+                {payLoading ? 'Loading…' : 'Generate Report'}
               </button>
             </div>
+          </div>
 
-            {/* Coaches list */}
-            {loading ? (
-              <p className="text-slate-300 text-sm">Loading…</p>
-            ) : coaches.length === 0 ? (
-              <p className="text-slate-300 text-sm">No coaches yet.</p>
+          {/* Report results */}
+          {payReport !== null && (
+            payReport.length === 0 ? (
+              <p className="text-slate-300 text-sm">No confirmed coaching sessions in this period.</p>
             ) : (
-              <div className="card p-0 overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-court-light">
-                      {['Name', 'Bio', 'Linked Account', 'Actions'].map(h => (
-                        <th key={h} className="text-left px-5 py-3 text-xs text-slate-300 uppercase tracking-wider">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {coaches.map(c => (
-                      <tr key={c.id} className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors">
-                        <td className="px-5 py-3 font-medium text-white">{c.name}</td>
-                        <td className="px-5 py-3 text-slate-300 text-xs max-w-xs truncate">{c.bio ?? '—'}</td>
-                        <td className="px-5 py-3 text-xs">
-                          {c.user_id
-                            ? (() => {
-                                const u = members.find(m => m.id === c.user_id)
-                                return u
-                                  ? <span className="text-sky-400">{u.name}</span>
-                                  : <span className="text-slate-500">ID {c.user_id}</span>
-                              })()
-                            : <span className="text-slate-400">—</span>
-                          }
-                        </td>
-                        <td className="px-5 py-3">
-                          <button
-                            onClick={() => handleDeleteCoach(c.id)}
-                            className="text-xs text-red-400 hover:text-red-300 font-medium"
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            </>}
-          </div>
-
-          {/* ── Pay Period Report ── */}
-          <div>
-            <button
-              onClick={() => setShowPayReport(v => !v)}
-              className="flex items-center gap-2 text-lg text-white mb-4 hover:text-slate-300 transition-colors"
-            >
-              <span>{showPayReport ? '▾' : '▸'}</span>
-              Pay Period Report
-            </button>
-
-            {showPayReport && <>
-            <p className="text-xs text-slate-300 mb-4">
-              A session counts toward pay when <span className="text-white font-medium">an admin checks in</span>, or when <span className="text-white font-medium">both the student and the coach</span> have self-checked in.
-            </p>
-
-            {/* Date range picker */}
-            <div className="card mb-6">
-              <div className="flex items-end gap-4 flex-wrap">
-                <div>
-                  <label className="block text-xs text-slate-200 mb-1">From</label>
-                  <input type="date" className="input" value={payFrom}
-                    onChange={e => setPayFrom(e.target.value)} />
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-200 mb-1">To</label>
-                  <input type="date" className="input" value={payTo}
-                    onChange={e => setPayTo(e.target.value)} />
-                </div>
-                <button
-                  onClick={handleLoadPayReport}
-                  disabled={payLoading}
-                  className="btn-primary text-sm disabled:opacity-50"
-                >
-                  {payLoading ? 'Loading…' : 'Generate Report'}
-                </button>
-              </div>
-            </div>
-
-            {/* Report results */}
-            {payReport !== null && (
-              payReport.length === 0 ? (
-                <p className="text-slate-300 text-sm">No confirmed coaching sessions in this period.</p>
-              ) : (
-                <div className="space-y-6">
-                  {payReport.map(coach => {
-                    const weeks = groupByWeek(coach.sessions)
-                    return (
-                      <div key={coach.coach_id} className="card p-0 overflow-hidden">
-
-                        {/* Coach header */}
-                        <div className="flex items-center justify-between px-5 py-3 border-b border-court-light bg-court-light/20">
-                          <div>
-                            <p className="text-white">{coach.coach_name}</p>
-                            {!coach.has_account && (
-                              <p className="text-[10px] text-yellow-500 mt-0.5">
-                                No linked account — coach check-in unavailable; sessions will not count
-                              </p>
-                            )}
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm text-emerald-400">{coach.counted} counted</p>
-                            <p className="text-xs text-slate-500">{coach.total} total sessions</p>
-                          </div>
+              <div className="space-y-6">
+                {payReport.map(coach => {
+                  const weeks = groupByWeek(coach.sessions)
+                  return (
+                    <div key={coach.coach_id} className="card p-0 overflow-hidden">
+                      <div className="flex items-center justify-between px-5 py-3 border-b border-court-light bg-court-light/20">
+                        <div>
+                          <p className="text-white">{coach.coach_name}</p>
+                          {!coach.has_account && (
+                            <p className="text-[10px] text-yellow-500 mt-0.5">
+                              No linked account — coach check-in unavailable; sessions will not count
+                            </p>
+                          )}
                         </div>
-
-                        {/* Per-week groups */}
-                        {weeks.map(week => (
-                          <div key={week.weekStart}>
-                            {/* Week sub-header */}
-                            <div className="flex items-center justify-between px-5 py-2 bg-court-light/10 border-b border-court-light/40">
-                              <p className="text-xs text-slate-400">
-                                Week of {new Date(week.weekStart + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
-                              </p>
-                              <p className="text-xs text-slate-500">
-                                <span className="text-emerald-400">{week.counted}</span>
-                                {' '}/ {week.total} counted
-                              </p>
-                            </div>
-
-                            {/* Session rows */}
-                            <table className="w-full text-sm">
-                              <tbody>
-                                {week.sessions.map(s => (
-                                  <tr
-                                    key={s.session_id}
-                                    className={`border-b border-court-light/30 last:border-0 ${s.counted ? '' : 'opacity-50'}`}
-                                  >
-                                    <td className="px-5 py-2.5 text-slate-300 text-xs whitespace-nowrap">
-                                      {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
-                                    </td>
-                                    <td className="px-5 py-2.5 text-white text-xs">{s.student_name}</td>
-                                    <td className="px-5 py-2.5 text-slate-300 text-xs font-mono whitespace-nowrap">
-                                      {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
-                                    </td>
-                                    {/* Check-in status */}
-                                    <td className="px-3 py-2.5 text-xs whitespace-nowrap">
-                                      {s.admin_checked_in ? (
-                                        <span className="text-sky-400">Admin ✓</span>
-                                      ) : (
-                                        <span className="space-x-2">
-                                          <span className={s.student_checked_in ? 'text-emerald-400' : 'text-red-400'}>
-                                            Student {s.student_checked_in ? '✓' : '✗'}
-                                          </span>
-                                          <span className={
-                                            s.coach_checked_in === null ? 'text-slate-400' :
-                                            s.coach_checked_in ? 'text-emerald-400' : 'text-red-400'
-                                          }>
-                                            {s.coach_checked_in === null ? 'Coach N/A' : `Coach ${s.coach_checked_in ? '✓' : '✗'}`}
-                                          </span>
-                                        </span>
-                                      )}
-                                    </td>
-                                    {/* Counted status */}
-                                    <td className="px-3 py-2.5 text-xs">
-                                      {s.counted
-                                        ? <span className="text-emerald-400">Counted</span>
-                                        : <span className="text-slate-400">Not counted</span>}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        ))}
+                        <div className="text-right">
+                          <p className="text-sm text-emerald-400">{coach.counted} counted</p>
+                          <p className="text-xs text-slate-500">{coach.total} total sessions</p>
+                        </div>
                       </div>
-                    )
-                  })}
-                </div>
-              )
-            )}
-            </>}
-          </div>
-
+                      {weeks.map(week => (
+                        <div key={week.weekStart}>
+                          <div className="flex items-center justify-between px-5 py-2 bg-court-light/10 border-b border-court-light/40">
+                            <p className="text-xs text-slate-400">
+                              Week of {new Date(week.weekStart + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              <span className="text-emerald-400">{week.counted}</span>{' '}/ {week.total} counted
+                            </p>
+                          </div>
+                          <table className="w-full text-sm">
+                            <tbody>
+                              {week.sessions.map(s => (
+                                <tr key={s.session_id} className={`border-b border-court-light/30 last:border-0 ${s.counted ? '' : 'opacity-50'}`}>
+                                  <td className="px-5 py-2.5 text-slate-300 text-xs whitespace-nowrap">
+                                    {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
+                                  </td>
+                                  <td className="px-5 py-2.5 text-white text-xs">{s.student_name}</td>
+                                  <td className="px-5 py-2.5 text-slate-300 text-xs font-mono whitespace-nowrap">
+                                    {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-xs whitespace-nowrap">
+                                    {s.admin_checked_in ? (
+                                      <span className="text-sky-400">Admin ✓</span>
+                                    ) : (
+                                      <span className="space-x-2">
+                                        <span className={s.student_checked_in ? 'text-emerald-400' : 'text-red-400'}>
+                                          Student {s.student_checked_in ? '✓' : '✗'}
+                                        </span>
+                                        <span className={s.coach_checked_in === null ? 'text-slate-400' : s.coach_checked_in ? 'text-emerald-400' : 'text-red-400'}>
+                                          {s.coach_checked_in === null ? 'Coach N/A' : `Coach ${s.coach_checked_in ? '✓' : '✗'}`}
+                                        </span>
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-xs">
+                                    {s.counted ? <span className="text-emerald-400">Counted</span> : <span className="text-slate-400">Not counted</span>}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          )}
         </div>
       )}
 
