@@ -290,7 +290,7 @@ export default function AdminDashboard() {
   }, [activeTab, selectedDate])
 
   const handleRoleToggle = async (id, currentRole) => {
-    const newRole = currentRole === 'admin' ? 'member' : 'admin'
+    const newRole = currentRole === 'member' ? 'admin' : 'member'
     try {
       await adminAPI.updateMemberRole(id, { role: newRole })
       setMembers(prev => prev.map(m => m.id === id ? { ...m, role: newRole } : m))
