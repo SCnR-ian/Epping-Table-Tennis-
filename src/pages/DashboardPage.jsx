@@ -568,15 +568,29 @@ export default function DashboardPage() {
               <p className="text-xs text-slate-500">No upcoming social play sessions.</p>
             ) : (
               <div className="space-y-3">
-                {socialSessions.slice(0, 3).map(s => (
-                  <SocialPlayCard
-                    key={s.id}
-                    session={s}
-                    isAuthenticated={true}
-                    onJoin={() => socialAPI.join(s.id).then(() => socialAPI.getSessions().then(({ data }) => setSocialSessions(data.sessions)))}
-                    onLeave={() => socialAPI.leave(s.id).then(() => socialAPI.getSessions().then(({ data }) => setSocialSessions(data.sessions)))}
-                  />
-                ))}
+                {[...socialSessions]
+                  .sort((a, b) => {
+                    const dt = s => new Date(`${s.date}T${s.end_time}`)
+                    const now = Date.now()
+                    const aPast = dt(a) < now
+                    const bPast = dt(b) < now
+                    if (aPast !== bPast) return aPast ? 1 : -1
+                    return dt(a) - dt(b)
+                  })
+                  .slice(0, 3)
+                  .map(s => {
+                    const isPast = new Date(`${s.date}T${s.end_time}`) < new Date()
+                    return (
+                      <SocialPlayCard
+                        key={s.id}
+                        session={s}
+                        isAuthenticated={true}
+                        isPast={isPast}
+                        onJoin={() => socialAPI.join(s.id).then(() => socialAPI.getSessions().then(({ data }) => setSocialSessions(data.sessions)))}
+                        onLeave={() => socialAPI.leave(s.id).then(() => socialAPI.getSessions().then(({ data }) => setSocialSessions(data.sessions)))}
+                      />
+                    )
+                  })}
               </div>
             )}
           </div>

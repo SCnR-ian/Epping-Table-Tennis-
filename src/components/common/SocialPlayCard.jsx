@@ -19,7 +19,7 @@ function fmtTime(t) {
 //   isAuthenticated  – boolean
 //   onJoin           – () => void
 //   onLeave          – () => void
-export default function SocialPlayCard({ session, isAuthenticated, onJoin, onLeave }) {
+export default function SocialPlayCard({ session, isAuthenticated, isPast = false, onJoin, onLeave }) {
   const {
     title          = 'Social Play',
     description,
@@ -49,11 +49,13 @@ export default function SocialPlayCard({ session, isAuthenticated, onJoin, onLea
           <p className="text-xs text-slate-500 mt-0.5">{courtsLabel}</p>
         </div>
         <span className={`badge border flex-shrink-0 ${
-          isFull
-            ? 'bg-red-500/10 text-red-400 border-red-500/30'
-            : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+          isPast
+            ? 'bg-slate-500/10 text-slate-500 border-slate-500/30'
+            : isFull
+              ? 'bg-red-500/10 text-red-400 border-red-500/30'
+              : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
         }`}>
-          {isFull ? 'Full' : 'Open'}
+          {isPast ? 'Past' : isFull ? 'Full' : 'Open'}
         </span>
       </div>
 
@@ -116,23 +118,25 @@ export default function SocialPlayCard({ session, isAuthenticated, onJoin, onLea
       )}
 
       {/* Join / Leave */}
-      <div className="pt-1">
-        {joined ? (
-          <button onClick={onLeave} className="btn-secondary w-full text-sm py-2">
-            Leave Session
-          </button>
-        ) : (
-          <button
-            onClick={onJoin}
-            disabled={isFull}
-            className={`w-full text-sm py-2 ${
-              isFull ? 'btn-secondary opacity-50 cursor-not-allowed' : 'btn-primary'
-            }`}
-          >
-            {isFull ? 'Session Full' : isAuthenticated ? 'Join Session' : 'Log in to Join'}
-          </button>
-        )}
-      </div>
+      {!isPast && (
+        <div className="pt-1">
+          {joined ? (
+            <button onClick={onLeave} className="btn-secondary w-full text-sm py-2">
+              Leave Session
+            </button>
+          ) : (
+            <button
+              onClick={onJoin}
+              disabled={isFull}
+              className={`w-full text-sm py-2 ${
+                isFull ? 'btn-secondary opacity-50 cursor-not-allowed' : 'btn-primary'
+              }`}
+            >
+              {isFull ? 'Session Full' : isAuthenticated ? 'Join Session' : 'Log in to Join'}
+            </button>
+          )}
+        </div>
+      )}
 
     </div>
   )
