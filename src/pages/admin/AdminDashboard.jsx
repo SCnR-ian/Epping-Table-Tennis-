@@ -289,8 +289,10 @@ export default function AdminDashboard() {
     return () => { cancelled = true }
   }, [activeTab, selectedDate])
 
-  const handleRoleToggle = async (id, currentRole) => {
+  const handleRoleToggle = async (id, currentRole, name) => {
     const newRole = currentRole === 'member' ? 'admin' : 'member'
+    const action = newRole === 'admin' ? `Promote ${name} to admin?` : `Demote ${name} to member?`
+    if (!window.confirm(action)) return
     try {
       await adminAPI.updateMemberRole(id, { role: newRole })
       setMembers(prev => prev.map(m => m.id === id ? { ...m, role: newRole } : m))
@@ -322,8 +324,8 @@ export default function AdminDashboard() {
     }
   }
 
-  const handleRemoveMember = async (id) => {
-    if (!window.confirm('Remove this member? This cannot be undone.')) return
+  const handleRemoveMember = async (id, name) => {
+    if (!window.confirm(`Remove ${name}? This cannot be undone.`)) return
     try {
       await adminAPI.deleteMember(id)
       setMembers(prev => prev.filter(m => m.id !== id))
@@ -658,16 +660,16 @@ export default function AdminDashboard() {
                         <td className="px-5 py-3 w-[15%]">
                           <div className="flex gap-3 flex-wrap">
                             {m.role === 'admin' ? (
-                              <button onClick={() => handleRoleToggle(m.id, m.role)} className="text-xs text-sky-400 hover:text-sky-300">Demote</button>
+                              <button onClick={() => handleRoleToggle(m.id, m.role, m.name)} className="text-xs text-sky-400 hover:text-sky-300">Demote</button>
                             ) : m.role === 'coach' ? (
-                              <button onClick={() => handleRoleToggle(m.id, m.role)} className="text-xs text-sky-400 hover:text-sky-300">Demote</button>
+                              <button onClick={() => handleRoleToggle(m.id, m.role, m.name)} className="text-xs text-sky-400 hover:text-sky-300">Demote</button>
                             ) : (
                               <>
-                                <button onClick={() => handleRoleToggle(m.id, m.role)} className="text-xs text-sky-400 hover:text-sky-300">Make Admin</button>
+                                <button onClick={() => handleRoleToggle(m.id, m.role, m.name)} className="text-xs text-sky-400 hover:text-sky-300">Make Admin</button>
                                 <button onClick={() => { setCoachModal({ id: m.id, name: m.name }); setCoachForm({ availability_start: '', availability_end: '', bio: '', resume: null }) }} className="text-xs text-emerald-400 hover:text-emerald-300">Make Coach</button>
                               </>
                             )}
-                            <button onClick={() => handleRemoveMember(m.id)} className="text-xs text-red-400 hover:text-red-300">Remove</button>
+                            <button onClick={() => handleRemoveMember(m.id, m.name)} className="text-xs text-red-400 hover:text-red-300">Remove</button>
                           </div>
                         </td>
                       </tr>
