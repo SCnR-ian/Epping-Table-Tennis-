@@ -175,6 +175,10 @@ export default function AdminDashboard() {
   const [memberSearch,       setMemberSearch]       = useState('')
   const [memberListSearch,   setMemberListSearch]   = useState('')
   const [loading,      setLoading]      = useState(false)
+  const [coachModal,   setCoachModal]   = useState(null) // { id, name } of member being promoted
+  const [coachForm,    setCoachForm]    = useState({ availability_start: '', availability_end: '', bio: '', resume: null })
+  const [coachDragging, setCoachDragging] = useState(false)
+  const [coachSubmitting, setCoachSubmitting] = useState(false)
 
   // Today's per-coach session summary (shown in the header stat area)
   const [todayCoachSummary, setTodayCoachSummary] = useState([])
@@ -292,6 +296,29 @@ export default function AdminDashboard() {
       setMembers(prev => prev.map(m => m.id === id ? { ...m, role: newRole } : m))
     } catch {
       alert('Could not update role. Please try again.')
+    }
+  }
+
+  const handleMakeCoachSubmit = async () => {
+    if (coachForm.availability_start && coachForm.availability_end && coachForm.availability_end < coachForm.availability_start) {
+      alert('End date must be after start date.')
+      return
+    }
+    setCoachSubmitting(true)
+    try {
+      const fd = new FormData()
+      fd.append('availability_start', coachForm.availability_start)
+      fd.append('availability_end',   coachForm.availability_end)
+      if (coachForm.bio)    fd.append('bio', coachForm.bio)
+      if (coachForm.resume) fd.append('resume', coachForm.resume)
+      await adminAPI.makeCoach(coachModal.id, fd)
+      setMembers(prev => prev.map(m => m.id === coachModal.id ? { ...m, role: 'coach' } : m))
+      setCoachModal(null)
+      setCoachForm({ availability_start: '', availability_end: '', bio: '', resume: null })
+    } catch {
+      alert('Could not promote to coach. Please try again.')
+    } finally {
+      setCoachSubmitting(false)
     }
   }
 
@@ -629,19 +656,18 @@ export default function AdminDashboard() {
                         </td>
                         <td className="px-5 py-3 text-slate-300 w-[20%]">{fmtDate(m.created_at)}</td>
                         <td className="px-5 py-3 w-[15%]">
-                          <div className="flex gap-3">
-                            <button
-                              onClick={() => handleRoleToggle(m.id, m.role)}
-                              className="text-xs text-sky-400 hover:text-sky-300 font-medium"
-                            >
-                              {m.role === 'admin' ? 'Demote' : 'Make Admin'}
-                            </button>
-                            <button
-                              onClick={() => handleRemoveMember(m.id)}
-                              className="text-xs text-red-400 hover:text-red-300 font-medium"
-                            >
-                              Remove
-                            </button>
+                          <div className="flex gap-3 flex-wrap">
+                            {m.role === 'admin' ? (
+                              <button onClick={() => handleRoleToggle(m.id, m.role)} className="text-xs text-sky-400 hover:text-sky-300">Demote</button>
+                            ) : m.role === 'coach' ? (
+                              <button onClick={() => handleRoleToggle(m.id, m.role)} className="text-xs text-sky-400 hover:text-sky-300">Demote</button>
+                            ) : (
+                              <>
+                                <button onClick={() => handleRoleToggle(m.id, m.role)} className="text-xs text-sky-400 hover:text-sky-300">Make Admin</button>
+                                <button onClick={() => { setCoachModal({ id: m.id, name: m.name }); setCoachForm({ availability_start: '', availability_end: '', bio: '', resume: null }) }} className="text-xs text-emerald-400 hover:text-emerald-300">Make Coach</button>
+                              </>
+                            )}
+                            <button onClick={() => handleRemoveMember(m.id)} className="text-xs text-red-400 hover:text-red-300">Remove</button>
                           </div>
                         </td>
                       </tr>
@@ -1547,6 +1573,97 @@ export default function AdminDashboard() {
 
         </div>
       )}
+
+      {/* ── Make Coach Modal ──────────────────────────────────────────────── */}
+      {coachModal && (() => {
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div className="bg-court-mid border border-court-light rounded-xl w-full max-w-md p-6 space-y-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-white">Make Coach — {coachModal.name}</h2>
+                <button onClick={() => setCoachModal(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+              </div>
+
+              {/* Start / End dates */}
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs text-slate-400 mb-1">Start Date</label>
+                  <input
+                    type="date"
+                    className="input w-full"
+                    value={coachForm.availability_start}
+                    onChange={e => setCoachForm(f => ({ ...f, availability_start: e.target.value }))}
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs text-slate-400 mb-1">End Date</label>
+                  <input
+                    type="date"
+                    className="input w-full"
+                    value={coachForm.availability_end}
+                    min={coachForm.availability_start || undefined}
+                    onChange={e => setCoachForm(f => ({ ...f, availability_end: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              {/* Bio */}
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Bio (optional)</label>
+                <textarea
+                  className="input w-full h-20 resize-none"
+                  placeholder="Short coach bio…"
+                  value={coachForm.bio}
+                  onChange={e => setCoachForm(f => ({ ...f, bio: e.target.value }))}
+                />
+              </div>
+
+              {/* Resume drag-and-drop */}
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Resume (PDF, optional)</label>
+                <div
+                  onDragOver={e => { e.preventDefault(); setCoachDragging(true) }}
+                  onDragLeave={() => setCoachDragging(false)}
+                  onDrop={e => {
+                    e.preventDefault()
+                    setCoachDragging(false)
+                    const file = e.dataTransfer.files[0]
+                    if (file && file.type === 'application/pdf') setCoachForm(f => ({ ...f, resume: file }))
+                    else alert('Please drop a PDF file.')
+                  }}
+                  className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+                    coachDragging ? 'border-brand-400 bg-brand-500/10' : 'border-court-light hover:border-slate-500'
+                  }`}
+                  onClick={() => document.getElementById('coach-resume-input').click()}
+                >
+                  {coachForm.resume ? (
+                    <p className="text-sm text-emerald-400">{coachForm.resume.name}</p>
+                  ) : (
+                    <p className="text-sm text-slate-500">Drag & drop a PDF here, or click to browse</p>
+                  )}
+                  <input
+                    id="coach-resume-input"
+                    type="file"
+                    accept="application/pdf"
+                    className="hidden"
+                    onChange={e => { if (e.target.files[0]) setCoachForm(f => ({ ...f, resume: e.target.files[0] })) }}
+                  />
+                </div>
+                {coachForm.resume && (
+                  <button className="text-xs text-red-400 hover:text-red-300 mt-1" onClick={() => setCoachForm(f => ({ ...f, resume: null }))}>Remove file</button>
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-1">
+                <button onClick={() => setCoachModal(null)} className="btn-secondary flex-1">Cancel</button>
+                <button onClick={handleMakeCoachSubmit} disabled={coachSubmitting} className="btn-primary flex-1">
+                  {coachSubmitting ? 'Saving…' : 'Make Coach'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
     </div>
   )

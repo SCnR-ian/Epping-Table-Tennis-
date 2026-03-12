@@ -1,6 +1,16 @@
 const router = require('express').Router()
 const pool   = require('../db')
+const multer = require('multer')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') cb(null, true)
+    else cb(new Error('Only PDF files are allowed.'))
+  },
+})
 
 router.use(requireAuth, requireAdmin)
 
@@ -36,15 +46,66 @@ router.get('/members', async (req, res) => {
 // PUT /api/admin/members/:id/role
 router.put('/members/:id/role', async (req, res) => {
   const { role } = req.body
-  if (!['member', 'admin'].includes(role))
+  if (!['member', 'admin', 'coach'].includes(role))
     return res.status(400).json({ message: 'Invalid role.' })
+  const client = await pool.connect()
   try {
-    const { rows } = await pool.query(
+    await client.query('BEGIN')
+    const { rows } = await client.query(
       'UPDATE users SET role=$1, updated_at=NOW() WHERE id=$2 RETURNING *',
       [role, req.params.id]
     )
-    if (!rows[0]) return res.status(404).json({ message: 'Member not found.' })
+    if (!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ message: 'Member not found.' }) }
+    // If demoting from coach, remove the coaches record
+    if (role !== 'coach') {
+      await client.query('DELETE FROM coaches WHERE user_id=$1', [req.params.id])
+    }
+    await client.query('COMMIT')
     res.json({ member: safeUser(rows[0]) })
+  } catch { await client.query('ROLLBACK'); res.status(500).json({ message: 'Server error.' }) }
+  finally { client.release() }
+})
+
+// POST /api/admin/members/:id/make-coach  (multipart/form-data)
+router.post('/members/:id/make-coach', upload.single('resume'), async (req, res) => {
+  const { availability_start, availability_end, bio } = req.body
+  const userId = req.params.id
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const userRes = await client.query('SELECT * FROM users WHERE id=$1', [userId])
+    if (!userRes.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ message: 'Member not found.' }) }
+    const userName = userRes.rows[0].name
+    const resumeFilename = req.file ? req.file.originalname : null
+    const resumeData     = req.file ? req.file.buffer.toString('base64') : null
+    const { rows } = await client.query(
+      `INSERT INTO coaches (user_id, name, bio, availability_start, availability_end, resume_filename, resume_data)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (user_id) DO UPDATE SET
+         bio=$3, availability_start=$4, availability_end=$5,
+         resume_filename=COALESCE($6, coaches.resume_filename),
+         resume_data=COALESCE($7, coaches.resume_data)
+       RETURNING *`,
+      [userId, userName, bio ?? null, availability_start ?? null, availability_end ?? null, resumeFilename, resumeData]
+    )
+    await client.query("UPDATE users SET role='coach', updated_at=NOW() WHERE id=$1", [userId])
+    await client.query('COMMIT')
+    res.status(201).json({ coach: rows[0] })
+  } catch (err) {
+    await client.query('ROLLBACK')
+    res.status(500).json({ message: 'Server error.' })
+  } finally { client.release() }
+})
+
+// GET /api/admin/coaches/:id/resume
+router.get('/coaches/:id/resume', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT resume_filename, resume_data FROM coaches WHERE id=$1', [req.params.id])
+    if (!rows[0] || !rows[0].resume_data) return res.status(404).json({ message: 'No resume found.' })
+    const buf = Buffer.from(rows[0].resume_data, 'base64')
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `inline; filename="${rows[0].resume_filename || 'resume.pdf'}"`)
+    res.send(buf)
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 

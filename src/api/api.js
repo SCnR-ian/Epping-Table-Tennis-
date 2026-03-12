@@ -108,6 +108,8 @@ export const adminAPI = {
   deleteTournament: (id) => api.delete(`/admin/tournaments/${id}`),
   updateMemberRole: (id, d) => api.put(`/admin/members/${id}/role`, d),
   deleteMember: (id) => api.delete(`/admin/members/${id}`),
+  makeCoach: (id, formData) => api.post(`/admin/members/${id}/make-coach`, formData),
+  getCoachResume: (coachId) => `${api.defaults.baseURL}/admin/coaches/${coachId}/resume`,
 };
 
 // ---------------------------------------------------------------------------
