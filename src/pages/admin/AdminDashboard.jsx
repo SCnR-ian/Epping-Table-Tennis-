@@ -116,11 +116,6 @@ function groupByWeek(sessions) {
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const STAT_CARDS = [
-  { key: 'members',     label: 'Total Members',     icon: '👥', color: 'text-sky-400'     },
-  { key: 'bookings',    label: 'Active Bookings',    icon: '📅', color: 'text-emerald-400' },
-  { key: 'tournaments', label: 'Active Tournaments', icon: '🏆', color: 'text-yellow-400'  },
-]
 
 const TABS = ['Members', 'Bookings', 'Coaching', 'Social Play', 'Pay Report']
 
@@ -166,8 +161,7 @@ function layoutEvents(events) {
 
 export default function AdminDashboard() {
   const [activeTab,    setActiveTab]    = useState('Members')
-  const [stats,        setStats]        = useState({ members: 0, bookings: 0, tournaments: 0 })
-  const [members,      setMembers]      = useState([])
+const [members,      setMembers]      = useState([])
   const [bookings,                setBookings]                = useState([])
   const [bookingViewSessions,     setBookingViewSessions]     = useState([])
   const [bookingViewSocialSessions, setBookingViewSocialSessions] = useState([])
@@ -210,8 +204,10 @@ export default function AdminDashboard() {
   const [payLoading, setPayLoading] = useState(false)
 
   // Social Play state
-  const [socialSessions,  setSocialSessions]  = useState([])
-  const [showSocialForm,  setShowSocialForm]  = useState(false)
+  const [socialSessions,    setSocialSessions]    = useState([])
+  const [showSocialForm,    setShowSocialForm]    = useState(false)
+  const [socialPage,        setSocialPage]        = useState(0)
+  const [socialDateFilter,  setSocialDateFilter]  = useState('')
   const [socialForm,      setSocialForm]      = useState({
     title: '', description: '', num_courts: 1, date: '', start_time: '', end_time: '', max_players: 12,
   })
@@ -230,14 +226,12 @@ export default function AdminDashboard() {
   const selectedDow = selectedDate ? new Date(selectedDate + 'T12:00:00').getDay() : null
   const slotsForDay = OPEN_DAYS.find(d => d.dow === selectedDow)?.slots ?? WEEKDAY_SLOTS
 
-  // Fetch stats + today's coaching sessions once on mount
+  // Fetch today's coaching sessions once on mount
   useEffect(() => {
     const today = toISO(new Date())
     Promise.allSettled([
-      adminAPI.getDashboardStats(),
       coachingAPI.getSessions({ date: today }),
-    ]).then(([statsRes, coachRes]) => {
-      if (statsRes.status === 'fulfilled') setStats(statsRes.value.data)
+    ]).then(([coachRes]) => {
       if (coachRes.status === 'fulfilled') {
         const sessions = coachRes.value.data.sessions
         const byCoach = {}
@@ -531,24 +525,6 @@ export default function AdminDashboard() {
   return (
     <div className="page-wrapper py-8 px-4 max-w-7xl mx-auto">
 
-      {/* Header */}
-      <div className="mb-8">
-        <p className="text-brand-500 text-xs uppercase tracking-widest mb-1">Admin Panel</p>
-        <h1 className="font-display text-4xl text-white tracking-wider">Dashboard</h1>
-      </div>
-
-      {/* Stat cards */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        {STAT_CARDS.map(({ key, label, icon, color }) => (
-          <div key={key} className="card">
-            <span className="text-2xl">{icon}</span>
-            <p className={`font-display text-4xl tracking-wider mt-2 ${color}`}>
-              {stats[key] ?? 0}
-            </p>
-            <p className="text-xs text-slate-400 mt-1">{label}</p>
-          </div>
-        ))}
-      </div>
 
       {/* Today's coaching — per-coach session count with hover tooltip */}
       {todayCoachSummary.length > 0 && (
@@ -570,15 +546,15 @@ export default function AdminDashboard() {
                   </p>
                 </div>
                 {/* Hover tooltip */}
-                <div className="absolute left-0 top-full mt-1.5 z-50 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity duration-150 w-56 card shadow-xl pointer-events-none">
+                <div className="absolute left-0 top-full mt-1.5 z-50 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity duration-150 w-64 card shadow-xl pointer-events-none">
                   <p className="text-[10px] text-slate-300 uppercase tracking-widest mb-2">Schedule</p>
                   <div className="space-y-1.5">
                     {coach.sessions.map(s => (
-                      <div key={s.id} className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-mono text-slate-400 whitespace-nowrap">
+                      <div key={s.id} className="flex flex-col gap-0.5">
+                        <span className="text-xs text-slate-300">{s.student_name}</span>
+                        <span className="text-xs font-mono text-slate-400">
                           {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
                         </span>
-                        <span className="text-xs text-slate-300 truncate">{s.student_name}</span>
                       </div>
                     ))}
                   </div>
@@ -898,16 +874,6 @@ export default function AdminDashboard() {
 
           {/* ── Sessions section ── */}
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg text-white">Coaching Sessions</h2>
-              <button
-                onClick={() => setShowSessionForm(v => !v)}
-                className="btn-primary text-sm"
-              >
-                {showSessionForm ? 'Cancel' : '+ Schedule Session'}
-              </button>
-            </div>
-
             {/* Schedule session form */}
             {showSessionForm && (() => {
               const formDow   = sessionForm.date ? new Date(sessionForm.date + 'T12:00:00').getDay() : null
@@ -1039,6 +1005,12 @@ export default function AdminDashboard() {
                 onChange={e => setCoachingDate(e.target.value)}
                 title="Pick any date"
               />
+              <button
+                onClick={() => setShowSessionForm(v => !v)}
+                className="btn-primary text-sm flex-shrink-0 ml-auto"
+              >
+                {showSessionForm ? 'Cancel' : '+ Schedule Session'}
+              </button>
             </div>
 
             {/* Sessions table */}
@@ -1217,16 +1189,6 @@ export default function AdminDashboard() {
 
           {/* Create session button + form */}
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg text-white">Social Play Sessions</h2>
-              <button
-                onClick={() => setShowSocialForm(v => !v)}
-                className="btn-primary text-sm"
-              >
-                {showSocialForm ? 'Cancel' : '+ Open a Slot'}
-              </button>
-            </div>
-
             {showSocialForm && (
               <div className="card mb-6 space-y-4">
                 <p className="text-xs text-slate-300 uppercase tracking-widest">New Social Play Session</p>
@@ -1325,14 +1287,48 @@ export default function AdminDashboard() {
             )}
           </div>
 
+          {/* Date filter */}
+          {!loading && (
+            <div className="flex items-center gap-3 mb-2">
+              <label className="text-sm text-slate-400">Filter by date</label>
+              <input
+                type="date"
+                value={socialDateFilter}
+                onChange={e => { setSocialDateFilter(e.target.value); setSocialPage(0) }}
+                className="input text-sm px-3 py-1.5"
+              />
+              {socialDateFilter && (
+                <button
+                  onClick={() => { setSocialDateFilter(''); setSocialPage(0) }}
+                  className="text-sm text-slate-400 hover:text-white transition-colors"
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                onClick={() => setShowSocialForm(v => !v)}
+                className="btn-primary text-sm ml-auto"
+              >
+                {showSocialForm ? 'Cancel' : '+ Open a Slot'}
+              </button>
+            </div>
+          )}
+
           {/* Sessions list */}
-          {loading ? (
-            <p className="text-slate-300 text-sm">Loading sessions…</p>
-          ) : socialSessions.length === 0 ? (
-            <p className="text-slate-300 text-sm">No upcoming social play sessions. Open a slot above.</p>
-          ) : (
-            <div className="space-y-4 overflow-y-auto" style={{ maxHeight: '780px' }}>
-              {socialSessions.map(s => {
+          {(() => {
+            const filtered = socialDateFilter
+              ? socialSessions.filter(s => s.date?.slice(0, 10) === socialDateFilter)
+              : socialSessions
+            const totalPages = Math.ceil(filtered.length / 3)
+            const pageSlice  = filtered.slice(socialPage * 3, socialPage * 3 + 3)
+            return loading ? (
+              <p className="text-slate-300 text-sm">Loading sessions…</p>
+            ) : filtered.length === 0 ? (
+              <p className="text-slate-300 text-sm">{socialDateFilter ? 'No sessions on this date.' : 'No upcoming social play sessions.'}</p>
+            ) : (
+              <div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {pageSlice.map(s => {
                 const timeEdit = editingTimes[s.id]
                 return (
                   <div key={s.id} className="card flex flex-col gap-3">
@@ -1446,10 +1442,37 @@ export default function AdminDashboard() {
                       )}
                     </div>
                   </div>
-                )
-              })}
-            </div>
-          )}
+                  )
+                })}
+                </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-center gap-4 mt-6">
+                    <button
+                      onClick={() => setSocialPage(p => Math.max(0, p - 1))}
+                      disabled={socialPage === 0}
+                      className="w-9 h-9 flex items-center justify-center rounded-lg border border-court-light text-slate-300 hover:border-brand-500/60 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                    <span className="text-sm text-slate-400">{socialPage + 1} / {totalPages}</span>
+                    <button
+                      onClick={() => setSocialPage(p => Math.min(totalPages - 1, p + 1))}
+                      disabled={socialPage === totalPages - 1}
+                      className="w-9 h-9 flex items-center justify-center rounded-lg border border-court-light text-slate-300 hover:border-brand-500/60 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
         </div>
       )}

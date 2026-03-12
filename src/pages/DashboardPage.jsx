@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import SocialPlayCard from '@/components/common/SocialPlayCard'
 import { coachingAPI, socialAPI, checkinAPI } from '@/api/api'
 
 function toMins(t) {
@@ -31,18 +30,12 @@ const CAL_DAYS = [
   { label: 'Saturday',  short: 'Sat', dow: 6 },
 ]
 
+const CHECKIN_DOWS = [1, 2, 3, 6] // Mon, Tue, Wed, Sat
+
 const ROW_H = 34          // px per 30-min slot
 const CAL_START = 720     // 12:00 in minutes
-const CAL_END   = 1260    // 21:00 in minutes  (last bookable slot starts at 20:00, must be visible)
+const CAL_END   = 1260    // 21:00 in minutes
 const SLOT_COUNT = (CAL_END - CAL_START) / 30  // 18 slots
-
-// Active hours per dow (minutes from midnight)
-const ACTIVE = {
-  1: [930, 1230],  // Mon  15:30–20:30
-  2: [930, 1230],  // Tue
-  3: [930, 1230],  // Wed
-  6: [720, 1050],  // Sat  12:00–17:30
-}
 
 // Build time-slot metadata once
 const TIME_SLOTS = Array.from({ length: SLOT_COUNT }, (_, i) => {
@@ -51,32 +44,40 @@ const TIME_SLOTS = Array.from({ length: SLOT_COUNT }, (_, i) => {
   const m = mins % 60
   return {
     mins,
-    // Show label only on the hour
     label: m === 0 ? `${h % 12 || 12} ${h >= 12 ? 'PM' : 'AM'}` : '',
   }
 })
 
 // Rolling 4-week window starting from the current Monday.
-// Avoids the old month-boundary bug where bookings in the last ~2 weeks
-// of the month (made up to 14 days ahead) would fall off the calendar.
 function getRollingWeeks() {
   const d = new Date()
   d.setHours(0, 0, 0, 0)
-  const dow = d.getDay() || 7          // 1=Mon … 7=Sun
-  d.setDate(d.getDate() - (dow - 1))   // rewind to Monday
+  const dow = d.getDay() || 7
+  d.setDate(d.getDate() - (dow - 1))
   const weeks = []
   for (let i = 0; i < 4; i++) {
     const monday = new Date(d)
     const week   = {}
     CAL_DAYS.forEach(({ dow: cd }) => {
       const date = new Date(monday)
-      date.setDate(monday.getDate() + (cd - 1))  // Mon+0, Tue+1, Wed+2, Sat+5
+      date.setDate(monday.getDate() + (cd - 1))
       week[cd] = date
     })
     weeks.push(week)
     d.setDate(d.getDate() + 7)
   }
   return weeks
+}
+
+// Format a week's date range label, e.g. "Mar 10 – 16" or "Mar 28 – Apr 3"
+function fmtWeekRange(weekDates) {
+  const mon = weekDates[1]
+  const sat = weekDates[6]
+  const monStr = mon.toLocaleDateString('en-AU', { month: 'short', day: 'numeric' })
+  const satStr = mon.getMonth() === sat.getMonth()
+    ? sat.getDate()
+    : sat.toLocaleDateString('en-AU', { month: 'short', day: 'numeric' })
+  return `${monStr} – ${satStr}`
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -86,11 +87,16 @@ export default function DashboardPage() {
   const [coachingSessions, setCoachingSessions] = useState([])
   const [coachSessions,    setCoachSessions]    = useState([])
   const [socialSessions,   setSocialSessions]   = useState([])
-  const [checkedIn,        setCheckedIn]        = useState(new Set()) // "type:refId" keys
-  const [confirmCheckIn,   setConfirmCheckIn]   = useState(null)      // activity to confirm
+  const [checkedIn,        setCheckedIn]        = useState(new Set())
+  const [confirmCheckIn,   setConfirmCheckIn]   = useState(null)
   const [loadingData,      setLoadingData]      = useState(false)
 
-  // Rolling weeks — week 0 is always the current week, so no getCurrentWeekIdx needed
+  // Check-in day picker — default to today if it's a club day, else Monday of current week
+  const todayDow = new Date().getDay() || 7
+  const defaultDow = CHECKIN_DOWS.includes(todayDow) ? todayDow : 1
+  const [selectedCheckInDay, setSelectedCheckInDay] = useState(defaultDow)
+
+  // Rolling weeks for calendar
   const weeks          = useMemo(() => getRollingWeeks(), [])
   const [selectedWeek, setSelectedWeek] = useState(0)
   const autoJumped     = useRef(false)
@@ -111,7 +117,7 @@ export default function DashboardPage() {
         if (coachRes.status === 'fulfilled')
           setCoachSessions(coachRes.value.data.sessions)
         if (socialRes.status === 'fulfilled')
-          setSocialSessions(socialRes.value.data.sessions)
+          setSocialSessions(socialRes.value.data.sessions.filter(s => s.joined))
         if (checkinRes.status === 'fulfilled')
           setCheckedIn(new Set(
             checkinRes.value.data.checkIns.map(ci => `${ci.type}:${ci.reference_id}`)
@@ -128,7 +134,7 @@ export default function DashboardPage() {
     const dates = [
       ...coachingSessions.map(s => s.date?.slice(0, 10)),
       ...coachSessions.map(s => s.date?.slice(0, 10)),
-      ...socialSessions.filter(s => s.joined).map(s => s.date?.slice(0, 10)),
+      ...socialSessions.map(s => s.date?.slice(0, 10)),
     ].filter(d => d && d >= today).sort()
     if (!dates.length) return
     const nearest = dates[0]
@@ -139,44 +145,9 @@ export default function DashboardPage() {
     }
   }, [coachingSessions, coachSessions, socialSessions, weeks])
 
-  const handleCancelCoaching = async (id) => {
-    if (!window.confirm('Cancel this coaching session?')) return
-    try {
-      await coachingAPI.cancelSession(id)
-      setCoachingSessions(prev => prev.filter(s => s.id !== id))
-    } catch {
-      alert('Could not cancel coaching session. Please try again.')
-    }
-  }
-
-  const handleCancelCoachSession = async (id) => {
-    if (!window.confirm('Cancel this coaching session?')) return
-    try {
-      await coachingAPI.cancelSession(id)
-      setCoachSessions(prev => prev.filter(s => s.id !== id))
-    } catch {
-      alert('Could not cancel session. Please try again.')
-    }
-  }
-
-  const handleLeaveSocialSession = async (id) => {
-    if (!window.confirm('Leave this social play session?')) return
-    try {
-      await socialAPI.leave(id)
-      setSocialSessions(prev => prev.map(s =>
-        s.id === id
-          ? { ...s, joined: false, participant_count: Math.max(0, s.participant_count - 1) }
-          : s
-      ))
-    } catch {
-      alert('Could not leave session. Please try again.')
-    }
-  }
-
   const handleCheckIn = async (type, refId) => {
     try {
       if (type === 'coaching') await checkinAPI.checkInCoaching(refId)
-      if (type === 'social')   await checkinAPI.checkInSocial(refId)
       setCheckedIn(prev => new Set([...prev, `${type}:${refId}`]))
     } catch {
       alert('Could not check in. Please try again.')
@@ -185,49 +156,32 @@ export default function DashboardPage() {
     }
   }
 
-  const greeting = () => {
-    const h = new Date().getHours()
-    if (h < 12) return 'Good morning'
-    if (h < 17) return 'Good afternoon'
-    return 'Good evening'
-  }
-
   const currentWeekDates = weeks[selectedWeek] ?? weeks[0]
   const todayISO         = toISO(new Date())
 
-  // Upcoming coaching + social activities within the next 7 days (for check-in section)
-  const upcomingActivities = useMemo(() => {
-    const cutoff = new Date(todayISO); cutoff.setDate(cutoff.getDate() + 7)
-    const cutoffISO = toISO(cutoff)
+  // Activities for the selected check-in day (always from current week)
+  const checkInDateISO = useMemo(() => toISO(weeks[0][selectedCheckInDay]), [weeks, selectedCheckInDay])
+
+  const dayActivities = useMemo(() => {
     const acts = []
     coachingSessions
-      .filter(s => { const d = s.date?.slice(0, 10); return d >= todayISO && d <= cutoffISO })
+      .filter(s => s.date?.slice(0, 10) === checkInDateISO)
       .forEach(s => acts.push({
         type: 'coaching', refId: String(s.id),
         title: 'Coaching Session', subtitle: `w/ ${s.coach_name}`,
-        date: s.date?.slice(0, 10),
+        date: checkInDateISO,
         time: `${fmtTime(s.start_time)} – ${fmtTime(s.end_time)}`,
       }))
     coachSessions
-      .filter(s => { const d = s.date?.slice(0, 10); return d >= todayISO && d <= cutoffISO })
+      .filter(s => s.date?.slice(0, 10) === checkInDateISO)
       .forEach(s => acts.push({
         type: 'coaching', refId: String(s.id),
         title: 'Teaching Session', subtitle: `→ ${s.student_name}`,
-        date: s.date?.slice(0, 10),
+        date: checkInDateISO,
         time: `${fmtTime(s.start_time)} – ${fmtTime(s.end_time)}`,
       }))
-    socialSessions
-      .filter(s => { const d = s.date?.slice(0, 10); return s.joined && d >= todayISO && d <= cutoffISO })
-      .forEach(s => acts.push({
-        type: 'social', refId: String(s.id),
-        title: s.title || 'Social Play',
-        subtitle: `${s.participant_count}/${s.max_players} players`,
-        date: s.date?.slice(0, 10),
-        time: `${fmtTime(s.start_time)} – ${fmtTime(s.end_time)}`,
-      }))
-    return acts.sort((a, b) => a.date.localeCompare(b.date))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coachingSessions, coachSessions, socialSessions, todayISO])
+    return acts.sort((a, b) => a.time.localeCompare(b.time))
+  }, [coachingSessions, coachSessions, checkInDateISO])
 
   // Collect all events for a given date ISO string
   function getEvents(dateISO) {
@@ -239,27 +193,19 @@ export default function DashboardPage() {
       .filter(s => s.date?.slice(0, 10) === dateISO)
       .forEach(s => events.push({ id: `ck-${s.id}`, type: 'coach', data: s }))
     socialSessions
-      .filter(s => s.joined && s.date?.slice(0, 10) === dateISO)
+      .filter(s => s.date?.slice(0, 10) === dateISO)
       .forEach(s => events.push({ id: `sp-${s.id}`, type: 'social', data: s }))
     return events
   }
 
   const EVENT_STYLES = {
-    student: { bg: 'bg-emerald-600/90 border-emerald-400', text: 'text-white' },
-    coach:   { bg: 'bg-sky-600/90 border-sky-400',         text: 'text-white' },
-    social:  { bg: 'bg-orange-500/90 border-orange-400',   text: 'text-white' },
+    student: { bg: 'bg-emerald-500/15 border-emerald-500/40', text: 'text-emerald-300' },
+    coach:   { bg: 'bg-sky-500/15 border-sky-500/40',         text: 'text-sky-300'     },
+    social:  { bg: 'bg-violet-500/15 border-violet-500/40',   text: 'text-violet-300'  },
   }
 
   return (
     <div className="page-wrapper py-8 px-4 max-w-7xl mx-auto space-y-10">
-
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <p className="text-slate-500 text-sm">{greeting()},</p>
-          <h1 className="font-display text-4xl text-white tracking-wider">{user?.name ?? 'Player'}</h1>
-        </div>
-      </div>
 
       {/* Main layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -276,7 +222,7 @@ export default function DashboardPage() {
                   const iso = toISO(date)
                   return coachingSessions.some(s => s.date?.slice(0, 10) === iso)
                     || coachSessions.some(s => s.date?.slice(0, 10) === iso)
-                    || socialSessions.some(s => s.joined && s.date?.slice(0, 10) === iso)
+                    || socialSessions.some(s => s.date?.slice(0, 10) === iso)
                 })
                 return (
                   <button
@@ -288,7 +234,7 @@ export default function DashboardPage() {
                         : 'border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white'
                     }`}
                   >
-                    Week {i + 1}
+                    {fmtWeekRange(weekDates)}
                     {hasEvents && (
                       <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" />
                     )}
@@ -316,13 +262,13 @@ export default function DashboardPage() {
                     key={dow}
                     className={`py-2.5 text-center border-l border-court-light ${isToday ? 'bg-brand-500/10' : ''}`}
                   >
-                    <p className={`text-[11px] font-normal uppercase tracking-wide ${isToday ? 'text-brand-400' : 'text-slate-500'}`}>
+                    <p className={`text-xs font-normal uppercase tracking-wide ${isToday ? 'text-brand-400' : 'text-slate-500'}`}>
                       {short}
                     </p>
                     <p className={`text-base font-normal leading-tight ${isToday ? 'text-brand-300' : 'text-white'}`}>
                       {date.getDate()}
                     </p>
-                    <p className="text-[10px] text-slate-600">
+                    <p className="text-xs text-slate-600">
                       {date.toLocaleDateString('en-AU', { month: 'short' })}
                     </p>
                   </div>
@@ -344,7 +290,7 @@ export default function DashboardPage() {
                     className="flex items-start justify-end pr-1.5 pt-0.5"
                   >
                     {label && (
-                      <span className="text-[10px] text-slate-600 leading-none whitespace-nowrap">
+                      <span className="text-xs text-slate-600 leading-none whitespace-nowrap">
                         {label}
                       </span>
                     )}
@@ -354,11 +300,10 @@ export default function DashboardPage() {
 
               {/* Day columns */}
               {CAL_DAYS.map(({ dow }) => {
-                const date            = currentWeekDates[dow]
-                const dateISO         = toISO(date)
-                const isToday         = dateISO === todayISO
-                const [actStart, actEnd] = ACTIVE[dow]
-                const events          = getEvents(dateISO)
+                const date    = currentWeekDates[dow]
+                const dateISO = toISO(date)
+                const isToday = dateISO === todayISO
+                const events  = getEvents(dateISO)
                 const totalH          = SLOT_COUNT * ROW_H
 
                 return (
@@ -367,77 +312,52 @@ export default function DashboardPage() {
                     className={`relative border-l border-court-light overflow-hidden ${isToday ? 'bg-brand-500/[0.04]' : ''}`}
                     style={{ height: totalH }}
                   >
-                    {/* Background slot rows */}
-                    {TIME_SLOTS.map(({ mins }) => {
-                      const isActive = mins >= actStart && mins < actEnd
-                      const isHour   = mins % 60 === 0
-                      return (
-                        <div
-                          key={mins}
-                          className={`absolute left-0 right-0 border-b ${
-                            isHour ? 'border-court-light/30' : 'border-court-light/10'
-                          } ${isActive ? '' : 'bg-slate-950/50'}`}
-                          style={{
-                            top:    (mins - CAL_START) / 30 * ROW_H,
-                            height: ROW_H,
-                          }}
-                        />
-                      )
-                    })}
+                    {/* Background grid lines */}
+                    {TIME_SLOTS.map(({ mins }) => (
+                      <div
+                        key={mins}
+                        className="absolute left-0 right-0 border-b border-court-light/20"
+                        style={{
+                          top:    (mins - CAL_START) / 30 * ROW_H,
+                          height: ROW_H,
+                        }}
+                      />
+                    ))}
 
                     {/* Loading shimmer */}
                     {loadingData && (
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-[10px] text-slate-700 animate-pulse">loading</span>
+                        <span className="text-xs text-slate-700 animate-pulse">loading</span>
                       </div>
                     )}
 
                     {/* Events */}
                     {events.map(({ id, type, data }) => {
-                      const startTime = type === 'booking' ? data.startTime : data.start_time
-                      const endTime   = type === 'booking' ? data.endTime   : data.end_time
-                      const startMins = toMins(startTime)
-                      const endMins   = toMins(endTime)
+                      const startMins = toMins(data.start_time)
+                      const endMins   = toMins(data.end_time)
                       const top       = (startMins - CAL_START) / 30 * ROW_H
                       const height    = Math.max((endMins - startMins) / 30 * ROW_H - 2, 18)
                       const { bg, text } = EVENT_STYLES[type]
 
-                      const title = type === 'booking'
-                        ? data.court
-                        : type === 'student'
-                          ? `w/ ${data.coach_name}`
-                          : type === 'coach'
-                            ? `→ ${data.student_name}`
-                            : data.title || 'Social Play'
-
-                      const onCancel = (e) => {
-                        e.stopPropagation()
-                        if (type === 'student') handleCancelCoaching(data.id)
-                        else if (type === 'coach') handleCancelCoachSession(data.id)
-                        else handleLeaveSocialSession(data.id)
-                      }
+                      const title = type === 'student'
+                        ? `w/ ${data.coach_name}`
+                        : type === 'coach'
+                          ? `→ ${data.student_name}`
+                          : data.title || 'Social Play'
 
                       return (
                         <div
                           key={id}
-                          className={`absolute left-0.5 right-0.5 rounded border ${bg} ${text} text-[10px] leading-tight overflow-hidden group`}
+                          className={`absolute left-0.5 right-0.5 rounded border ${bg} ${text} text-xs leading-tight overflow-hidden`}
                           style={{ top: top + 1, height }}
-                          title={`${title} · ${fmtTime(startTime)}–${fmtTime(endTime)}`}
+                          title={`${title} · ${fmtTime(data.start_time)}–${fmtTime(data.end_time)}`}
                         >
                           <div className="p-1 h-full flex flex-col justify-between">
                             <p className="font-normal truncate">{title}</p>
                             {height > 38 && (
-                              <p className="opacity-70 truncate">{fmtTime(startTime)}</p>
+                              <p className="opacity-70 truncate">{fmtTime(data.start_time)}</p>
                             )}
                           </div>
-                          {/* Cancel button — visible on hover */}
-                          <button
-                            onClick={onCancel}
-                            className="absolute top-0.5 right-0.5 hidden group-hover:flex w-4 h-4 items-center justify-center rounded bg-black/40 hover:bg-black/60 text-white leading-none"
-                            title="Cancel"
-                          >
-                            ×
-                          </button>
                         </div>
                       )
                     })}
@@ -450,13 +370,13 @@ export default function DashboardPage() {
           {/* Legend */}
           <div className="flex gap-5 mt-2.5">
             {[
-              { label: 'Coaching Session', color: 'bg-emerald-600' },
-              { label: 'Teaching Session', color: 'bg-sky-600'     },
-              { label: 'Social Play',      color: 'bg-orange-500'  },
+              { label: 'Coaching Session', color: 'bg-emerald-500/60' },
+              { label: 'Teaching Session', color: 'bg-sky-500/60'     },
+              { label: 'Social Play',      color: 'bg-violet-500/60'  },
             ].map(({ label, color }) => (
               <div key={label} className="flex items-center gap-1.5">
                 <div className={`w-2.5 h-2.5 rounded-sm ${color}`} />
-                <span className="text-[11px] text-slate-500">{label}</span>
+                <span className="text-xs text-slate-500">{label}</span>
               </div>
             ))}
           </div>
@@ -466,22 +386,53 @@ export default function DashboardPage() {
         <div className="space-y-6">
 
           {/* Check-In */}
-          {upcomingActivities.length > 0 && (
-            <div className="card">
-              <h3 className="text-sm font-normal text-white mb-3">Check-In</h3>
+          <div className="card">
+            <h3 className="text-sm font-normal text-white mb-3">Check-In</h3>
+
+            {/* Day picker — shows actual dates of the current week */}
+            <div className="flex gap-1.5 mb-4">
+              {CHECKIN_DOWS.map(dow => {
+                const date    = weeks[0][dow]
+                const dateISO = toISO(date)
+                const isToday = dateISO === todayISO
+                const dayLabel = date.toLocaleDateString('en-AU', { weekday: 'short' })
+                const dateNum  = date.getDate()
+                return (
+                  <button
+                    key={dow}
+                    onClick={() => setSelectedCheckInDay(dow)}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all relative flex flex-col items-center leading-tight ${
+                      selectedCheckInDay === dow
+                        ? 'bg-brand-500 border-brand-500 text-white'
+                        : 'border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white'
+                    }`}
+                  >
+                    <span>{dayLabel}</span>
+                    <span className={`text-xs ${selectedCheckInDay === dow ? 'text-white/80' : 'text-slate-500'}`}>{dateNum}</span>
+                    {isToday && (
+                      <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Session list */}
+            {dayActivities.length === 0 ? (
+              <p className="text-sm text-slate-500">No sessions scheduled.</p>
+            ) : (
               <div className="divide-y divide-court-light">
-                {upcomingActivities.map(act => {
+                {dayActivities.map(act => {
                   const key     = `${act.type}:${act.refId}`
                   const done    = checkedIn.has(key)
                   const isToday = act.date === todayISO
-                  const dateLabel = isToday ? 'Today' : new Date(act.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
                   return (
                     <div key={key} className="py-2.5 first:pt-0 last:pb-0">
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <p className="text-sm text-white truncate">{act.title}</p>
-                          <p className="text-xs text-slate-400 truncate">{act.subtitle}</p>
-                          <p className="text-xs text-slate-500">{dateLabel} · {act.time}</p>
+                          <p className="text-sm text-slate-400 truncate">{act.subtitle}</p>
+                          <p className="text-sm text-slate-500">{act.time}</p>
                         </div>
                         {done ? (
                           <span className="text-xs text-emerald-400 flex-shrink-0">✓ Checked In</span>
@@ -499,43 +450,6 @@ export default function DashboardPage() {
                     </div>
                   )
                 })}
-              </div>
-            </div>
-          )}
-
-          {/* Social Play */}
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-normal text-white">Social Play</h2>
-              <Link to="/social-play" className="text-xs text-brand-400 hover:text-brand-300">View all →</Link>
-            </div>
-            {socialSessions.length === 0 ? (
-              <p className="text-xs text-slate-500">No upcoming social play sessions.</p>
-            ) : (
-              <div className="space-y-3">
-                {[...socialSessions]
-                  .sort((a, b) => {
-                    const dt = s => new Date(`${s.date}T${s.end_time}`)
-                    const now = Date.now()
-                    const aPast = dt(a) < now
-                    const bPast = dt(b) < now
-                    if (aPast !== bPast) return aPast ? 1 : -1
-                    return dt(a) - dt(b)
-                  })
-                  .slice(0, 3)
-                  .map(s => {
-                    const isPast = new Date(`${s.date}T${s.end_time}`) < new Date()
-                    return (
-                      <SocialPlayCard
-                        key={s.id}
-                        session={s}
-                        isAuthenticated={true}
-                        isPast={isPast}
-                        onJoin={() => socialAPI.join(s.id).then(() => socialAPI.getSessions().then(({ data }) => setSocialSessions(data.sessions)))}
-                        onLeave={() => socialAPI.leave(s.id).then(() => socialAPI.getSessions().then(({ data }) => setSocialSessions(data.sessions)))}
-                      />
-                    )
-                  })}
               </div>
             )}
           </div>
@@ -576,8 +490,8 @@ export default function DashboardPage() {
               <p className="text-slate-300">{confirmCheckIn.subtitle}</p>
               <p className="text-slate-400 text-sm">{confirmCheckIn.time}</p>
             </div>
-            <p className="text-xs text-slate-500">
-              Once both you and your {confirmCheckIn.type === 'coaching' ? 'coach/student' : 'partner'} have checked in, the session will be counted in the pay report.
+            <p className="text-sm text-slate-500">
+              Once both you and your coach/student have checked in, the session will be counted in the pay report.
             </p>
             <div className="flex gap-3 pt-1">
               <button onClick={() => setConfirmCheckIn(null)} className="btn-secondary flex-1">Cancel</button>
