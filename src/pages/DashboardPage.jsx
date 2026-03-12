@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import SocialPlayCard from '@/components/common/SocialPlayCard'
-import { bookingsAPI, coachingAPI, socialAPI, membersAPI, checkinAPI } from '@/api/api'
+import { coachingAPI, socialAPI, checkinAPI } from '@/api/api'
 
 function toMins(t) {
   const [h, m] = t.substring(0, 5).split(':').map(Number)
@@ -21,24 +21,6 @@ function toISO(d) {
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
-
-function mapBooking(b) {
-  return {
-    id:        b.id,
-    groupId:   b.booking_group_id,
-    court:     b.court_name,
-    date:      b.date,
-    startTime: b.start_time,
-    endTime:   b.end_time,
-    duration:  toMins(b.end_time) - toMins(b.start_time),
-    status:    b.status ?? 'confirmed',
-  }
-}
-
-const QUICK_STATS = [
-  { key: 'bookings',    label: 'Court Bookings',  icon: '🏓' },
-  { key: 'tournaments', label: 'Tournaments',     icon: '🥇' },
-]
 
 // ── Calendar constants ──────────────────────────────────────────────────────
 
@@ -101,12 +83,11 @@ function getRollingWeeks() {
 
 export default function DashboardPage() {
   const { user } = useAuth()
-  const [bookings,         setBookings]         = useState([])
   const [coachingSessions, setCoachingSessions] = useState([])
   const [coachSessions,    setCoachSessions]    = useState([])
   const [socialSessions,   setSocialSessions]   = useState([])
-  const [stats,            setStats]            = useState({ bookings: 0, tournaments: 0 })
   const [checkedIn,        setCheckedIn]        = useState(new Set()) // "type:refId" keys
+  const [confirmCheckIn,   setConfirmCheckIn]   = useState(null)      // activity to confirm
   const [loadingData,      setLoadingData]      = useState(false)
 
   // Rolling weeks — week 0 is always the current week, so no getCurrentWeekIdx needed
@@ -118,25 +99,19 @@ export default function DashboardPage() {
     let cancelled = false
     setLoadingData(true)
     Promise.allSettled([
-      bookingsAPI.getMyBookings(),
       coachingAPI.getMySessions(),
       coachingAPI.getMyCoachSessions(),
       socialAPI.getSessions(),
-      user?.id ? membersAPI.getStats(user.id) : Promise.reject(),
       checkinAPI.getToday(),
     ])
-      .then(([bookingRes, coachingRes, coachRes, socialRes, statsRes, checkinRes]) => {
+      .then(([coachingRes, coachRes, socialRes, checkinRes]) => {
         if (cancelled) return
-        if (bookingRes.status === 'fulfilled')
-          setBookings(bookingRes.value.data.bookings.map(mapBooking))
         if (coachingRes.status === 'fulfilled')
           setCoachingSessions(coachingRes.value.data.sessions)
         if (coachRes.status === 'fulfilled')
           setCoachSessions(coachRes.value.data.sessions)
         if (socialRes.status === 'fulfilled')
           setSocialSessions(socialRes.value.data.sessions)
-        if (statsRes.status === 'fulfilled')
-          setStats(statsRes.value.data)
         if (checkinRes.status === 'fulfilled')
           setCheckedIn(new Set(
             checkinRes.value.data.checkIns.map(ci => `${ci.type}:${ci.reference_id}`)
@@ -151,7 +126,6 @@ export default function DashboardPage() {
     if (autoJumped.current) return
     const today = toISO(new Date())
     const dates = [
-      ...bookings.filter(b => b.status !== 'cancelled').map(b => b.date?.slice(0, 10)),
       ...coachingSessions.map(s => s.date?.slice(0, 10)),
       ...coachSessions.map(s => s.date?.slice(0, 10)),
       ...socialSessions.filter(s => s.joined).map(s => s.date?.slice(0, 10)),
@@ -163,21 +137,7 @@ export default function DashboardPage() {
       setSelectedWeek(idx)
       autoJumped.current = true
     }
-  }, [bookings, coachingSessions, coachSessions, socialSessions, weeks])
-
-  const handleCancelBooking = async (booking) => {
-    try {
-      if (booking.groupId) {
-        await bookingsAPI.cancelGroup(booking.groupId)
-        setBookings(prev => prev.filter(b => b.groupId !== booking.groupId))
-      } else {
-        await bookingsAPI.cancel(booking.id)
-        setBookings(prev => prev.filter(b => b.id !== booking.id))
-      }
-    } catch {
-      alert('Could not cancel booking. Please try again.')
-    }
-  }
+  }, [coachingSessions, coachSessions, socialSessions, weeks])
 
   const handleCancelCoaching = async (id) => {
     if (!window.confirm('Cancel this coaching session?')) return
@@ -215,12 +175,13 @@ export default function DashboardPage() {
 
   const handleCheckIn = async (type, refId) => {
     try {
-      if (type === 'booking')  await checkinAPI.checkInBooking(refId)
       if (type === 'coaching') await checkinAPI.checkInCoaching(refId)
       if (type === 'social')   await checkinAPI.checkInSocial(refId)
       setCheckedIn(prev => new Set([...prev, `${type}:${refId}`]))
     } catch {
       alert('Could not check in. Please try again.')
+    } finally {
+      setConfirmCheckIn(null)
     }
   }
 
@@ -237,13 +198,6 @@ export default function DashboardPage() {
   // Activities that have a check-in button today
   const todayActivities = useMemo(() => {
     const acts = []
-    bookings
-      .filter(b => b.date?.slice(0, 10) === todayISO && b.status !== 'cancelled')
-      .forEach(b => acts.push({
-        type: 'booking', refId: b.groupId,
-        title: 'Court Booking', subtitle: b.court,
-        time: `${fmtTime(b.startTime)} – ${fmtTime(b.endTime)}`,
-      }))
     coachingSessions
       .filter(s => s.date?.slice(0, 10) === todayISO)
       .forEach(s => acts.push({
@@ -268,14 +222,11 @@ export default function DashboardPage() {
       }))
     return acts
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookings, coachingSessions, coachSessions, socialSessions, todayISO])
+  }, [coachingSessions, coachSessions, socialSessions, todayISO])
 
   // Collect all events for a given date ISO string
   function getEvents(dateISO) {
     const events = []
-    bookings
-      .filter(b => b.date?.slice(0, 10) === dateISO && b.status !== 'cancelled')
-      .forEach(b => events.push({ id: `bk-${b.id}`, type: 'booking', data: b }))
     coachingSessions
       .filter(s => s.date?.slice(0, 10) === dateISO)
       .forEach(s => events.push({ id: `cs-${s.id}`, type: 'student', data: s }))
@@ -289,7 +240,6 @@ export default function DashboardPage() {
   }
 
   const EVENT_STYLES = {
-    booking: { bg: 'bg-brand-500/90 border-brand-400',    text: 'text-white' },
     student: { bg: 'bg-emerald-600/90 border-emerald-400', text: 'text-white' },
     coach:   { bg: 'bg-sky-600/90 border-sky-400',         text: 'text-white' },
     social:  { bg: 'bg-orange-500/90 border-orange-400',   text: 'text-white' },
@@ -304,20 +254,6 @@ export default function DashboardPage() {
           <p className="text-slate-500 text-sm">{greeting()},</p>
           <h1 className="font-display text-4xl text-white tracking-wider">{user?.name ?? 'Player'}</h1>
         </div>
-        <Link to="/booking" className="btn-primary">+ Book a Court</Link>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-4 max-w-sm">
-        {QUICK_STATS.map(({ key, label, icon }) => (
-          <div key={key} className="card text-center">
-            <span className="text-2xl">{icon}</span>
-            <p className="font-display text-4xl text-brand-500 tracking-wider mt-2">
-              {loadingData ? '—' : stats[key]}
-            </p>
-            <p className="text-xs text-slate-500 mt-1">{label}</p>
-          </div>
-        ))}
       </div>
 
       {/* Main layout */}
@@ -333,8 +269,7 @@ export default function DashboardPage() {
               {weeks.map((weekDates, i) => {
                 const hasEvents = Object.values(weekDates).some(date => {
                   const iso = toISO(date)
-                  return bookings.some(b => b.date?.slice(0, 10) === iso && b.status !== 'cancelled')
-                    || coachingSessions.some(s => s.date?.slice(0, 10) === iso)
+                  return coachingSessions.some(s => s.date?.slice(0, 10) === iso)
                     || coachSessions.some(s => s.date?.slice(0, 10) === iso)
                     || socialSessions.some(s => s.joined && s.date?.slice(0, 10) === iso)
                 })
@@ -472,10 +407,9 @@ export default function DashboardPage() {
 
                       const onCancel = (e) => {
                         e.stopPropagation()
-                        if (type === 'booking')      handleCancelBooking(data)
-                        else if (type === 'student') handleCancelCoaching(data.id)
-                        else if (type === 'coach')   handleCancelCoachSession(data.id)
-                        else                         handleLeaveSocialSession(data.id)
+                        if (type === 'student') handleCancelCoaching(data.id)
+                        else if (type === 'coach') handleCancelCoachSession(data.id)
+                        else handleLeaveSocialSession(data.id)
                       }
 
                       return (
@@ -511,7 +445,6 @@ export default function DashboardPage() {
           {/* Legend */}
           <div className="flex gap-5 mt-2.5">
             {[
-              { label: 'Court Booking',    color: 'bg-brand-500'   },
               { label: 'Coaching Session', color: 'bg-emerald-600' },
               { label: 'Teaching Session', color: 'bg-sky-600'     },
               { label: 'Social Play',      color: 'bg-orange-500'  },
@@ -536,21 +469,24 @@ export default function DashboardPage() {
                   const key  = `${act.type}:${act.refId}`
                   const done = checkedIn.has(key)
                   return (
-                    <div key={key} className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0 gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm text-white font-medium truncate">{act.title}</p>
-                        <p className="text-xs text-slate-500 truncate">{act.subtitle} · {act.time}</p>
+                    <div key={key} className="py-2.5 first:pt-0 last:pb-0">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm text-white truncate">{act.title}</p>
+                          <p className="text-xs text-slate-400 truncate">{act.subtitle}</p>
+                          <p className="text-xs text-slate-500">{act.time}</p>
+                        </div>
+                        {done ? (
+                          <span className="text-xs text-emerald-400 flex-shrink-0">✓ Checked In</span>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmCheckIn(act)}
+                            className="btn-primary text-xs py-1 px-3 flex-shrink-0"
+                          >
+                            Check In
+                          </button>
+                        )}
                       </div>
-                      {done ? (
-                        <span className="text-xs text-emerald-400 font-normal flex-shrink-0">✓ Checked In</span>
-                      ) : (
-                        <button
-                          onClick={() => handleCheckIn(act.type, act.refId)}
-                          className="btn-primary text-xs py-1 px-3 flex-shrink-0"
-                        >
-                          Check In
-                        </button>
-                      )}
                     </div>
                   )
                 })}
@@ -601,7 +537,6 @@ export default function DashboardPage() {
             <nav className="space-y-1">
               {[
                 ['Profile Settings', '/profile'],
-                ['Book a Court',     '/booking'],
                 ['Social Play',      '/social-play'],
               ].map(([label, to]) => (
                 <Link
@@ -621,6 +556,27 @@ export default function DashboardPage() {
         </div>
 
       </div>
+
+      {/* ── Check-In Confirmation Modal ──────────────────────────────────── */}
+      {confirmCheckIn && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-court-mid border border-court-light rounded-xl w-full max-w-sm p-6 space-y-4">
+            <h2 className="text-white">Confirm Check-In</h2>
+            <div className="space-y-1">
+              <p className="text-white">{confirmCheckIn.title}</p>
+              <p className="text-slate-300">{confirmCheckIn.subtitle}</p>
+              <p className="text-slate-400 text-sm">{confirmCheckIn.time}</p>
+            </div>
+            <p className="text-xs text-slate-500">
+              Once both you and your {confirmCheckIn.type === 'coaching' ? 'coach/student' : 'partner'} have checked in, the session will be counted in the pay report.
+            </p>
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setConfirmCheckIn(null)} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={() => handleCheckIn(confirmCheckIn.type, confirmCheckIn.refId)} className="btn-primary flex-1">Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
