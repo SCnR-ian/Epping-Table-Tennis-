@@ -127,10 +127,15 @@ export const coachingAPI = {
   cancelRecurrence: (recId)  => api.delete(`/coaching/sessions/recurrence/${recId}`),
   // Student-facing
   getMySessions:       ()       => api.get('/coaching/my'),
+  getMyPackage:        ()       => api.get('/coaching/my-package'),
   // Coach-facing
   getMyCoachSessions:  ()       => api.get('/coaching/my-coach-sessions'),
   // Admin pay period report
   getPaymentReport: (from, to) => api.get('/coaching/payment-report', { params: { from, to } }),
+  // Package management (admin)
+  assignPackage:    (data)     => api.post('/coaching/packages', data),
+  getMemberPackage: (userId)   => api.get(`/coaching/packages/${userId}`),
+  deletePackage:    (id)       => api.delete(`/coaching/packages/${id}`),
 }
 
 // ---------------------------------------------------------------------------

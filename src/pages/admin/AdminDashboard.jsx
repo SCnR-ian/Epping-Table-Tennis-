@@ -178,9 +178,10 @@ const [members,      setMembers]      = useState([])
   const [todayCoachSummary, setTodayCoachSummary] = useState([])
 
   // Coaching state
-  const [coaches,          setCoaches]          = useState([])
-  const [coachingSessions, setCoachingSessions] = useState([])
-  const [coachingDate,     setCoachingDate]     = useState(() => {
+  const [coaches,             setCoaches]             = useState([])
+  const [coachingSessions,    setCoachingSessions]    = useState([])
+  const [allCoachingSessions, setAllCoachingSessions] = useState([])
+  const [coachingDate,        setCoachingDate]        = useState(() => {
     const dates = getUpcomingOpenDates(1)
     return dates.length ? toISO(dates[0]) : ''
   })
@@ -188,11 +189,17 @@ const [members,      setMembers]      = useState([])
   const [newCoachBio,      setNewCoachBio]      = useState('')
   const [newCoachUserId,   setNewCoachUserId]   = useState('')
   const [showSessionForm,  setShowSessionForm]  = useState(false)
+  const [packageUserId,    setPackageUserId]    = useState('')
+  const [packageSessions,  setPackageSessions]  = useState(10)
+  const [packageSearch,    setPackageSearch]    = useState('')
+  const [memberPackages,   setMemberPackages]   = useState({}) // { userId: { total, used, remaining } }
   const [sessionForm,      setSessionForm]      = useState({
     coach_id: '', student_id: '',
     date: '', start_time: '', end_time: '', notes: '', weeks: 10,
   })
   const [studentSearch,    setStudentSearch]    = useState('')
+  const [coachingSearch,   setCoachingSearch]   = useState('')
+  const [socialSearch,     setSocialSearch]     = useState('')
   // Set of session IDs the admin has checked in during this tab visit
   const [adminCheckedIn,   setAdminCheckedIn]   = useState(new Set())
   // Pay period report state
@@ -362,12 +369,14 @@ const [members,      setMembers]      = useState([])
     Promise.all([
       coachingAPI.getCoaches(),
       coachingAPI.getSessions({ date: coachingDate }),
+      coachingAPI.getSessions({}),
       membersFetch,
     ])
-      .then(([{ data: cd }, { data: sd }, { data: md }]) => {
+      .then(([{ data: cd }, { data: sd }, { data: ad }, { data: md }]) => {
         if (!cancelled) {
           setCoaches(cd.coaches)
           setCoachingSessions(sd.sessions)
+          setAllCoachingSessions(ad.sessions)
           if (members.length === 0) setMembers(md.members)
         }
       })
@@ -488,6 +497,27 @@ const [members,      setMembers]      = useState([])
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not schedule session.')
     }
+  }
+
+  const handleAssignPackage = async () => {
+    if (!packageUserId) return alert('Select a member.')
+    try {
+      await coachingAPI.assignPackage({ user_id: packageUserId, total_sessions: packageSessions })
+      const { data } = await coachingAPI.getMemberPackage(packageUserId)
+      setMemberPackages(prev => ({ ...prev, [packageUserId]: data }))
+      setPackageUserId('')
+      setPackageSessions(10)
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not assign package.')
+    }
+  }
+
+  const handleLoadMemberPackage = async (userId) => {
+    if (memberPackages[userId]) return // already loaded
+    try {
+      const { data } = await coachingAPI.getMemberPackage(userId)
+      setMemberPackages(prev => ({ ...prev, [userId]: data }))
+    } catch {}
   }
 
   const handleCancelSession = async (id) => {
@@ -985,12 +1015,19 @@ const [members,      setMembers]      = useState([])
                 const iso      = toISO(d)
                 const dowLabel = d.toLocaleDateString('en-AU', { weekday: 'short' })
                 const dayLabel = d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
+                const q        = coachingSearch.toLowerCase()
+                const hasMatch = q && allCoachingSessions.some(s =>
+                  s.date?.slice(0, 10) === iso &&
+                  (s.student_name?.toLowerCase().includes(q) || s.coach_name?.toLowerCase().includes(q))
+                )
                 return (
                   <button key={iso} onClick={() => setCoachingDate(iso)}
                     className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-medium border transition-all text-center min-w-[72px] ${
                       coachingDate === iso
                         ? 'bg-brand-500 border-brand-500 text-white'
-                        : 'border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white'
+                        : hasMatch
+                          ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 hover:border-emerald-400 hover:text-white'
+                          : 'border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white'
                     }`}
                   >
                     <div className="">{dowLabel}</div>
@@ -1013,6 +1050,17 @@ const [members,      setMembers]      = useState([])
               </button>
             </div>
 
+            {/* Name search */}
+            <div className="mb-4">
+              <input
+                type="text"
+                placeholder="Search by student or coach name…"
+                value={coachingSearch}
+                onChange={e => setCoachingSearch(e.target.value)}
+                className="input text-sm w-full max-w-sm"
+              />
+            </div>
+
             {/* Sessions table */}
             {loading ? (
               <p className="text-slate-300 text-sm">Loading sessions…</p>
@@ -1029,7 +1077,10 @@ const [members,      setMembers]      = useState([])
                     </tr>
                   </thead>
                   <tbody>
-                    {coachingSessions.map(s => {
+                    {coachingSessions.filter(s => {
+                      const q = coachingSearch.toLowerCase()
+                      return !q || s.student_name?.toLowerCase().includes(q) || s.coach_name?.toLowerCase().includes(q)
+                    }).map(s => {
                       const checkedIn = adminCheckedIn.has(s.id)
                       return (
                       <tr key={s.id} className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors">
@@ -1071,6 +1122,86 @@ const [members,      setMembers]      = useState([])
                 </table>
               </div>
             )}
+          </div>
+
+          {/* ── Packages section ── */}
+          <div>
+            <h2 className="text-lg text-white mb-4">Session Packages</h2>
+
+            {/* Assign package form */}
+            <div className="card mb-6">
+              <p className="text-xs text-slate-300 uppercase tracking-widest mb-4">Assign Package</p>
+              <div className="flex flex-wrap gap-4 items-end">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs text-slate-200 mb-1">Member</label>
+                  <input
+                    type="text"
+                    className="input w-full"
+                    placeholder="Search member name…"
+                    value={packageSearch}
+                    onChange={e => { setPackageSearch(e.target.value); setPackageUserId('') }}
+                  />
+                  {packageSearch && !packageUserId && (
+                    <div className="mt-1 border border-court-light rounded-lg overflow-y-auto max-h-[160px] bg-court">
+                      {members
+                        .filter(m => m.name.toLowerCase().includes(packageSearch.toLowerCase()) || m.email.toLowerCase().includes(packageSearch.toLowerCase()))
+                        .map(m => (
+                          <button
+                            key={m.id}
+                            className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-court-light/40 flex justify-between"
+                            onClick={() => { setPackageUserId(String(m.id)); setPackageSearch(m.name); handleLoadMemberPackage(m.id) }}
+                          >
+                            <span>{m.name}</span>
+                            <span className="text-slate-500 text-xs">{m.email}</span>
+                          </button>
+                        ))
+                      }
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-200 mb-1">Sessions</label>
+                  <input
+                    type="number" min={1} max={100}
+                    className="input w-24"
+                    value={packageSessions}
+                    onChange={e => setPackageSessions(Number(e.target.value))}
+                  />
+                </div>
+                <button onClick={handleAssignPackage} className="btn-primary text-sm">
+                  Assign Package
+                </button>
+              </div>
+
+              {/* Show balance if a member is selected */}
+              {packageUserId && memberPackages[packageUserId] && (() => {
+                const pkg = memberPackages[packageUserId]
+                return (
+                  <div className="mt-4 pt-4 border-t border-court-light flex items-center gap-6">
+                    <div>
+                      <p className="text-xs text-slate-400">Total purchased</p>
+                      <p className="text-lg text-white">{pkg.total}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-400">Used</p>
+                      <p className="text-lg text-slate-300">{pkg.used}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-400">Remaining</p>
+                      <p className="text-lg text-emerald-400">{pkg.remaining}</p>
+                    </div>
+                    <div className="flex-1">
+                      <div className="w-full bg-court-light rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-emerald-500 transition-all"
+                          style={{ width: pkg.total > 0 ? `${Math.round((pkg.remaining / pkg.total) * 100)}%` : '0%' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
           </div>
 
         </div>
@@ -1314,11 +1445,27 @@ const [members,      setMembers]      = useState([])
             </div>
           )}
 
+          {/* Name search */}
+          {!loading && (
+            <div className="mb-4">
+              <input
+                type="text"
+                placeholder="Search by participant name…"
+                value={socialSearch}
+                onChange={e => { setSocialSearch(e.target.value); setSocialPage(0) }}
+                className="input text-sm w-full max-w-sm"
+              />
+            </div>
+          )}
+
           {/* Sessions list */}
           {(() => {
-            const filtered = socialDateFilter
-              ? socialSessions.filter(s => s.date?.slice(0, 10) === socialDateFilter)
-              : socialSessions
+            const filtered = socialSessions
+              .filter(s => !socialDateFilter || s.date?.slice(0, 10) === socialDateFilter)
+              .filter(s => {
+                const q = socialSearch.toLowerCase()
+                return !q || s.participants?.some(p => p.name?.toLowerCase().includes(q)) || s.title?.toLowerCase().includes(q)
+              })
             const totalPages = Math.ceil(filtered.length / 3)
             const pageSlice  = filtered.slice(socialPage * 3, socialPage * 3 + 3)
             return loading ? (

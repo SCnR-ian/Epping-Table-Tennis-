@@ -424,6 +424,71 @@ router.get('/my-coach-sessions', requireAuth, async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
+// ─── PACKAGES ─────────────────────────────────────────────────────────────────
+
+// POST /api/coaching/packages  (admin) — assign a package to a member
+// body: { user_id, total_sessions? }
+router.post('/packages', requireAuth, requireAdmin, async (req, res) => {
+  const { user_id, total_sessions = 10 } = req.body
+  if (!user_id) return res.status(400).json({ message: 'user_id is required.' })
+  try {
+    const { rows } = await pool.query(
+      'INSERT INTO coaching_packages (user_id, total_sessions) VALUES ($1, $2) RETURNING *',
+      [user_id, total_sessions]
+    )
+    res.status(201).json({ package: rows[0] })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// GET /api/coaching/packages/:userId  (admin) — package summary for a member
+router.get('/packages/:userId', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [pkgRes, usedRes] = await Promise.all([
+      pool.query(
+        'SELECT COALESCE(SUM(total_sessions), 0)::int AS total FROM coaching_packages WHERE user_id=$1',
+        [req.params.userId]
+      ),
+      pool.query(
+        "SELECT COUNT(*)::int AS used FROM coaching_sessions WHERE student_id=$1 AND status='confirmed'",
+        [req.params.userId]
+      ),
+    ])
+    const total     = pkgRes.rows[0].total
+    const used      = usedRes.rows[0].used
+    const remaining = Math.max(0, total - used)
+    res.json({ total, used, remaining })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// DELETE /api/coaching/packages/:id  (admin) — remove a package
+router.delete('/packages/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { rowCount } = await pool.query('DELETE FROM coaching_packages WHERE id=$1', [req.params.id])
+    if (rowCount === 0) return res.status(404).json({ message: 'Package not found.' })
+    res.json({ message: 'Package deleted.' })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// GET /api/coaching/my-package  (member) — own package balance
+router.get('/my-package', requireAuth, async (req, res) => {
+  try {
+    const [pkgRes, usedRes] = await Promise.all([
+      pool.query(
+        'SELECT COALESCE(SUM(total_sessions), 0)::int AS total FROM coaching_packages WHERE user_id=$1',
+        [req.user.id]
+      ),
+      pool.query(
+        "SELECT COUNT(*)::int AS used FROM coaching_sessions WHERE student_id=$1 AND status='confirmed'",
+        [req.user.id]
+      ),
+    ])
+    const total     = pkgRes.rows[0].total
+    const used      = usedRes.rows[0].used
+    const remaining = Math.max(0, total - used)
+    res.json({ total, used, remaining })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
 // ─── STUDENT-FACING ───────────────────────────────────────────────────────────
 
 // GET /api/coaching/my  — authenticated user's upcoming coaching sessions
