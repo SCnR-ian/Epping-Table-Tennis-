@@ -189,11 +189,9 @@ const [members,      setMembers]      = useState([])
   const [newCoachBio,      setNewCoachBio]      = useState('')
   const [newCoachUserId,   setNewCoachUserId]   = useState('')
   const [showSessionForm,  setShowSessionForm]  = useState(false)
-  const [packageUserId,    setPackageUserId]    = useState('')
-  const [packageSessions,  setPackageSessions]  = useState(10)
-  const [packageSearch,    setPackageSearch]    = useState('')
-  const [memberPackages,   setMemberPackages]   = useState({}) // { userId: { total, used, remaining } }
-  const [sessionForm,      setSessionForm]      = useState({
+  const [reschedulingId,   setReschedulingId]   = useState(null)  // session id being rescheduled
+  const [rescheduleDate,   setRescheduleDate]   = useState('')
+const [sessionForm,      setSessionForm]      = useState({
     coach_id: '', student_id: '',
     date: '', start_time: '', end_time: '', notes: '', weeks: 10,
   })
@@ -499,25 +497,17 @@ const [members,      setMembers]      = useState([])
     }
   }
 
-  const handleAssignPackage = async () => {
-    if (!packageUserId) return alert('Select a member.')
+  const handleReschedule = async (id) => {
+    if (!rescheduleDate) return alert('Pick a new date.')
     try {
-      await coachingAPI.assignPackage({ user_id: packageUserId, total_sessions: packageSessions })
-      const { data } = await coachingAPI.getMemberPackage(packageUserId)
-      setMemberPackages(prev => ({ ...prev, [packageUserId]: data }))
-      setPackageUserId('')
-      setPackageSessions(10)
+      await coachingAPI.rescheduleSession(id, rescheduleDate)
+      const { data } = await coachingAPI.getSessions({ date: coachingDate })
+      setCoachingSessions(data.sessions)
+      setReschedulingId(null)
+      setRescheduleDate('')
     } catch (err) {
-      alert(err.response?.data?.message ?? 'Could not assign package.')
+      alert(err.response?.data?.message ?? 'Could not reschedule session.')
     }
-  }
-
-  const handleLoadMemberPackage = async (userId) => {
-    if (memberPackages[userId]) return // already loaded
-    try {
-      const { data } = await coachingAPI.getMemberPackage(userId)
-      setMemberPackages(prev => ({ ...prev, [userId]: data }))
-    } catch {}
   }
 
   const handleCancelSession = async (id) => {
@@ -1096,23 +1086,44 @@ const [members,      setMembers]      = useState([])
                           {s.notes ?? '—'}
                         </td>
                         <td className="px-5 py-3">
-                          <div className="flex items-center gap-3">
-                            {checkedIn ? (
-                              <span className="text-xs text-emerald-400">Checked In ✓</span>
-                            ) : (
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center gap-3">
+                              {checkedIn ? (
+                                <span className="text-xs text-emerald-400">Checked In ✓</span>
+                              ) : (
+                                <button
+                                  onClick={() => handleAdminCheckInCoaching(s.id, s.student_id)}
+                                  className="text-xs text-emerald-400 hover:text-emerald-300 font-medium"
+                                >
+                                  Check In
+                                </button>
+                              )}
                               <button
-                                onClick={() => handleAdminCheckInCoaching(s.id, s.student_id)}
-                                className="text-xs text-emerald-400 hover:text-emerald-300 font-medium"
+                                onClick={() => {
+                                  setReschedulingId(reschedulingId === s.id ? null : s.id)
+                                  setRescheduleDate('')
+                                }}
+                                className="text-xs text-sky-400 hover:text-sky-300 font-medium"
                               >
-                                Check In
+                                {reschedulingId === s.id ? 'Cancel' : 'Reschedule'}
                               </button>
+                            </div>
+                            {reschedulingId === s.id && (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="date"
+                                  className="input text-xs px-2 py-1"
+                                  value={rescheduleDate}
+                                  onChange={e => setRescheduleDate(e.target.value)}
+                                />
+                                <button
+                                  onClick={() => handleReschedule(s.id)}
+                                  className="text-xs text-white bg-sky-600 hover:bg-sky-500 px-2 py-1 rounded transition-colors"
+                                >
+                                  Confirm
+                                </button>
+                              </div>
                             )}
-                            <button
-                              onClick={() => handleCancelSession(s.id)}
-                              className="text-xs text-red-400 hover:text-red-300 font-medium"
-                            >
-                              Cancel
-                            </button>
                           </div>
                         </td>
                       </tr>
@@ -1124,85 +1135,6 @@ const [members,      setMembers]      = useState([])
             )}
           </div>
 
-          {/* ── Packages section ── */}
-          <div>
-            <h2 className="text-lg text-white mb-4">Session Packages</h2>
-
-            {/* Assign package form */}
-            <div className="card mb-6">
-              <p className="text-xs text-slate-300 uppercase tracking-widest mb-4">Assign Package</p>
-              <div className="flex flex-wrap gap-4 items-end">
-                <div className="flex-1 min-w-[200px]">
-                  <label className="block text-xs text-slate-200 mb-1">Member</label>
-                  <input
-                    type="text"
-                    className="input w-full"
-                    placeholder="Search member name…"
-                    value={packageSearch}
-                    onChange={e => { setPackageSearch(e.target.value); setPackageUserId('') }}
-                  />
-                  {packageSearch && !packageUserId && (
-                    <div className="mt-1 border border-court-light rounded-lg overflow-y-auto max-h-[160px] bg-court">
-                      {members
-                        .filter(m => m.name.toLowerCase().includes(packageSearch.toLowerCase()) || m.email.toLowerCase().includes(packageSearch.toLowerCase()))
-                        .map(m => (
-                          <button
-                            key={m.id}
-                            className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-court-light/40 flex justify-between"
-                            onClick={() => { setPackageUserId(String(m.id)); setPackageSearch(m.name); handleLoadMemberPackage(m.id) }}
-                          >
-                            <span>{m.name}</span>
-                            <span className="text-slate-500 text-xs">{m.email}</span>
-                          </button>
-                        ))
-                      }
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-200 mb-1">Sessions</label>
-                  <input
-                    type="number" min={1} max={100}
-                    className="input w-24"
-                    value={packageSessions}
-                    onChange={e => setPackageSessions(Number(e.target.value))}
-                  />
-                </div>
-                <button onClick={handleAssignPackage} className="btn-primary text-sm">
-                  Assign Package
-                </button>
-              </div>
-
-              {/* Show balance if a member is selected */}
-              {packageUserId && memberPackages[packageUserId] && (() => {
-                const pkg = memberPackages[packageUserId]
-                return (
-                  <div className="mt-4 pt-4 border-t border-court-light flex items-center gap-6">
-                    <div>
-                      <p className="text-xs text-slate-400">Total purchased</p>
-                      <p className="text-lg text-white">{pkg.total}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-400">Used</p>
-                      <p className="text-lg text-slate-300">{pkg.used}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-400">Remaining</p>
-                      <p className="text-lg text-emerald-400">{pkg.remaining}</p>
-                    </div>
-                    <div className="flex-1">
-                      <div className="w-full bg-court-light rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-emerald-500 transition-all"
-                          style={{ width: pkg.total > 0 ? `${Math.round((pkg.remaining / pkg.total) * 100)}%` : '0%' }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )
-              })()}
-            </div>
-          </div>
 
         </div>
       )}

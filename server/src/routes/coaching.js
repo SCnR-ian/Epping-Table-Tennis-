@@ -424,90 +424,51 @@ router.get('/my-coach-sessions', requireAuth, async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
-// ─── PACKAGES ─────────────────────────────────────────────────────────────────
-
-// POST /api/coaching/packages  (admin) — assign a package to a member
-// body: { user_id, total_sessions? }
-router.post('/packages', requireAuth, requireAdmin, async (req, res) => {
-  const { user_id, total_sessions = 10 } = req.body
-  if (!user_id) return res.status(400).json({ message: 'user_id is required.' })
+// PUT /api/coaching/sessions/:id/reschedule  (admin) — move a single session to a new date
+// body: { date: 'YYYY-MM-DD' }
+router.put('/sessions/:id/reschedule', requireAuth, requireAdmin, async (req, res) => {
+  const { date } = req.body
+  if (!date) return res.status(400).json({ message: 'date is required.' })
   try {
     const { rows } = await pool.query(
-      'INSERT INTO coaching_packages (user_id, total_sessions) VALUES ($1, $2) RETURNING *',
-      [user_id, total_sessions]
+      `UPDATE coaching_sessions SET date=$1 WHERE id=$2 AND status='confirmed' RETURNING *`,
+      [date, req.params.id]
     )
-    res.status(201).json({ package: rows[0] })
-  } catch { res.status(500).json({ message: 'Server error.' }) }
-})
-
-// GET /api/coaching/packages/:userId  (admin) — package summary for a member
-router.get('/packages/:userId', requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const [pkgRes, usedRes] = await Promise.all([
-      pool.query(
-        'SELECT COALESCE(SUM(total_sessions), 0)::int AS total FROM coaching_packages WHERE user_id=$1',
-        [req.params.userId]
-      ),
-      pool.query(
-        "SELECT COUNT(*)::int AS used FROM coaching_sessions WHERE student_id=$1 AND status='confirmed'",
-        [req.params.userId]
-      ),
-    ])
-    const total     = pkgRes.rows[0].total
-    const used      = usedRes.rows[0].used
-    const remaining = Math.max(0, total - used)
-    res.json({ total, used, remaining })
-  } catch { res.status(500).json({ message: 'Server error.' }) }
-})
-
-// DELETE /api/coaching/packages/:id  (admin) — remove a package
-router.delete('/packages/:id', requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const { rowCount } = await pool.query('DELETE FROM coaching_packages WHERE id=$1', [req.params.id])
-    if (rowCount === 0) return res.status(404).json({ message: 'Package not found.' })
-    res.json({ message: 'Package deleted.' })
-  } catch { res.status(500).json({ message: 'Server error.' }) }
-})
-
-// GET /api/coaching/my-package  (member) — own package balance
-router.get('/my-package', requireAuth, async (req, res) => {
-  try {
-    const [pkgRes, usedRes] = await Promise.all([
-      pool.query(
-        'SELECT COALESCE(SUM(total_sessions), 0)::int AS total FROM coaching_packages WHERE user_id=$1',
-        [req.user.id]
-      ),
-      pool.query(
-        "SELECT COUNT(*)::int AS used FROM coaching_sessions WHERE student_id=$1 AND status='confirmed'",
-        [req.user.id]
-      ),
-    ])
-    const total     = pkgRes.rows[0].total
-    const used      = usedRes.rows[0].used
-    const remaining = Math.max(0, total - used)
-    res.json({ total, used, remaining })
-  } catch { res.status(500).json({ message: 'Server error.' }) }
+    if (!rows[0]) return res.status(404).json({ message: 'Session not found.' })
+    res.json({ session: rows[0] })
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ message: 'That slot is already taken.' })
+    res.status(500).json({ message: 'Server error.' })
+  }
 })
 
 // ─── STUDENT-FACING ───────────────────────────────────────────────────────────
 
 // GET /api/coaching/my  — authenticated user's upcoming coaching sessions
+// Each session includes series_total and series_remaining (for recurring packages).
 router.get('/my', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT
-         cs.id,
-         cs.date,
-         cs.start_time,
-         cs.end_time,
-         cs.notes,
-         cs.status,
-         cs.recurrence_id,
+      `WITH series_counts AS (
+         SELECT
+           recurrence_id,
+           COUNT(*)::int AS series_total,
+           COUNT(*) FILTER (WHERE date >= CURRENT_DATE)::int AS series_remaining
+         FROM coaching_sessions
+         WHERE student_id = $1 AND status = 'confirmed' AND recurrence_id IS NOT NULL
+         GROUP BY recurrence_id
+       )
+       SELECT
+         cs.id, cs.date, cs.start_time, cs.end_time,
+         cs.notes, cs.status, cs.recurrence_id,
          c.name  AS coach_name,
-         ct.name AS court_name
+         ct.name AS court_name,
+         sc.series_total,
+         sc.series_remaining
        FROM coaching_sessions cs
        JOIN coaches c  ON c.id  = cs.coach_id
        JOIN courts  ct ON ct.id = cs.court_id
+       LEFT JOIN series_counts sc ON sc.recurrence_id = cs.recurrence_id
        WHERE cs.student_id = $1
          AND cs.status = 'confirmed'
          AND cs.date >= CURRENT_DATE

@@ -90,7 +90,6 @@ export default function DashboardPage() {
   const [checkedIn,        setCheckedIn]        = useState(new Set())
   const [confirmCheckIn,   setConfirmCheckIn]   = useState(null)
   const [loadingData,      setLoadingData]      = useState(false)
-  const [coachingPackage,  setCoachingPackage]  = useState(null) // { total, used, remaining }
 
   // Check-in day picker — default to today if it's a club day, else Monday of current week
   const todayDow = new Date().getDay() || 7
@@ -110,9 +109,8 @@ export default function DashboardPage() {
       coachingAPI.getMyCoachSessions(),
       socialAPI.getSessions(),
       checkinAPI.getToday(),
-      coachingAPI.getMyPackage(),
     ])
-      .then(([coachingRes, coachRes, socialRes, checkinRes, pkgRes]) => {
+      .then(([coachingRes, coachRes, socialRes, checkinRes]) => {
         if (cancelled) return
         if (coachingRes.status === 'fulfilled')
           setCoachingSessions(coachingRes.value.data.sessions)
@@ -124,8 +122,6 @@ export default function DashboardPage() {
           setCheckedIn(new Set(
             checkinRes.value.data.checkIns.map(ci => `${ci.type}:${ci.reference_id}`)
           ))
-        if (pkgRes.status === 'fulfilled' && pkgRes.value.data.total > 0)
-          setCoachingPackage(pkgRes.value.data)
       })
       .finally(() => { if (!cancelled) setLoadingData(false) })
     return () => { cancelled = true }
@@ -389,27 +385,45 @@ export default function DashboardPage() {
         {/* ── Sidebar ──────────────────────────────────────────────────── */}
         <div className="space-y-6">
 
-          {/* Coaching Package */}
-          {coachingPackage && (
-            <div className="card">
-              <h3 className="text-sm font-normal text-white mb-3">Coaching Package</h3>
-              <div className="flex items-end justify-between mb-3">
-                <div>
-                  <p className="font-display text-4xl text-emerald-400 tracking-wider leading-none">
-                    {coachingPackage.remaining}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">sessions remaining</p>
+          {/* Coaching Packages — one card per recurring series */}
+          {(() => {
+            const seen = new Set()
+            const series = coachingSessions.filter(s => {
+              if (!s.recurrence_id || seen.has(s.recurrence_id)) return false
+              seen.add(s.recurrence_id)
+              return true
+            })
+            if (!series.length) return null
+            return (
+              <div className="card">
+                <h3 className="text-sm font-normal text-white mb-3">Coaching Package</h3>
+                <div className="space-y-4">
+                  {series.map(s => (
+                    <div key={s.recurrence_id}>
+                      <div className="flex items-end justify-between mb-1.5">
+                        <div>
+                          <p className="font-display text-4xl text-emerald-400 tracking-wider leading-none">
+                            {s.series_remaining}
+                          </p>
+                          <p className="text-xs text-slate-400 mt-1">sessions remaining</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-slate-300">{s.coach_name}</p>
+                          <p className="text-xs text-slate-500">{s.series_remaining} / {s.series_total} left</p>
+                        </div>
+                      </div>
+                      <div className="w-full bg-court-light rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-emerald-500 transition-all"
+                          style={{ width: `${Math.round((s.series_remaining / s.series_total) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <p className="text-xs text-slate-500">{coachingPackage.used} / {coachingPackage.total} used</p>
               </div>
-              <div className="w-full bg-court-light rounded-full h-1.5 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-emerald-500 transition-all"
-                  style={{ width: `${Math.round((coachingPackage.remaining / coachingPackage.total) * 100)}%` }}
-                />
-              </div>
-            </div>
-          )}
+            )
+          })()}
 
           {/* Check-In */}
           <div className="card">
