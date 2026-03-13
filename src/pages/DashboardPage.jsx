@@ -401,7 +401,7 @@ export default function DashboardPage() {
                   {series.map(s => {
                     // Count upcoming sessions directly from loaded data — avoids backend rounding issues
                     const remaining = coachingSessions.filter(c => c.recurrence_id === s.recurrence_id).length
-                    const total     = s.series_total ?? remaining
+                    const total     = s.series_total || remaining
                     const used      = Math.max(0, total - remaining)
                     const pct       = total > 0 ? Math.round((remaining / total) * 100) : 0
                     return (
