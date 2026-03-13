@@ -444,18 +444,50 @@ router.put('/sessions/:id/reschedule', requireAuth, requireAdmin, async (req, re
 
 // ─── STUDENT-FACING ───────────────────────────────────────────────────────────
 
-// GET /api/coaching/my  — authenticated user's upcoming coaching sessions
-// Each session includes series_total and series_remaining (for recurring packages).
+// GET /api/coaching/my  — authenticated user's upcoming coaching sessions.
+// series_total  = all sessions scheduled in the recurring series
+// series_used   = sessions that have been "counted" (admin checked-in OR both student+coach checked in)
+// sessions_left = series_total - series_used
 router.get('/my', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `WITH series_counts AS (
+      `WITH session_checkins AS (
+         -- Determine whether each past session in this student's series "counted"
+         SELECT
+           cs.id AS session_id,
+           cs.recurrence_id,
+           cs.date,
+           (
+             EXISTS(
+               SELECT 1 FROM check_ins ci
+               WHERE ci.type = 'coaching'
+                 AND ci.reference_id = cs.id::text
+                 AND ci.checked_in_by IS NOT NULL
+             ) OR (
+               EXISTS(
+                 SELECT 1 FROM check_ins ci
+                 WHERE ci.type = 'coaching'
+                   AND ci.reference_id = cs.id::text
+                   AND ci.user_id = cs.student_id
+               ) AND EXISTS(
+                 SELECT 1 FROM check_ins ci
+                 WHERE ci.type = 'coaching'
+                   AND ci.reference_id = cs.id::text
+                   AND ci.user_id = (SELECT co.user_id FROM coaches co WHERE co.id = cs.coach_id)
+               )
+             )
+           ) AS counted
+         FROM coaching_sessions cs
+         WHERE cs.student_id = $1
+           AND cs.status = 'confirmed'
+           AND cs.recurrence_id IS NOT NULL
+       ),
+       series_counts AS (
          SELECT
            recurrence_id,
-           COUNT(*)::int AS series_total,
-           COUNT(*) FILTER (WHERE date >= CURRENT_DATE)::int AS series_remaining
-         FROM coaching_sessions
-         WHERE student_id = $1 AND status = 'confirmed' AND recurrence_id IS NOT NULL
+           COUNT(*)::int                               AS series_total,
+           COUNT(*) FILTER (WHERE counted)::int        AS series_used
+         FROM session_checkins
          GROUP BY recurrence_id
        )
        SELECT
@@ -464,7 +496,7 @@ router.get('/my', requireAuth, async (req, res) => {
          c.name  AS coach_name,
          ct.name AS court_name,
          sc.series_total,
-         sc.series_remaining
+         sc.series_used
        FROM coaching_sessions cs
        JOIN coaches c  ON c.id  = cs.coach_id
        JOIN courts  ct ON ct.id = cs.court_id
