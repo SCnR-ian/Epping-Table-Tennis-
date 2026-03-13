@@ -385,7 +385,7 @@ export default function DashboardPage() {
         {/* ── Sidebar ──────────────────────────────────────────────────── */}
         <div className="space-y-6">
 
-          {/* Coaching Packages — one card per recurring series */}
+          {/* Coaching Package — one entry per recurring series */}
           {(() => {
             const seen = new Set()
             const series = coachingSessions.filter(s => {
@@ -396,30 +396,34 @@ export default function DashboardPage() {
             if (!series.length) return null
             return (
               <div className="card">
-                <h3 className="text-sm font-normal text-white mb-3">Coaching Package</h3>
-                <div className="space-y-4">
-                  {series.map(s => (
-                    <div key={s.recurrence_id}>
-                      <div className="flex items-end justify-between mb-1.5">
-                        <div>
+                <h3 className="text-sm font-normal text-white mb-4">Coaching Package</h3>
+                <div className="space-y-5">
+                  {series.map(s => {
+                    const total     = s.series_total     ?? 0
+                    const remaining = s.series_remaining ?? 0
+                    const used      = total - remaining
+                    const pct       = total > 0 ? Math.round((remaining / total) * 100) : 0
+                    return (
+                      <div key={s.recurrence_id}>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs text-slate-400">{s.coach_name}</p>
+                          <p className="text-xs text-slate-500">{used} used · {total} total</p>
+                        </div>
+                        <div className="flex items-end gap-3 mb-2">
                           <p className="font-display text-4xl text-emerald-400 tracking-wider leading-none">
-                            {s.series_remaining}
+                            {remaining}
                           </p>
-                          <p className="text-xs text-slate-400 mt-1">sessions remaining</p>
+                          <p className="text-sm text-slate-400 mb-0.5">sessions left</p>
                         </div>
-                        <div className="text-right">
-                          <p className="text-xs text-slate-300">{s.coach_name}</p>
-                          <p className="text-xs text-slate-500">{s.series_remaining} / {s.series_total} left</p>
+                        <div className="w-full bg-court-light rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-emerald-500 transition-all"
+                            style={{ width: `${pct}%` }}
+                          />
                         </div>
                       </div>
-                      <div className="w-full bg-court-light rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-emerald-500 transition-all"
-                          style={{ width: `${Math.round((s.series_remaining / s.series_total) * 100)}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )
