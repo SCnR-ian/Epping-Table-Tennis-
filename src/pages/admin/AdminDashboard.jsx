@@ -308,16 +308,16 @@ const [sessionForm,      setSessionForm]      = useState({
     setCoachSubmitting(true)
     try {
       const fd = new FormData()
-      fd.append('availability_start', coachForm.availability_start)
-      fd.append('availability_end',   coachForm.availability_end)
-      if (coachForm.bio)    fd.append('bio', coachForm.bio)
-      if (coachForm.resume) fd.append('resume', coachForm.resume)
+      if (coachForm.availability_start) fd.append('availability_start', coachForm.availability_start)
+      if (coachForm.availability_end)   fd.append('availability_end',   coachForm.availability_end)
+      if (coachForm.bio)                fd.append('bio', coachForm.bio)
+      if (coachForm.resume)             fd.append('resume', coachForm.resume)
       await adminAPI.makeCoach(coachModal.id, fd)
       setMembers(prev => prev.map(m => m.id === coachModal.id ? { ...m, role: 'coach' } : m))
       setCoachModal(null)
       setCoachForm({ availability_start: '', availability_end: '', bio: '', resume: null })
-    } catch {
-      alert('Could not promote to coach. Please try again.')
+    } catch (err) {
+      alert(err.response?.data?.message ?? err.message ?? 'Could not promote to coach.')
     } finally {
       setCoachSubmitting(false)
     }
