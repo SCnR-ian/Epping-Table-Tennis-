@@ -399,10 +399,10 @@ export default function DashboardPage() {
                 <h3 className="text-sm font-normal text-white mb-4">Coaching Package</h3>
                 <div className="space-y-5">
                   {series.map(s => {
-                    // used  = sessions that counted (admin checked-in OR both student+coach checked in)
-                    // remaining = total package size minus used sessions
-                    const total     = s.series_total || 0
-                    const used      = s.series_used  || 0
+                    // Fallback: if backend series_total is missing, count upcoming sessions
+                    const upcoming  = coachingSessions.filter(c => c.recurrence_id === s.recurrence_id).length
+                    const total     = s.series_total || upcoming
+                    const used      = s.series_used != null ? s.series_used : Math.max(0, total - upcoming)
                     const remaining = Math.max(0, total - used)
                     const pct       = total > 0 ? Math.round((remaining / total) * 100) : 0
                     return (
