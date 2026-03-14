@@ -87,7 +87,9 @@ router.put('/members/:id/role', async (req, res) => {
 
 // POST /api/admin/members/:id/make-coach  (multipart/form-data)
 router.post('/members/:id/make-coach', upload.single('resume'), async (req, res) => {
-  const { availability_start, availability_end, bio } = req.body
+  const availability_start = req.body.availability_start || null
+  const availability_end   = req.body.availability_end   || null
+  const bio                = req.body.bio                || null
   const userId = req.params.id
   const client = await pool.connect()
   try {
@@ -105,7 +107,7 @@ router.post('/members/:id/make-coach', upload.single('resume'), async (req, res)
          resume_filename=COALESCE($6, coaches.resume_filename),
          resume_data=COALESCE($7, coaches.resume_data)
        RETURNING *`,
-      [userId, userName, bio ?? null, availability_start ?? null, availability_end ?? null, resumeFilename, resumeData]
+      [userId, userName, bio, availability_start, availability_end, resumeFilename, resumeData]
     )
     await client.query("UPDATE users SET role='coach', updated_at=NOW() WHERE id=$1", [userId])
     await client.query('COMMIT')

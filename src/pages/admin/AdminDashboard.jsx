@@ -1612,10 +1612,10 @@ const [sessionForm,      setSessionForm]      = useState({
                 <button onClick={() => setCoachModal(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
               </div>
 
-              {/* Start / End dates */}
+              {/* Start / End dates (both optional) */}
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className="block text-xs text-slate-400 mb-1">Start Date</label>
+                  <label className="block text-xs text-slate-400 mb-1">Start Date (optional)</label>
                   <input
                     type="date"
                     className="input w-full"
@@ -1624,7 +1624,7 @@ const [sessionForm,      setSessionForm]      = useState({
                   />
                 </div>
                 <div className="flex-1">
-                  <label className="block text-xs text-slate-400 mb-1">End Date</label>
+                  <label className="block text-xs text-slate-400 mb-1">End Date (optional)</label>
                   <input
                     type="date"
                     className="input w-full"
