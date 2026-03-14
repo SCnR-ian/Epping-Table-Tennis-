@@ -4,6 +4,7 @@
 -- Run: psql "$DATABASE_URL" -f server/src/db/migrate_fix_user_fk_cascade.sql
 
 ALTER TABLE social_play_sessions
+  ALTER COLUMN created_by DROP NOT NULL,
   DROP CONSTRAINT IF EXISTS social_play_sessions_created_by_fkey,
   ADD CONSTRAINT social_play_sessions_created_by_fkey
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
