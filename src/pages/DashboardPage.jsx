@@ -95,6 +95,7 @@ export default function DashboardPage() {
   const todayDow = new Date().getDay() || 7
   const defaultDow = CHECKIN_DOWS.includes(todayDow) ? todayDow : 1
   const [selectedCheckInDay, setSelectedCheckInDay] = useState(defaultDow)
+  const [activeTab, setActiveTab] = useState('checkin')
 
   // Rolling weeks for calendar
   const weeks          = useMemo(() => getRollingWeeks(), [])
@@ -205,225 +206,62 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="page-wrapper py-8 px-4 max-w-7xl mx-auto space-y-10">
+    <div className="page-wrapper py-8 px-4 max-w-4xl mx-auto">
 
-      {/* Main layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      {/* Tab bar */}
+      <div className="flex gap-1 mb-6 border-b border-court-light">
+        {[
+          { id: 'checkin',  label: 'Check-In' },
+          { id: 'schedule', label: 'My Schedule' },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              activeTab === tab.id
+                ? 'border-brand-500 text-white'
+                : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-        {/* ── Calendar ─────────────────────────────────────────────────── */}
-        <div className="lg:col-span-2">
+      {/* ── Tab 1: Check-In + Sessions Left ─────────────────────────────── */}
+      {activeTab === 'checkin' && (
+        <div className="space-y-6 animate-fade-in">
 
-          {/* Header + week selector */}
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-normal text-white">My Schedule</h2>
-            <div className="flex gap-1.5">
-              {weeks.map((weekDates, i) => {
-                const hasEvents = Object.values(weekDates).some(date => {
-                  const iso = toISO(date)
-                  return coachingSessions.some(s => s.date?.slice(0, 10) === iso)
-                    || coachSessions.some(s => s.date?.slice(0, 10) === iso)
-                    || socialSessions.some(s => s.date?.slice(0, 10) === iso)
-                })
-                return (
-                  <button
-                    key={i}
-                    onClick={() => { setSelectedWeek(i); autoJumped.current = true }}
-                    className={`relative px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${
-                      selectedWeek === i
-                        ? 'bg-brand-500 border-brand-500 text-white'
-                        : 'border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white'
-                    }`}
-                  >
-                    {fmtWeekRange(weekDates)}
-                    {hasEvents && (
-                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" />
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Calendar card */}
-          <div className="card p-0 overflow-hidden">
-
-            {/* Day-header row */}
-            <div
-              className="grid border-b border-court-light"
-              style={{ gridTemplateColumns: '52px repeat(4, 1fr)' }}
-            >
-              <div /> {/* corner */}
-              {CAL_DAYS.map(({ short, dow }) => {
-                const date    = currentWeekDates[dow]
-                const dateISO = toISO(date)
-                const isToday = dateISO === todayISO
-                return (
-                  <div
-                    key={dow}
-                    className={`py-2.5 text-center border-l border-court-light ${isToday ? 'bg-brand-500/10' : ''}`}
-                  >
-                    <p className={`text-xs font-normal uppercase tracking-wide ${isToday ? 'text-brand-400' : 'text-slate-500'}`}>
-                      {short}
-                    </p>
-                    <p className={`text-base font-normal leading-tight ${isToday ? 'text-brand-300' : 'text-white'}`}>
-                      {date.getDate()}
-                    </p>
-                    <p className="text-xs text-slate-600">
-                      {date.toLocaleDateString('en-AU', { month: 'short' })}
-                    </p>
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Grid body */}
-            <div
-              className="grid"
-              style={{ gridTemplateColumns: '52px repeat(4, 1fr)' }}
-            >
-              {/* Time labels column */}
-              <div className="border-r border-court-light/30">
-                {TIME_SLOTS.map(({ mins, label }) => (
-                  <div
-                    key={mins}
-                    style={{ height: ROW_H }}
-                    className="flex items-start justify-end pr-1.5 pt-0.5"
-                  >
-                    {label && (
-                      <span className="text-xs text-slate-600 leading-none whitespace-nowrap">
-                        {label}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Day columns */}
-              {CAL_DAYS.map(({ dow }) => {
-                const date    = currentWeekDates[dow]
-                const dateISO = toISO(date)
-                const isToday = dateISO === todayISO
-                const events  = getEvents(dateISO)
-                const totalH          = SLOT_COUNT * ROW_H
-
-                return (
-                  <div
-                    key={dow}
-                    className={`relative border-l border-court-light overflow-hidden ${isToday ? 'bg-brand-500/[0.04]' : ''}`}
-                    style={{ height: totalH }}
-                  >
-                    {/* Background grid lines */}
-                    {TIME_SLOTS.map(({ mins }) => (
-                      <div
-                        key={mins}
-                        className="absolute left-0 right-0 border-b border-court-light/20"
-                        style={{
-                          top:    (mins - CAL_START) / 30 * ROW_H,
-                          height: ROW_H,
-                        }}
-                      />
-                    ))}
-
-                    {/* Loading shimmer */}
-                    {loadingData && (
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-xs text-slate-700 animate-pulse">loading</span>
-                      </div>
-                    )}
-
-                    {/* Events */}
-                    {events.map(({ id, type, data }) => {
-                      const startMins = toMins(data.start_time)
-                      const endMins   = toMins(data.end_time)
-                      const top       = (startMins - CAL_START) / 30 * ROW_H
-                      const height    = Math.max((endMins - startMins) / 30 * ROW_H - 2, 18)
-                      const { bg, text } = EVENT_STYLES[type]
-
-                      const title = type === 'student'
-                        ? `w/ ${data.coach_name}`
-                        : type === 'coach'
-                          ? `→ ${data.student_name}`
-                          : data.title || 'Social Play'
-
-                      return (
-                        <div
-                          key={id}
-                          className={`absolute left-0.5 right-0.5 rounded border ${bg} ${text} text-xs leading-tight overflow-hidden`}
-                          style={{ top: top + 1, height }}
-                          title={`${title} · ${fmtTime(data.start_time)}–${fmtTime(data.end_time)}`}
-                        >
-                          <div className="p-1 h-full flex flex-col justify-between">
-                            <p className="font-normal truncate">{title}</p>
-                            {height > 38 && (
-                              <p className="opacity-70 truncate">{fmtTime(data.start_time)}</p>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Legend */}
-          <div className="flex gap-5 mt-2.5">
-            {[
-              { label: 'Coaching Session', color: 'bg-emerald-500/60' },
-              { label: 'Teaching Session', color: 'bg-sky-500/60'     },
-              { label: 'Social Play',      color: 'bg-violet-500/60'  },
-            ].map(({ label, color }) => (
-              <div key={label} className="flex items-center gap-1.5">
-                <div className={`w-2.5 h-2.5 rounded-sm ${color}`} />
-                <span className="text-xs text-slate-500">{label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Sidebar ──────────────────────────────────────────────────── */}
-        <div className="space-y-6">
-
-          {/* Coaching Package — one entry per recurring series, plus grouped one-offs */}
+          {/* Coaching sessions remaining */}
           {(() => {
             if (!coachingSessions.length) return null
-
-            // Build display entries:
-            // - Recurring: one entry per recurrence_id (uses series_total/series_used from backend)
-            // - Standalone: group one-off sessions by coach name, count upcoming
             const entries = []
             const seenRecurrence = new Set()
-
             for (const s of coachingSessions) {
               if (s.recurrence_id) {
                 if (!seenRecurrence.has(s.recurrence_id)) {
                   seenRecurrence.add(s.recurrence_id)
                   const upcoming = coachingSessions.filter(c => c.recurrence_id === s.recurrence_id).length
-                  const total     = s.series_total || upcoming
-                  const used      = s.series_used != null ? s.series_used : Math.max(0, total - upcoming)
+                  const total    = s.series_total || upcoming
+                  const used     = s.series_used != null ? s.series_used : Math.max(0, total - upcoming)
                   entries.push({ key: s.recurrence_id, coach_name: s.coach_name, total, used })
                 }
               }
             }
-
-            // Group standalone (no recurrence_id) by coach
             const standaloneByCoach = {}
             for (const s of coachingSessions) {
               if (!s.recurrence_id) {
-                if (!standaloneByCoach[s.coach_name]) standaloneByCoach[s.coach_name] = 0
-                standaloneByCoach[s.coach_name]++
+                standaloneByCoach[s.coach_name] = (standaloneByCoach[s.coach_name] || 0) + 1
               }
             }
             for (const [coach_name, count] of Object.entries(standaloneByCoach)) {
               entries.push({ key: `standalone-${coach_name}`, coach_name, total: count, used: 0 })
             }
-
             if (!entries.length) return null
             return (
               <div className="card">
                 <h3 className="text-sm font-normal text-white mb-4">Coaching Sessions</h3>
-                <div className="space-y-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   {entries.map(({ key, coach_name, total, used }) => {
                     const remaining = Math.max(0, total - used)
                     const pct       = total > 0 ? Math.round((remaining / total) * 100) : 0
@@ -434,16 +272,11 @@ export default function DashboardPage() {
                           <p className="text-xs text-slate-500">{used} used · {total} total</p>
                         </div>
                         <div className="flex items-end gap-3 mb-2">
-                          <p className="font-display text-4xl text-emerald-400 tracking-wider leading-none">
-                            {remaining}
-                          </p>
+                          <p className="font-display text-4xl text-emerald-400 tracking-wider leading-none">{remaining}</p>
                           <p className="text-sm text-slate-400 mb-0.5">sessions left</p>
                         </div>
                         <div className="w-full bg-court-light rounded-full h-1.5 overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-emerald-500 transition-all"
-                            style={{ width: `${pct}%` }}
-                          />
+                          <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
                         </div>
                       </div>
                     )
@@ -456,8 +289,6 @@ export default function DashboardPage() {
           {/* Check-In */}
           <div className="card">
             <h3 className="text-sm font-normal text-white mb-3">Check-In</h3>
-
-            {/* Day picker — shows actual dates of the current week */}
             <div className="flex gap-1.5 mb-4">
               {CHECKIN_DOWS.map(dow => {
                 const date    = weeks[0][dow]
@@ -477,15 +308,11 @@ export default function DashboardPage() {
                   >
                     <span>{dayLabel}</span>
                     <span className={`text-xs ${selectedCheckInDay === dow ? 'text-white/80' : 'text-slate-500'}`}>{dateNum}</span>
-                    {isToday && (
-                      <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    )}
+                    {isToday && <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-emerald-400" />}
                   </button>
                 )
               })}
             </div>
-
-            {/* Session list */}
             {dayActivities.length === 0 ? (
               <p className="text-sm text-slate-500">No sessions scheduled.</p>
             ) : (
@@ -505,10 +332,7 @@ export default function DashboardPage() {
                         {done ? (
                           <span className="text-xs text-emerald-400 flex-shrink-0">✓ Checked In</span>
                         ) : isToday ? (
-                          <button
-                            onClick={() => setConfirmCheckIn(act)}
-                            className="btn-primary text-xs py-1 px-3 flex-shrink-0"
-                          >
+                          <button onClick={() => setConfirmCheckIn(act)} className="btn-primary text-xs py-1 px-3 flex-shrink-0">
                             Check In
                           </button>
                         ) : (
@@ -526,15 +350,8 @@ export default function DashboardPage() {
           <div className="card">
             <h3 className="text-sm font-normal text-white mb-3">Quick Links</h3>
             <nav className="space-y-1">
-              {[
-                ['Profile Settings', '/profile'],
-                ['Social Play',      '/social-play'],
-              ].map(([label, to]) => (
-                <Link
-                  key={to}
-                  to={to}
-                  className="flex items-center justify-between py-2 text-sm text-slate-400 hover:text-white border-b border-court-light last:border-0 transition-colors"
-                >
+              {[['Profile Settings', '/profile'], ['Social Play', '/social-play']].map(([label, to]) => (
+                <Link key={to} to={to} className="flex items-center justify-between py-2 text-sm text-slate-400 hover:text-white border-b border-court-light last:border-0 transition-colors">
                   {label}
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
@@ -543,10 +360,119 @@ export default function DashboardPage() {
               ))}
             </nav>
           </div>
-
         </div>
+      )}
 
-      </div>
+      {/* ── Tab 2: Weekly Schedule ───────────────────────────────────────── */}
+      {activeTab === 'schedule' && (
+        <div className="animate-fade-in">
+
+          {/* Week selector */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex gap-1.5 flex-wrap">
+              {weeks.map((weekDates, i) => {
+                const hasEvents = Object.values(weekDates).some(date => {
+                  const iso = toISO(date)
+                  return coachingSessions.some(s => s.date?.slice(0, 10) === iso)
+                    || coachSessions.some(s => s.date?.slice(0, 10) === iso)
+                    || socialSessions.some(s => s.date?.slice(0, 10) === iso)
+                })
+                return (
+                  <button
+                    key={i}
+                    onClick={() => { setSelectedWeek(i); autoJumped.current = true }}
+                    className={`relative px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${
+                      selectedWeek === i
+                        ? 'bg-brand-500 border-brand-500 text-white'
+                        : 'border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white'
+                    }`}
+                  >
+                    {fmtWeekRange(weekDates)}
+                    {hasEvents && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" />}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Calendar card */}
+          <div className="card p-0 overflow-hidden">
+            <div className="grid border-b border-court-light" style={{ gridTemplateColumns: '52px repeat(4, 1fr)' }}>
+              <div />
+              {CAL_DAYS.map(({ short, dow }) => {
+                const date    = currentWeekDates[dow]
+                const dateISO = toISO(date)
+                const isToday = dateISO === todayISO
+                return (
+                  <div key={dow} className={`py-2.5 text-center border-l border-court-light ${isToday ? 'bg-brand-500/10' : ''}`}>
+                    <p className={`text-xs font-normal uppercase tracking-wide ${isToday ? 'text-brand-400' : 'text-slate-500'}`}>{short}</p>
+                    <p className={`text-base font-normal leading-tight ${isToday ? 'text-brand-300' : 'text-white'}`}>{date.getDate()}</p>
+                    <p className="text-xs text-slate-600">{date.toLocaleDateString('en-AU', { month: 'short' })}</p>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="grid" style={{ gridTemplateColumns: '52px repeat(4, 1fr)' }}>
+              <div className="border-r border-court-light/30">
+                {TIME_SLOTS.map(({ mins, label }) => (
+                  <div key={mins} style={{ height: ROW_H }} className="flex items-start justify-end pr-1.5 pt-0.5">
+                    {label && <span className="text-xs text-slate-600 leading-none whitespace-nowrap">{label}</span>}
+                  </div>
+                ))}
+              </div>
+              {CAL_DAYS.map(({ dow }) => {
+                const date    = currentWeekDates[dow]
+                const dateISO = toISO(date)
+                const isToday = dateISO === todayISO
+                const events  = getEvents(dateISO)
+                const totalH  = SLOT_COUNT * ROW_H
+                return (
+                  <div key={dow} className={`relative border-l border-court-light overflow-hidden ${isToday ? 'bg-brand-500/[0.04]' : ''}`} style={{ height: totalH }}>
+                    {TIME_SLOTS.map(({ mins }) => (
+                      <div key={mins} className="absolute left-0 right-0 border-b border-court-light/20" style={{ top: (mins - CAL_START) / 30 * ROW_H, height: ROW_H }} />
+                    ))}
+                    {loadingData && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-xs text-slate-700 animate-pulse">loading</span>
+                      </div>
+                    )}
+                    {events.map(({ id, type, data }) => {
+                      const startMins = toMins(data.start_time)
+                      const endMins   = toMins(data.end_time)
+                      const top       = (startMins - CAL_START) / 30 * ROW_H
+                      const height    = Math.max((endMins - startMins) / 30 * ROW_H - 2, 18)
+                      const { bg, text } = EVENT_STYLES[type]
+                      const title = type === 'student' ? `w/ ${data.coach_name}` : type === 'coach' ? `→ ${data.student_name}` : data.title || 'Social Play'
+                      return (
+                        <div key={id} className={`absolute left-0.5 right-0.5 rounded border ${bg} ${text} text-xs leading-tight overflow-hidden`} style={{ top: top + 1, height }} title={`${title} · ${fmtTime(data.start_time)}–${fmtTime(data.end_time)}`}>
+                          <div className="p-1 h-full flex flex-col justify-between">
+                            <p className="font-normal truncate">{title}</p>
+                            {height > 38 && <p className="opacity-70 truncate">{fmtTime(data.start_time)}</p>}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Legend */}
+          <div className="flex gap-5 mt-2.5">
+            {[
+              { label: 'Coaching Session', color: 'bg-emerald-500/60' },
+              { label: 'Teaching Session', color: 'bg-sky-500/60' },
+              { label: 'Social Play',      color: 'bg-violet-500/60' },
+            ].map(({ label, color }) => (
+              <div key={label} className="flex items-center gap-1.5">
+                <div className={`w-2.5 h-2.5 rounded-sm ${color}`} />
+                <span className="text-xs text-slate-500">{label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Check-In Confirmation Modal ──────────────────────────────────── */}
       {confirmCheckIn && (
