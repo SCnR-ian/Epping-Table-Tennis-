@@ -101,7 +101,8 @@ export const tournamentsAPI = {
 // ---------------------------------------------------------------------------
 export const adminAPI = {
   getDashboardStats: () => api.get("/admin/stats"),
-  getAllMembers: (params) => api.get("/admin/members", { params }),
+  getAllMembers:  (params) => api.get("/admin/members", { params }),
+  createMember:  (data)   => api.post("/admin/members", data),
   getAllBookings: (params) => api.get("/admin/bookings", { params }),
   createTournament: (data) => api.post("/admin/tournaments", data),
   updateTournament: (id, d) => api.put(`/admin/tournaments/${id}`, d),

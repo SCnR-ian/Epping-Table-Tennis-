@@ -168,6 +168,9 @@ const [members,      setMembers]      = useState([])
   const [adminCheckIns,           setAdminCheckIns]           = useState([]) // { type, reference_id, user_id }
   const [memberSearch,       setMemberSearch]       = useState('')
   const [memberListSearch,   setMemberListSearch]   = useState('')
+  const [showAddMember,      setShowAddMember]      = useState(false)
+  const [addMemberForm,      setAddMemberForm]      = useState({ name: '', email: '', password: '', phone: '' })
+  const [addMemberError,     setAddMemberError]     = useState('')
   const [loading,      setLoading]      = useState(false)
   const [coachModal,   setCoachModal]   = useState(null) // { id, name } of member being promoted
   const [coachForm,    setCoachForm]    = useState({ availability_start: '', availability_end: '', bio: '', resume: null })
@@ -317,6 +320,19 @@ const [sessionForm,      setSessionForm]      = useState({
       alert('Could not promote to coach. Please try again.')
     } finally {
       setCoachSubmitting(false)
+    }
+  }
+
+  const handleAddMember = async (e) => {
+    e.preventDefault()
+    setAddMemberError('')
+    try {
+      const { data } = await adminAPI.createMember(addMemberForm)
+      setMembers(prev => [data.member, ...prev])
+      setAddMemberForm({ name: '', email: '', password: '', phone: '' })
+      setShowAddMember(false)
+    } catch (err) {
+      setAddMemberError(err.response?.data?.message ?? 'Could not add member.')
     }
   }
 
@@ -604,15 +620,44 @@ const [sessionForm,      setSessionForm]      = useState({
 
       {/* ── Members tab ──────────────────────────────────────────────────── */}
       {activeTab === 'Members' && (
-        <div className="card p-0 overflow-hidden animate-fade-in">
-          <div className="px-5 py-3 border-b border-court-light">
+        <div className="space-y-4 animate-fade-in">
+
+          {/* Add Member form */}
+          {showAddMember && (
+            <div className="card">
+              <h3 className="text-sm font-normal text-white mb-4">Add Member</h3>
+              <form onSubmit={handleAddMember} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <input className="input text-sm" placeholder="Full name *" value={addMemberForm.name}
+                  onChange={e => setAddMemberForm(f => ({ ...f, name: e.target.value }))} required />
+                <input className="input text-sm" type="email" placeholder="Email address *" value={addMemberForm.email}
+                  onChange={e => setAddMemberForm(f => ({ ...f, email: e.target.value }))} required />
+                <input className="input text-sm" type="password" placeholder="Password *" value={addMemberForm.password}
+                  onChange={e => setAddMemberForm(f => ({ ...f, password: e.target.value }))} required />
+                <input className="input text-sm" type="tel" placeholder="Phone (optional)" value={addMemberForm.phone}
+                  onChange={e => setAddMemberForm(f => ({ ...f, phone: e.target.value }))} />
+                {addMemberError && <p className="sm:col-span-2 text-xs text-red-400">{addMemberError}</p>}
+                <div className="sm:col-span-2 flex gap-3">
+                  <button type="submit" className="btn-primary text-sm">Add Member</button>
+                  <button type="button" className="btn-secondary text-sm" onClick={() => { setShowAddMember(false); setAddMemberError('') }}>Cancel</button>
+                </div>
+              </form>
+            </div>
+          )}
+
+        <div className="card p-0 overflow-hidden">
+          <div className="px-5 py-3 border-b border-court-light flex items-center gap-3">
             <input
               type="text"
-              className="input w-full text-sm"
+              className="input flex-1 text-sm"
               placeholder="Search by name or email…"
               value={memberListSearch}
               onChange={e => setMemberListSearch(e.target.value)}
             />
+            {!showAddMember && (
+              <button className="btn-primary text-sm whitespace-nowrap" onClick={() => setShowAddMember(true)}>
+                + Add Member
+              </button>
+            )}
           </div>
           {loading ? (
             <p className="text-slate-300 text-sm p-5">Loading members…</p>
@@ -672,6 +717,7 @@ const [sessionForm,      setSessionForm]      = useState({
               </div>
             )
           })()}
+        </div>
         </div>
       )}
 

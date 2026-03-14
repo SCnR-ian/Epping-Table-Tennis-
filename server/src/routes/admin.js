@@ -1,6 +1,7 @@
-const router = require('express').Router()
-const pool   = require('../db')
-const multer = require('multer')
+const router  = require('express').Router()
+const pool    = require('../db')
+const bcrypt  = require('bcryptjs')
+const multer  = require('multer')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
 
 const upload = multer({
@@ -33,6 +34,24 @@ router.get('/stats', async (req, res) => {
       tournaments: tournaments.rows[0].count,
     })
   } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// POST /api/admin/members — admin creates a member account
+router.post('/members', async (req, res) => {
+  const { name, email, password, phone } = req.body
+  if (!name?.trim() || !email?.trim() || !password)
+    return res.status(400).json({ message: 'Name, email and password are required.' })
+  try {
+    const hash = await bcrypt.hash(password, 12)
+    const { rows } = await pool.query(
+      'INSERT INTO users (name, email, password_hash, phone) VALUES ($1,$2,$3,$4) RETURNING *',
+      [name.trim(), email.toLowerCase().trim(), hash, phone?.trim() || null]
+    )
+    res.status(201).json({ member: safeUser(rows[0]) })
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ message: 'An account with that email already exists.' })
+    res.status(500).json({ message: 'Server error.' })
+  }
 })
 
 // GET /api/admin/members
