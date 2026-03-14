@@ -115,9 +115,13 @@ router.delete('/members/:id', async (req, res) => {
   if (String(req.params.id) === String(req.user.id))
     return res.status(400).json({ message: 'You cannot delete your own account.' })
   try {
-    await pool.query('DELETE FROM users WHERE id=$1', [req.params.id])
+    const { rowCount } = await pool.query('DELETE FROM users WHERE id=$1', [req.params.id])
+    if (rowCount === 0) return res.status(404).json({ message: 'Member not found.' })
     res.json({ message: 'Member deleted.' })
-  } catch { res.status(500).json({ message: 'Server error.' }) }
+  } catch (err) {
+    if (err.code === '23503') return res.status(409).json({ message: 'Cannot delete member: they have linked records. Run the FK migration first.' })
+    res.status(500).json({ message: 'Server error.' })
+  }
 })
 
 // GET /api/admin/bookings?date=YYYY-MM-DD

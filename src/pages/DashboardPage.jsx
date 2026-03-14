@@ -385,30 +385,52 @@ export default function DashboardPage() {
         {/* ── Sidebar ──────────────────────────────────────────────────── */}
         <div className="space-y-6">
 
-          {/* Coaching Package — one entry per recurring series */}
+          {/* Coaching Package — one entry per recurring series, plus grouped one-offs */}
           {(() => {
-            const seen = new Set()
-            const series = coachingSessions.filter(s => {
-              if (!s.recurrence_id || seen.has(s.recurrence_id)) return false
-              seen.add(s.recurrence_id)
-              return true
-            })
-            if (!series.length) return null
+            if (!coachingSessions.length) return null
+
+            // Build display entries:
+            // - Recurring: one entry per recurrence_id (uses series_total/series_used from backend)
+            // - Standalone: group one-off sessions by coach name, count upcoming
+            const entries = []
+            const seenRecurrence = new Set()
+
+            for (const s of coachingSessions) {
+              if (s.recurrence_id) {
+                if (!seenRecurrence.has(s.recurrence_id)) {
+                  seenRecurrence.add(s.recurrence_id)
+                  const upcoming = coachingSessions.filter(c => c.recurrence_id === s.recurrence_id).length
+                  const total     = s.series_total || upcoming
+                  const used      = s.series_used != null ? s.series_used : Math.max(0, total - upcoming)
+                  entries.push({ key: s.recurrence_id, coach_name: s.coach_name, total, used })
+                }
+              }
+            }
+
+            // Group standalone (no recurrence_id) by coach
+            const standaloneByCoach = {}
+            for (const s of coachingSessions) {
+              if (!s.recurrence_id) {
+                if (!standaloneByCoach[s.coach_name]) standaloneByCoach[s.coach_name] = 0
+                standaloneByCoach[s.coach_name]++
+              }
+            }
+            for (const [coach_name, count] of Object.entries(standaloneByCoach)) {
+              entries.push({ key: `standalone-${coach_name}`, coach_name, total: count, used: 0 })
+            }
+
+            if (!entries.length) return null
             return (
               <div className="card">
-                <h3 className="text-sm font-normal text-white mb-4">Coaching Package</h3>
+                <h3 className="text-sm font-normal text-white mb-4">Coaching Sessions</h3>
                 <div className="space-y-5">
-                  {series.map(s => {
-                    // Fallback: if backend series_total is missing, count upcoming sessions
-                    const upcoming  = coachingSessions.filter(c => c.recurrence_id === s.recurrence_id).length
-                    const total     = s.series_total || upcoming
-                    const used      = s.series_used != null ? s.series_used : Math.max(0, total - upcoming)
+                  {entries.map(({ key, coach_name, total, used }) => {
                     const remaining = Math.max(0, total - used)
                     const pct       = total > 0 ? Math.round((remaining / total) * 100) : 0
                     return (
-                      <div key={s.recurrence_id}>
+                      <div key={key}>
                         <div className="flex items-center justify-between mb-1">
-                          <p className="text-xs text-slate-400">{s.coach_name}</p>
+                          <p className="text-xs text-slate-400">{coach_name}</p>
                           <p className="text-xs text-slate-500">{used} used · {total} total</p>
                         </div>
                         <div className="flex items-end gap-3 mb-2">
