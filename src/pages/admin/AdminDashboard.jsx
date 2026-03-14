@@ -192,8 +192,10 @@ const [members,      setMembers]      = useState([])
   const [newCoachBio,      setNewCoachBio]      = useState('')
   const [newCoachUserId,   setNewCoachUserId]   = useState('')
   const [showSessionForm,  setShowSessionForm]  = useState(false)
-  const [reschedulingId,   setReschedulingId]   = useState(null)  // session id being rescheduled
-  const [rescheduleDate,   setRescheduleDate]   = useState('')
+  const [rescheduleModal,  setRescheduleModal]  = useState(null) // { studentName, sessions }
+  const [rescheduleDates,  setRescheduleDates]  = useState({})  // { [id]: 'YYYY-MM-DD' }
+  const [rescheduleTime,   setRescheduleTime]   = useState({ start_time: '', end_time: '' })
+  const [rescheduleSaving, setRescheduleSaving] = useState(false)
 const [sessionForm,      setSessionForm]      = useState({
     coach_id: '', student_id: '',
     date: '', start_time: '', end_time: '', notes: '', weeks: 10,
@@ -513,17 +515,69 @@ const [sessionForm,      setSessionForm]      = useState({
     }
   }
 
-  const handleReschedule = async (id) => {
-    if (!rescheduleDate) return alert('Pick a new date.')
+  const handleOpenReschedule = (session) => {
+    const seriesSessions = session.recurrence_id
+      ? allCoachingSessions.filter(s => s.recurrence_id === session.recurrence_id)
+      : [session]
+    const sorted = [...seriesSessions].sort((a, b) => (a.date < b.date ? -1 : 1))
+    setRescheduleModal({ studentName: session.student_name, sessions: sorted })
+    setRescheduleDates({})
+    setRescheduleTime({ start_time: session.start_time?.slice(0, 5) ?? '', end_time: session.end_time?.slice(0, 5) ?? '' })
+  }
+
+  const refreshAfterReschedule = async () => {
+    const [cur, all] = await Promise.all([
+      coachingAPI.getSessions({ date: coachingDate }),
+      coachingAPI.getSessions({}),
+    ])
+    setCoachingSessions(cur.data.sessions)
+    setAllCoachingSessions(all.data.sessions)
+  }
+
+  const handleMoveSingle = async (sessionId) => {
+    const newDate = rescheduleDates[sessionId]
+    if (!newDate) return alert('Pick a new date for this session.')
+    setRescheduleSaving(true)
     try {
-      await coachingAPI.rescheduleSession(id, rescheduleDate)
-      const { data } = await coachingAPI.getSessions({ date: coachingDate })
-      setCoachingSessions(data.sessions)
-      setReschedulingId(null)
-      setRescheduleDate('')
+      await coachingAPI.rescheduleSession(sessionId, newDate)
+      await refreshAfterReschedule()
+      // update modal in-place
+      setRescheduleModal(prev => prev ? {
+        ...prev,
+        sessions: prev.sessions.map(s => s.id === sessionId ? { ...s, date: newDate } : s),
+      } : null)
+      setRescheduleDates(prev => { const n = { ...prev }; delete n[sessionId]; return n })
     } catch (err) {
-      alert(err.response?.data?.message ?? 'Could not reschedule session.')
-    }
+      alert(err.response?.data?.message ?? 'Could not reschedule.')
+    } finally { setRescheduleSaving(false) }
+  }
+
+  const handleMoveFromHere = async (sessionId) => {
+    const newDate = rescheduleDates[sessionId]
+    if (!newDate) return alert('Pick a new date for this session.')
+    const sessions = rescheduleModal?.sessions ?? []
+    const idx = sessions.findIndex(s => s.id === sessionId)
+    if (idx < 0) return
+    const oldDate  = new Date(sessions[idx].date + 'T12:00:00Z')
+    const nDate    = new Date(newDate + 'T12:00:00Z')
+    const deltaDays = Math.round((nDate - oldDate) / 86400000)
+    const newStart  = rescheduleTime.start_time || null
+    const newEnd    = rescheduleTime.end_time   || null
+    const updates = sessions.slice(idx).map(s => {
+      const d = new Date(s.date + 'T12:00:00Z')
+      d.setUTCDate(d.getUTCDate() + deltaDays)
+      const u = { id: s.id, date: d.toISOString().slice(0, 10) }
+      if (newStart && newEnd) { u.start_time = newStart; u.end_time = newEnd }
+      return u
+    })
+    setRescheduleSaving(true)
+    try {
+      await coachingAPI.rescheduleBulk(updates)
+      await refreshAfterReschedule()
+      setRescheduleModal(null)
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not reschedule.')
+    } finally { setRescheduleSaving(false) }
   }
 
   const handleCancelSession = async (id) => {
@@ -1145,31 +1199,12 @@ const [sessionForm,      setSessionForm]      = useState({
                                 </button>
                               )}
                               <button
-                                onClick={() => {
-                                  setReschedulingId(reschedulingId === s.id ? null : s.id)
-                                  setRescheduleDate('')
-                                }}
+                                onClick={() => handleOpenReschedule(s)}
                                 className="text-xs text-sky-400 hover:text-sky-300 font-medium"
                               >
-                                {reschedulingId === s.id ? 'Cancel' : 'Reschedule'}
+                                Reschedule
                               </button>
                             </div>
-                            {reschedulingId === s.id && (
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="date"
-                                  className="input text-xs px-2 py-1"
-                                  value={rescheduleDate}
-                                  onChange={e => setRescheduleDate(e.target.value)}
-                                />
-                                <button
-                                  onClick={() => handleReschedule(s.id)}
-                                  className="text-xs text-white bg-sky-600 hover:bg-sky-500 px-2 py-1 rounded transition-colors"
-                                >
-                                  Confirm
-                                </button>
-                              </div>
-                            )}
                           </div>
                         </td>
                       </tr>
@@ -1687,6 +1722,114 @@ const [sessionForm,      setSessionForm]      = useState({
                 <button onClick={handleMakeCoachSubmit} disabled={coachSubmitting} className="btn-primary flex-1">
                   {coachSubmitting ? 'Saving…' : 'Make Coach'}
                 </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Reschedule Sessions Modal ─────────────────────────────────────── */}
+      {rescheduleModal && (() => {
+        const todayISO = new Date().toISOString().slice(0, 10)
+        const allSlots = [...WEEKDAY_SLOTS, ...SATURDAY_SLOTS].filter((v, i, a) => a.indexOf(v) === i).sort()
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div className="bg-court-mid border border-court-light rounded-xl w-full max-w-2xl p-6 space-y-5 max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-white">Reschedule Sessions</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">{rescheduleModal.studentName}</p>
+                </div>
+                <button onClick={() => setRescheduleModal(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+              </div>
+
+              {/* Optional new time for "Move from here" */}
+              <div className="bg-court-light/30 rounded-lg p-3 space-y-2">
+                <p className="text-xs text-slate-400">New time for remaining sessions (optional — leave blank to keep current time)</p>
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="text-xs text-slate-500 block mb-1">Start time</label>
+                    <select className="input w-full text-sm" value={rescheduleTime.start_time}
+                      onChange={e => setRescheduleTime(f => ({ ...f, start_time: e.target.value, end_time: '' }))}>
+                      <option value="">— keep current —</option>
+                      {allSlots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs text-slate-500 block mb-1">End time</label>
+                    <select className="input w-full text-sm" value={rescheduleTime.end_time}
+                      onChange={e => setRescheduleTime(f => ({ ...f, end_time: e.target.value }))}
+                      disabled={!rescheduleTime.start_time}>
+                      <option value="">— keep current —</option>
+                      {allSlots.filter(s => !rescheduleTime.start_time || toMins(s) > toMins(rescheduleTime.start_time))
+                        .map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Session list */}
+              <div className="overflow-y-auto flex-1 -mx-2 px-2">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-court-light">
+                      {['#', 'Current Date', 'Time', 'New Date', 'Actions'].map(h => (
+                        <th key={h} className="text-left px-3 py-2 text-xs text-slate-400 uppercase tracking-wider">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rescheduleModal.sessions.map((s, i) => {
+                      const isPast    = s.date?.slice(0, 10) < todayISO
+                      const newDate   = rescheduleDates[s.id] ?? ''
+                      return (
+                        <tr key={s.id} className={`border-b border-court-light/40 last:border-0 ${isPast ? 'opacity-40' : ''}`}>
+                          <td className="px-3 py-2.5 text-slate-500 text-xs">{i + 1}</td>
+                          <td className="px-3 py-2.5">
+                            <p className="text-white text-xs font-medium">
+                              {new Date(s.date + 'T12:00:00Z').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
+                            </p>
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-400 text-xs font-mono whitespace-nowrap">
+                            {fmtTime(s.start_time)}–{fmtTime(s.end_time)}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            {!isPast && (
+                              <input type="date" className="input text-xs px-2 py-1 w-36"
+                                value={newDate}
+                                min={todayISO}
+                                onChange={e => setRescheduleDates(prev => ({ ...prev, [s.id]: e.target.value }))} />
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            {!isPast && (
+                              <div className="flex flex-col gap-1">
+                                <button
+                                  disabled={!newDate || rescheduleSaving}
+                                  onClick={() => handleMoveSingle(s.id)}
+                                  className="text-xs text-sky-400 hover:text-sky-300 disabled:opacity-30 whitespace-nowrap"
+                                >
+                                  Move this
+                                </button>
+                                <button
+                                  disabled={!newDate || rescheduleSaving}
+                                  onClick={() => handleMoveFromHere(s.id)}
+                                  className="text-xs text-violet-400 hover:text-violet-300 disabled:opacity-30 whitespace-nowrap"
+                                >
+                                  Move this + rest
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-end pt-1 border-t border-court-light">
+                <button onClick={() => setRescheduleModal(null)} className="btn-secondary text-sm">Close</button>
               </div>
             </div>
           </div>

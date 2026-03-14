@@ -133,7 +133,8 @@ export const coachingAPI = {
   // Admin pay period report
   getPaymentReport:    (from, to) => api.get('/coaching/payment-report', { params: { from, to } }),
   // Reschedule a single session to a new date (admin)
-  rescheduleSession:   (id, date) => api.put(`/coaching/sessions/${id}/reschedule`, { date }),
+  rescheduleSession:   (id, date)   => api.put(`/coaching/sessions/${id}/reschedule`, { date }),
+  rescheduleBulk:      (updates)    => api.put('/coaching/sessions/reschedule-bulk', { updates }),
 }
 
 // ---------------------------------------------------------------------------

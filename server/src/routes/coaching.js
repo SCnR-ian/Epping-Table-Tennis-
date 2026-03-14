@@ -424,6 +424,37 @@ router.get('/my-coach-sessions', requireAuth, async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
+// PUT /api/coaching/sessions/reschedule-bulk  (admin) — move multiple sessions at once
+// body: { updates: [{ id, date, start_time?, end_time? }] }
+router.put('/sessions/reschedule-bulk', requireAuth, requireAdmin, async (req, res) => {
+  const { updates } = req.body
+  if (!Array.isArray(updates) || !updates.length)
+    return res.status(400).json({ message: 'updates array is required.' })
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    for (const u of updates) {
+      if (u.start_time && u.end_time) {
+        await client.query(
+          "UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3 WHERE id=$4 AND status='confirmed'",
+          [u.date, u.start_time, u.end_time, u.id]
+        )
+      } else {
+        await client.query(
+          "UPDATE coaching_sessions SET date=$1 WHERE id=$2 AND status='confirmed'",
+          [u.date, u.id]
+        )
+      }
+    }
+    await client.query('COMMIT')
+    res.json({ message: 'Sessions rescheduled.' })
+  } catch (err) {
+    await client.query('ROLLBACK')
+    if (err.code === '23505') return res.status(409).json({ message: 'One of the new dates conflicts with an existing session.' })
+    res.status(500).json({ message: 'Server error.' })
+  } finally { client.release() }
+})
+
 // PUT /api/coaching/sessions/:id/reschedule  (admin) — move a single session to a new date
 // body: { date: 'YYYY-MM-DD' }
 router.put('/sessions/:id/reschedule', requireAuth, requireAdmin, async (req, res) => {
