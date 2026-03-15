@@ -1,5 +1,9 @@
-import { useState, useEffect } from 'react'
-import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI } from '@/api/api'
+import { useState, useEffect, useMemo } from 'react'
+import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI } from '@/api/api'
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
+  LineChart, Line, CartesianGrid, Legend,
+} from 'recharts'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -117,7 +121,7 @@ function groupByWeek(sessions) {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 
-const TABS = ['Members', 'Bookings', 'Coaching', 'Social Play', 'Pay Report']
+const TABS = ['Members', 'Bookings', 'Coaching', 'Social Play', 'Pay Report', 'Analytics']
 
 const BOOKABLE_COURTS = [
   { id: 1, label: 'Court 1' },
@@ -213,6 +217,12 @@ const [sessionForm,      setSessionForm]      = useState({
   const [payReport,  setPayReport]  = useState(null)
   const [payLoading, setPayLoading] = useState(false)
 
+  // Analytics state
+  const [analyticsData,    setAnalyticsData]    = useState(null)
+  const [analyticsLoading, setAnalyticsLoading] = useState(false)
+  const [attendanceFilter, setAttendanceFilter] = useState('all') // 'all' | 'active' | 'inactive'
+  const [attendanceSearch, setAttendanceSearch] = useState('')
+
   // Social Play state
   const [socialSessions,    setSocialSessions]    = useState([])
   const [showSocialForm,    setShowSocialForm]    = useState(false)
@@ -223,6 +233,8 @@ const [sessionForm,      setSessionForm]      = useState({
   })
   // { [sessionId]: { start_time: 'HH:MM', end_time: 'HH:MM' } } — open when admin is editing times
   const [editingTimes, setEditingTimes] = useState({})
+  // { [sessionId]: { query: '', userId: '' } } — add-member state per session
+  const [addingMember, setAddingMember] = useState({})
 
   // Default selected date = first upcoming open day
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -406,11 +418,28 @@ const [sessionForm,      setSessionForm]      = useState({
     if (activeTab !== 'Social Play') return
     let cancelled = false
     setLoading(true)
-    socialAPI.getAdminSessions()
-      .then(({ data }) => { if (!cancelled) setSocialSessions(data.sessions) })
+    const membersFetch = members.length === 0 ? adminAPI.getAllMembers() : Promise.resolve({ data: { members } })
+    Promise.all([socialAPI.getAdminSessions(), membersFetch])
+      .then(([{ data: sd }, { data: md }]) => {
+        if (!cancelled) {
+          setSocialSessions(sd.sessions)
+          if (members.length === 0) setMembers(md.members)
+        }
+      })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
+  }, [activeTab])
+
+  // Fetch analytics when Analytics tab is active
+  useEffect(() => {
+    if (activeTab !== 'Analytics') return
+    if (analyticsData) return  // already loaded
+    setAnalyticsLoading(true)
+    analyticsAPI.getOverview()
+      .then(({ data }) => setAnalyticsData(data))
+      .catch(() => {})
+      .finally(() => setAnalyticsLoading(false))
   }, [activeTab])
 
   const handleCreateSocialSession = async () => {
@@ -473,6 +502,31 @@ const [sessionForm,      setSessionForm]      = useState({
     }
   }
 
+  const handleSocialAddMember = async (sessionId, userId) => {
+    if (!userId) return
+    try {
+      await socialAPI.adminAddMember(sessionId, userId)
+      const { data } = await socialAPI.getAdminSessions({})
+      setSocialSessions(data.sessions)
+      setAddingMember(prev => { const n = { ...prev }; delete n[sessionId]; return n })
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not add member.')
+    }
+  }
+
+  const handleSocialRemoveMember = async (sessionId, userId) => {
+    try {
+      await socialAPI.adminRemoveMember(sessionId, userId)
+      setSocialSessions(prev => prev.map(s =>
+        s.id === sessionId
+          ? { ...s, participants: s.participants.filter(p => p.id !== userId), participant_count: s.participant_count - 1 }
+          : s
+      ))
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not remove member.')
+    }
+  }
+
   const handleAddCoach = async () => {
     if (!newCoachName.trim()) return
     try {
@@ -522,7 +576,7 @@ const [sessionForm,      setSessionForm]      = useState({
     const sorted = [...seriesSessions].sort((a, b) => (a.date < b.date ? -1 : 1))
     setRescheduleModal({ studentName: session.student_name, sessions: sorted })
     setRescheduleDates({})
-    setRescheduleTime({ start_time: session.start_time?.slice(0, 5) ?? '', end_time: session.end_time?.slice(0, 5) ?? '' })
+    setRescheduleTime({ start_time: '', end_time: '' })
   }
 
   const refreshAfterReschedule = async () => {
@@ -535,16 +589,20 @@ const [sessionForm,      setSessionForm]      = useState({
   }
 
   const handleMoveSingle = async (sessionId) => {
-    const newDate = rescheduleDates[sessionId]
-    if (!newDate) return alert('Pick a new date for this session.')
+    const pickedDate = rescheduleDates[sessionId]
+    const currentDate = rescheduleModal?.sessions.find(s => s.id === sessionId)?.date
+    const newDate = pickedDate || currentDate
+    if (!newDate) return
     setRescheduleSaving(true)
+    const { start_time: newStart, end_time: newEnd } = rescheduleTime
     try {
-      await coachingAPI.rescheduleSession(sessionId, newDate)
+      await coachingAPI.rescheduleSession(sessionId, newDate, newStart || undefined, newEnd || undefined)
       await refreshAfterReschedule()
       // update modal in-place
+      const patch = { date: newDate, ...(newStart && newEnd ? { start_time: newStart, end_time: newEnd } : {}) }
       setRescheduleModal(prev => prev ? {
         ...prev,
-        sessions: prev.sessions.map(s => s.id === sessionId ? { ...s, date: newDate } : s),
+        sessions: prev.sessions.map(s => s.id === sessionId ? { ...s, ...patch } : s),
       } : null)
       setRescheduleDates(prev => { const n = { ...prev }; delete n[sessionId]; return n })
     } catch (err) {
@@ -1594,12 +1652,55 @@ const [sessionForm,      setSessionForm]      = useState({
                       {s.participants.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-1">
                           {s.participants.map(p => (
-                            <span key={p.id} className="text-xs bg-court-light text-slate-100 rounded-full px-2.5 py-0.5 font-medium">
+                            <span key={p.id} className="inline-flex items-center gap-1 text-xs bg-court-light text-slate-100 rounded-full pl-2.5 pr-1.5 py-0.5 font-medium">
                               {p.name}
+                              <button
+                                onClick={() => handleSocialRemoveMember(s.id, p.id)}
+                                className="text-slate-400 hover:text-red-400 leading-none transition-colors"
+                                title="Remove"
+                              >✕</button>
                             </span>
                           ))}
                         </div>
                       )}
+                      {/* Add member */}
+                      {s.participant_count < s.max_players && (() => {
+                        const existingIds = new Set(s.participants.map(p => p.id))
+                        const picker = addingMember[s.id] ?? { query: '', userId: '' }
+                        const suggestions = picker.query.length > 0
+                          ? members.filter(m => !existingIds.has(m.id) && m.name.toLowerCase().includes(picker.query.toLowerCase())).slice(0, 6)
+                          : []
+                        return (
+                          <div className="mt-2 relative">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                placeholder="Type name to add…"
+                                className="input text-xs py-1 px-2 flex-1"
+                                value={picker.query}
+                                onChange={e => setAddingMember(prev => ({ ...prev, [s.id]: { query: e.target.value, userId: '' } }))}
+                              />
+                              {picker.userId && (
+                                <button
+                                  onClick={() => handleSocialAddMember(s.id, picker.userId)}
+                                  className="text-xs text-emerald-400 hover:text-emerald-300 font-medium whitespace-nowrap"
+                                >Add</button>
+                              )}
+                            </div>
+                            {suggestions.length > 0 && (
+                              <div className="absolute z-10 left-0 right-0 mt-1 bg-court-dark border border-court-light rounded-lg shadow-lg overflow-hidden">
+                                {suggestions.map(m => (
+                                  <button
+                                    key={m.id}
+                                    className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-court-light transition-colors"
+                                    onClick={() => setAddingMember(prev => ({ ...prev, [s.id]: { query: m.name, userId: m.id } }))}
+                                  >{m.name}</button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                   </div>
                   )
@@ -1634,6 +1735,190 @@ const [sessionForm,      setSessionForm]      = useState({
             )
           })()}
 
+        </div>
+      )}
+
+      {/* ── Analytics tab ────────────────────────────────────────────────── */}
+      {activeTab === 'Analytics' && (
+        <div className="animate-fade-in space-y-8">
+          {analyticsLoading ? (
+            <p className="text-slate-400 text-sm">Loading analytics…</p>
+          ) : !analyticsData ? null : (() => {
+            const { memberGrowth, slotPopularity, attendance } = analyticsData
+
+            // ── Slot heatmap ─────────────────────────────────────────────────
+            const DAYS_ORDER = [1,2,3,4,5,6,0]
+            const DAY_LABELS  = { 0:'Sun',1:'Mon',2:'Tue',3:'Wed',4:'Thu',5:'Fri',6:'Sat' }
+            const allSlots = [...new Set(slotPopularity.map(r => r.slot))].sort()
+            const heatmapMax = Math.max(...slotPopularity.map(r => r.count), 1)
+
+            // ── Attendance filtered list ─────────────────────────────────────
+            const filteredAttendance = attendance
+              .filter(m => {
+                if (attendanceFilter === 'active')   return m.total_activities > 0
+                if (attendanceFilter === 'inactive') return m.total_activities === 0
+                return true
+              })
+              .filter(m => !attendanceSearch || m.name.toLowerCase().includes(attendanceSearch.toLowerCase()) || m.email.toLowerCase().includes(attendanceSearch.toLowerCase()))
+
+            const popularSlot  = [...slotPopularity].sort((a,b) => b.count - a.count)[0]
+            const unpopularSlot = [...slotPopularity].filter(r => r.count > 0).sort((a,b) => a.count - b.count)[0]
+            const totalMembers = attendance.length
+            const activeCount  = attendance.filter(m => m.total_activities > 0).length
+
+            return (
+              <>
+                {/* ── Summary cards ─────────────────────────────────────── */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {[
+                    { label: 'Total Members', value: totalMembers, color: 'text-brand-400' },
+                    { label: 'Active Members', value: activeCount, color: 'text-emerald-400' },
+                    { label: 'Never Active', value: totalMembers - activeCount, color: 'text-red-400' },
+                    { label: 'Busiest Slot', value: popularSlot ? `${DAY_LABELS[popularSlot.dow]} ${fmtTime(popularSlot.slot + ':00')}` : '—', color: 'text-yellow-400' },
+                  ].map(c => (
+                    <div key={c.label} className="card text-center py-5">
+                      <p className={`text-2xl font-bold ${c.color}`}>{c.value}</p>
+                      <p className="text-xs text-slate-400 mt-1">{c.label}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* ── Member growth chart ────────────────────────────────── */}
+                <div className="card">
+                  <p className="text-sm text-white mb-4">New Members — Last 12 Weeks</p>
+                  {memberGrowth.length === 0 ? (
+                    <p className="text-slate-400 text-xs">No data yet.</p>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <LineChart data={memberGrowth} margin={{ top: 4, right: 8, bottom: 4, left: -20 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                        <XAxis dataKey="week" tickFormatter={w => w.slice(5)} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                        <YAxis allowDecimals={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                        <Tooltip
+                          contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
+                          labelFormatter={w => `Week of ${w}`}
+                          formatter={v => [v, 'New members']}
+                        />
+                        <Line type="monotone" dataKey="new_members" stroke="#6366f1" strokeWidth={2} dot={{ fill: '#6366f1', r: 3 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+
+                {/* ── Slot popularity heatmap ────────────────────────────── */}
+                <div className="card overflow-x-auto">
+                  <p className="text-sm text-white mb-4">Activity by Day &amp; Time Slot</p>
+                  {slotPopularity.length === 0 ? (
+                    <p className="text-slate-400 text-xs">No activity data yet.</p>
+                  ) : (
+                    <table className="text-xs w-full min-w-[400px]">
+                      <thead>
+                        <tr>
+                          <th className="text-left text-slate-400 pr-3 py-1 font-normal w-12">Time</th>
+                          {DAYS_ORDER.map(d => (
+                            <th key={d} className="text-slate-400 font-normal py-1 text-center w-12">{DAY_LABELS[d]}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allSlots.map(slot => (
+                          <tr key={slot}>
+                            <td className="text-slate-400 pr-3 py-0.5 font-mono">{fmtTime(slot + ':00')}</td>
+                            {DAYS_ORDER.map(d => {
+                              const cell = slotPopularity.find(r => r.dow === d && r.slot === slot)
+                              const count = cell?.count ?? 0
+                              const intensity = count / heatmapMax
+                              const bg = count === 0
+                                ? 'bg-court-dark'
+                                : intensity > 0.66 ? 'bg-brand-500'
+                                : intensity > 0.33 ? 'bg-brand-500/50'
+                                : 'bg-brand-500/20'
+                              return (
+                                <td key={d} className="py-0.5 text-center">
+                                  <div
+                                    className={`mx-auto w-9 h-7 rounded flex items-center justify-center text-[10px] font-medium ${bg} ${count > 0 ? 'text-white' : 'text-slate-600'}`}
+                                    title={count > 0 ? `${DAY_LABELS[d]} ${slot} — ${count} activities` : ''}
+                                  >
+                                    {count > 0 ? count : ''}
+                                  </div>
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                {/* ── Member attendance ──────────────────────────────────── */}
+                <div className="card">
+                  <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
+                    <p className="text-sm text-white">Member Attendance</p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="Search name or email…"
+                        className="input text-xs py-1.5 px-3 w-48"
+                        value={attendanceSearch}
+                        onChange={e => setAttendanceSearch(e.target.value)}
+                      />
+                      {['all', 'active', 'inactive'].map(f => (
+                        <button
+                          key={f}
+                          onClick={() => setAttendanceFilter(f)}
+                          className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${attendanceFilter === f ? 'border-brand-500 text-brand-400 bg-brand-500/10' : 'border-court-light text-slate-400 hover:text-white'}`}
+                        >
+                          {f.charAt(0).toUpperCase() + f.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-court-light">
+                          {['Member', 'Joined', 'Activities', 'Last Active', 'Status'].map(h => (
+                            <th key={h} className="text-left px-3 py-2 text-xs text-slate-400 uppercase tracking-wider">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredAttendance.length === 0 ? (
+                          <tr><td colSpan={5} className="text-center text-slate-400 text-xs py-6">No members found.</td></tr>
+                        ) : filteredAttendance.map(m => (
+                          <tr key={m.id} className="border-b border-court-light/30 last:border-0 hover:bg-court-light/10 transition-colors">
+                            <td className="px-3 py-3">
+                              <p className="text-white text-xs font-medium">{m.name}</p>
+                              <p className="text-slate-500 text-[10px]">{m.email}</p>
+                            </td>
+                            <td className="px-3 py-3 text-slate-400 text-xs whitespace-nowrap">
+                              {new Date(m.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </td>
+                            <td className="px-3 py-3">
+                              <span className={`text-sm font-bold ${m.total_activities > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                {m.total_activities}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 text-slate-400 text-xs whitespace-nowrap">
+                              {m.last_active
+                                ? new Date(m.last_active + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+                                : '—'}
+                            </td>
+                            <td className="px-3 py-3">
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${m.total_activities > 0 ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}>
+                                {m.total_activities > 0 ? 'Active' : 'Never Active'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )
+          })()}
         </div>
       )}
 
@@ -1750,7 +2035,11 @@ const [sessionForm,      setSessionForm]      = useState({
                   <div className="flex-1">
                     <label className="text-xs text-slate-500 block mb-1">Start time</label>
                     <select className="input w-full text-sm" value={rescheduleTime.start_time}
-                      onChange={e => setRescheduleTime(f => ({ ...f, start_time: e.target.value, end_time: '' }))}>
+                      onChange={e => setRescheduleTime(f => ({
+                        ...f,
+                        start_time: e.target.value,
+                        end_time: f.end_time && toMins(f.end_time) > toMins(e.target.value) ? f.end_time : '',
+                      }))}>
                       <option value="">— keep current —</option>
                       {allSlots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
                     </select>
@@ -1805,7 +2094,7 @@ const [sessionForm,      setSessionForm]      = useState({
                             {!isPast && (
                               <div className="flex flex-col gap-1">
                                 <button
-                                  disabled={!newDate || rescheduleSaving}
+                                  disabled={rescheduleSaving}
                                   onClick={() => handleMoveSingle(s.id)}
                                   className="text-xs text-sky-400 hover:text-sky-300 disabled:opacity-30 whitespace-nowrap"
                                 >

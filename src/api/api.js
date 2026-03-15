@@ -133,7 +133,7 @@ export const coachingAPI = {
   // Admin pay period report
   getPaymentReport:    (from, to) => api.get('/coaching/payment-report', { params: { from, to } }),
   // Reschedule a single session to a new date (admin)
-  rescheduleSession:   (id, date)   => api.put(`/coaching/sessions/${id}/reschedule`, { date }),
+  rescheduleSession:   (id, date, start_time, end_time) => api.put(`/coaching/sessions/${id}/reschedule`, { date, ...(start_time && end_time ? { start_time, end_time } : {}) }),
   rescheduleBulk:      (updates)    => api.put('/coaching/sessions/reschedule-bulk', { updates }),
 }
 
@@ -148,6 +148,8 @@ export const socialAPI = {
   cancelSession:    (id)       => api.delete(`/social/${id}`),
   join:             (id)       => api.post(`/social/${id}/join`),
   leave:            (id)       => api.delete(`/social/${id}/join`),
+  adminAddMember:   (id, userId)   => api.post(`/social/${id}/participants`, { user_id: userId }),
+  adminRemoveMember:(id, userId)   => api.delete(`/social/${id}/participants/${userId}`),
 }
 
 // ---------------------------------------------------------------------------
@@ -178,5 +180,12 @@ export const announcementsAPI = {
   getAll: () => api.get("/announcements"),
   getLatest: () => api.get("/announcements?limit=3"),
 };
+
+// ---------------------------------------------------------------------------
+// Analytics
+// ---------------------------------------------------------------------------
+export const analyticsAPI = {
+  getOverview: () => api.get('/analytics/overview'),
+}
 
 export default api;

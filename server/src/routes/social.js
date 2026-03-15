@@ -1,7 +1,7 @@
 const router = require('express').Router()
 const pool   = require('../db')
 const jwt    = require('jsonwebtoken')
-const { requireAuth } = require('../middleware/auth')
+const { requireAuth, requireAdmin } = require('../middleware/auth')
 const { checkOpenHours } = require('../utils/scheduleCheck')
 
 // Reads JWT if present but never rejects — optional auth
@@ -357,6 +357,52 @@ router.delete('/:id/join', requireAuth, async (req, res) => {
     )
     if (rowCount === 0) return res.status(404).json({ message: 'Not a participant.' })
     res.json({ message: 'Left session.' })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// POST /api/social/:id/participants  (admin) — add a member to a session
+router.post('/:id/participants', requireAuth, requireAdmin, async (req, res) => {
+  const { user_id } = req.body
+  if (!user_id) return res.status(400).json({ message: 'user_id is required.' })
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const { rows } = await client.query(
+      `SELECT id, max_players,
+         (SELECT COUNT(*)::int FROM social_play_participants WHERE session_id=$1) AS count
+       FROM social_play_sessions WHERE id=$1 FOR UPDATE`,
+      [req.params.id]
+    )
+    if (!rows[0]) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: 'Session not found.' })
+    }
+    if (rows[0].count >= rows[0].max_players) {
+      await client.query('ROLLBACK')
+      return res.status(409).json({ message: 'Session is full.' })
+    }
+    await client.query(
+      'INSERT INTO social_play_participants (session_id, user_id) VALUES ($1,$2)',
+      [req.params.id, user_id]
+    )
+    await client.query('COMMIT')
+    res.status(201).json({ message: 'Added.' })
+  } catch (err) {
+    await client.query('ROLLBACK')
+    if (err.code === '23505') return res.status(409).json({ message: 'Member is already in this session.' })
+    res.status(500).json({ message: 'Server error.' })
+  } finally { client.release() }
+})
+
+// DELETE /api/social/:id/participants/:userId  (admin) — remove a member from a session
+router.delete('/:id/participants/:userId', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { rowCount } = await pool.query(
+      'DELETE FROM social_play_participants WHERE session_id=$1 AND user_id=$2',
+      [req.params.id, req.params.userId]
+    )
+    if (rowCount === 0) return res.status(404).json({ message: 'Participant not found.' })
+    res.json({ message: 'Removed.' })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 

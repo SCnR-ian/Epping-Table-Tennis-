@@ -48,6 +48,7 @@ app.use('/api/admin',         require('./routes/admin'))
 app.use('/api/coaching',      require('./routes/coaching'))
 app.use('/api/social',        require('./routes/social'))
 app.use('/api/checkin',       require('./routes/checkin'))
+app.use('/api/analytics',     require('./routes/analytics'))
 app.use('/api/schedule',      require('./routes/schedule'))
 app.use('/api/announcements', require('./routes/announcements'))
 

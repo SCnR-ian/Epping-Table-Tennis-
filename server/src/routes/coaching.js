@@ -424,6 +424,125 @@ router.get('/my-coach-sessions', requireAuth, async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
+// ── Shared conflict + court-assignment helper used by both reschedule routes ──
+// Checks coach, student, and court availability for (sessionDate, newStart, newEnd).
+// excludeId: the session being rescheduled (excluded from its own conflict check).
+// Returns { courtId } on success, throws a tagged Error on conflict.
+async function checkAndAssignCourt(client, session, sessionDate, newStart, newEnd) {
+  const coachId   = session.coach_id
+  const studentId = session.student_id
+  const excludeId = session.id
+
+  // ── coach conflicts ──────────────────────────────────────────────────────────
+  const { rows: coachBusy } = await client.query(
+    `SELECT 1 FROM coaching_sessions
+     WHERE coach_id=$1 AND date=$2 AND status='confirmed' AND id!=$5
+       AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
+    [coachId, sessionDate, newStart, newEnd, excludeId]
+  )
+  if (coachBusy.length)
+    throw Object.assign(new Error('coach_conflict'), { sessionDate, reason: 'coaching' })
+
+  const { rows: [coachRow] } = await client.query('SELECT user_id FROM coaches WHERE id=$1', [coachId])
+  const coachUserId = coachRow?.user_id
+  if (coachUserId) {
+    const { rows: coachBook } = await client.query(
+      `SELECT 1 FROM bookings
+       WHERE user_id=$1 AND date=$2 AND status='confirmed'
+         AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
+      [coachUserId, sessionDate, newStart, newEnd]
+    )
+    if (coachBook.length)
+      throw Object.assign(new Error('coach_conflict'), { sessionDate, reason: 'booking' })
+
+    const { rows: coachSocial } = await client.query(
+      `SELECT 1 FROM social_play_sessions sps
+       JOIN social_play_participants spp ON spp.session_id = sps.id
+       WHERE spp.user_id=$1 AND sps.date=$2 AND sps.status='open'
+         AND sps.start_time < $4::time AND sps.end_time > $3::time LIMIT 1`,
+      [coachUserId, sessionDate, newStart, newEnd]
+    )
+    if (coachSocial.length)
+      throw Object.assign(new Error('coach_conflict'), { sessionDate, reason: 'social' })
+  }
+
+  // ── student conflicts ────────────────────────────────────────────────────────
+  const { rows: stdBook } = await client.query(
+    `SELECT 1 FROM bookings
+     WHERE user_id=$1 AND date=$2 AND status='confirmed'
+       AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
+    [studentId, sessionDate, newStart, newEnd]
+  )
+  if (stdBook.length)
+    throw Object.assign(new Error('student_conflict'), { sessionDate, reason: 'booking' })
+
+  const { rows: stdSocial } = await client.query(
+    `SELECT 1 FROM social_play_sessions sps
+     JOIN social_play_participants spp ON spp.session_id = sps.id
+     WHERE spp.user_id=$1 AND sps.date=$2 AND sps.status='open'
+       AND sps.start_time < $4::time AND sps.end_time > $3::time LIMIT 1`,
+    [studentId, sessionDate, newStart, newEnd]
+  )
+  if (stdSocial.length)
+    throw Object.assign(new Error('student_conflict'), { sessionDate, reason: 'social' })
+
+  const { rows: stdCoach } = await client.query(
+    `SELECT 1 FROM coaching_sessions
+     WHERE student_id=$1 AND date=$2 AND status='confirmed' AND id!=$5
+       AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
+    [studentId, sessionDate, newStart, newEnd, excludeId]
+  )
+  if (stdCoach.length)
+    throw Object.assign(new Error('student_conflict'), { sessionDate, reason: 'coaching' })
+
+  // ── free court ───────────────────────────────────────────────────────────────
+  const { rows: free } = await client.query(
+    `WITH social_count AS (
+       SELECT COALESCE(SUM(num_courts), 0)::int AS total
+       FROM social_play_sessions
+       WHERE date=$1 AND status='open'
+         AND start_time < $3::time AND end_time > $2::time
+     ),
+     free_courts AS (
+       SELECT c.id, ROW_NUMBER() OVER (ORDER BY c.id) AS rn
+       FROM courts c
+       WHERE c.id NOT IN (
+         SELECT cs2.court_id FROM coaching_sessions cs2
+         WHERE cs2.date=$1 AND cs2.status='confirmed' AND cs2.id!=$4
+           AND cs2.start_time < $3::time AND cs2.end_time > $2::time
+       )
+       AND c.id NOT IN (
+         SELECT b.court_id FROM bookings b
+         WHERE b.date=$1 AND b.status='confirmed'
+           AND b.start_time < $3::time AND b.end_time > $2::time
+       )
+     )
+     SELECT fc.id FROM free_courts fc, social_count sc
+     WHERE fc.rn > sc.total ORDER BY fc.rn LIMIT 1`,
+    [sessionDate, newStart, newEnd, excludeId]
+  )
+  if (!free[0])
+    throw Object.assign(new Error('no_court'), { sessionDate })
+
+  return free[0].id
+}
+
+function rescheduleConflictResponse(err, res) {
+  if (err.message === 'no_court')
+    return res.status(409).json({ message: `No courts available on ${err.sessionDate} at that time.` })
+  if (err.message === 'student_conflict') {
+    const what = err.reason === 'booking' ? 'a court booking' : err.reason === 'social' ? 'a social play session' : 'another coaching session'
+    return res.status(409).json({ message: `Student already has ${what} on ${err.sessionDate} at that time.` })
+  }
+  if (err.message === 'coach_conflict') {
+    const what = err.reason === 'coaching' ? 'another session to teach' : err.reason === 'booking' ? 'a court booking' : 'a social play session'
+    return res.status(409).json({ message: `Coach already has ${what} on ${err.sessionDate} at that time.` })
+  }
+  if (err.code === '23505')
+    return res.status(409).json({ message: 'That slot is already taken.' })
+  return res.status(500).json({ message: 'Server error.' })
+}
+
 // PUT /api/coaching/sessions/reschedule-bulk  (admin) — move multiple sessions at once
 // body: { updates: [{ id, date, start_time?, end_time? }] }
 router.put('/sessions/reschedule-bulk', requireAuth, requireAdmin, async (req, res) => {
@@ -434,43 +553,57 @@ router.put('/sessions/reschedule-bulk', requireAuth, requireAdmin, async (req, r
   try {
     await client.query('BEGIN')
     for (const u of updates) {
-      if (u.start_time && u.end_time) {
-        await client.query(
-          "UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3 WHERE id=$4 AND status='confirmed'",
-          [u.date, u.start_time, u.end_time, u.id]
-        )
-      } else {
-        await client.query(
-          "UPDATE coaching_sessions SET date=$1 WHERE id=$2 AND status='confirmed'",
-          [u.date, u.id]
-        )
-      }
+      const { rows: [session] } = await client.query(
+        'SELECT * FROM coaching_sessions WHERE id=$1', [u.id]
+      )
+      if (!session) throw Object.assign(new Error('not_found'), { id: u.id })
+
+      const newStart = u.start_time || session.start_time
+      const newEnd   = u.end_time   || session.end_time
+      const courtId  = await checkAndAssignCourt(client, session, u.date, newStart, newEnd)
+      await client.query(
+        'UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=$4 WHERE id=$5',
+        [u.date, newStart, newEnd, courtId, u.id]
+      )
     }
     await client.query('COMMIT')
     res.json({ message: 'Sessions rescheduled.' })
   } catch (err) {
     await client.query('ROLLBACK')
-    if (err.code === '23505') return res.status(409).json({ message: 'One of the new dates conflicts with an existing session.' })
-    res.status(500).json({ message: 'Server error.' })
+    if (err.message === 'not_found')
+      return res.status(404).json({ message: `Session ${err.id} not found.` })
+    return rescheduleConflictResponse(err, res)
   } finally { client.release() }
 })
 
-// PUT /api/coaching/sessions/:id/reschedule  (admin) — move a single session to a new date
-// body: { date: 'YYYY-MM-DD' }
+// PUT /api/coaching/sessions/:id/reschedule  (admin) — move a single session to a new date/time
+// body: { date: 'YYYY-MM-DD', start_time?, end_time? }
 router.put('/sessions/:id/reschedule', requireAuth, requireAdmin, async (req, res) => {
-  const { date } = req.body
+  const { date, start_time, end_time } = req.body
   if (!date) return res.status(400).json({ message: 'date is required.' })
+  const client = await pool.connect()
   try {
-    const { rows } = await pool.query(
-      `UPDATE coaching_sessions SET date=$1 WHERE id=$2 AND status='confirmed' RETURNING *`,
-      [date, req.params.id]
+    await client.query('BEGIN')
+    const { rows: [session] } = await client.query(
+      'SELECT * FROM coaching_sessions WHERE id=$1', [req.params.id]
     )
-    if (!rows[0]) return res.status(404).json({ message: 'Session not found.' })
+    if (!session) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: 'Session not found.' })
+    }
+    const newStart = start_time || session.start_time
+    const newEnd   = end_time   || session.end_time
+    const courtId  = await checkAndAssignCourt(client, session, date, newStart, newEnd)
+    const { rows } = await client.query(
+      'UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=$4 WHERE id=$5 RETURNING *',
+      [date, newStart, newEnd, courtId, session.id]
+    )
+    await client.query('COMMIT')
     res.json({ session: rows[0] })
   } catch (err) {
-    if (err.code === '23505') return res.status(409).json({ message: 'That slot is already taken.' })
-    res.status(500).json({ message: 'Server error.' })
-  }
+    await client.query('ROLLBACK')
+    return rescheduleConflictResponse(err, res)
+  } finally { client.release() }
 })
 
 // ─── STUDENT-FACING ───────────────────────────────────────────────────────────
