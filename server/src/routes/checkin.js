@@ -134,7 +134,7 @@ router.get('/today-summary', requireAuth, async (req, res) => {
         u.name                          AS user_name,
         EXISTS(
           SELECT 1 FROM check_ins ci
-          WHERE ci.user_id = b.user_id
+          WHERE ci.user_id = u.id
             AND ci.type = 'booking'
             AND ci.reference_id = b.booking_group_id::text
         ) AS checked_in
