@@ -126,22 +126,24 @@ router.get('/today-summary', requireAuth, async (req, res) => {
     // ── Bookings ─────────────────────────────────────────────────────────────
     const { rows: bookings } = await pool.query(`
       SELECT
-        b.booking_group_id AS group_id,
-        b.start_time, b.end_time,
-        ct.name AS court_name,
-        u.id    AS user_id,
-        u.name  AS user_name,
+        b.booking_group_id              AS group_id,
+        MIN(b.start_time)               AS start_time,
+        MAX(b.end_time)                 AS end_time,
+        ct.name                         AS court_name,
+        u.id                            AS user_id,
+        u.name                          AS user_name,
         EXISTS(
           SELECT 1 FROM check_ins ci
           WHERE ci.user_id = b.user_id
             AND ci.type = 'booking'
-            AND ci.reference_id = b.booking_group_id
+            AND ci.reference_id = b.booking_group_id::text
         ) AS checked_in
       FROM bookings b
       JOIN users  u  ON u.id  = b.user_id
       JOIN courts ct ON ct.id = b.court_id
       WHERE b.date = CURRENT_DATE AND b.status = 'confirmed'
-      ORDER BY b.start_time ASC, u.name ASC
+      GROUP BY b.booking_group_id, ct.name, u.id, u.name
+      ORDER BY start_time ASC, u.name ASC
     `)
 
     // ── Coaching sessions ─────────────────────────────────────────────────────
@@ -205,7 +207,7 @@ router.get('/today-summary', requireAuth, async (req, res) => {
     res.json({ bookings, coaching, social })
   } catch (err) {
     console.error('today-summary error:', err)
-    res.status(500).json({ message: 'Server error.' })
+    res.status(500).json({ message: err.message ?? 'Server error.' })
   }
 })
 
