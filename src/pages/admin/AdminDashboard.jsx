@@ -220,6 +220,7 @@ const [sessionForm,      setSessionForm]      = useState({
   // Today summary state
   const [todaySummary,    setTodaySummary]    = useState(null)
   const [todayLoading,    setTodayLoading]    = useState(false)
+  const [todayError,      setTodayError]      = useState(null)
 
   // Analytics state
   const [analyticsData,    setAnalyticsData]    = useState(null)
@@ -435,14 +436,19 @@ const [sessionForm,      setSessionForm]      = useState({
     return () => { cancelled = true }
   }, [activeTab])
 
+  const loadTodaySummary = () => {
+    setTodayLoading(true)
+    setTodayError(null)
+    checkinAPI.getTodaySummary()
+      .then(({ data }) => setTodaySummary(data))
+      .catch(err => setTodayError(err.response?.data?.message ?? 'Failed to load today\'s summary.'))
+      .finally(() => setTodayLoading(false))
+  }
+
   // Fetch today summary when Today tab is active
   useEffect(() => {
     if (activeTab !== 'Today') return
-    setTodayLoading(true)
-    checkinAPI.getTodaySummary()
-      .then(({ data }) => setTodaySummary(data))
-      .catch(() => {})
-      .finally(() => setTodayLoading(false))
+    loadTodaySummary()
   }, [activeTab])
 
   // Fetch analytics when Analytics tab is active
@@ -749,7 +755,17 @@ const [sessionForm,      setSessionForm]      = useState({
         <div className="animate-fade-in space-y-6">
           {todayLoading ? (
             <p className="text-slate-400 text-sm">Loading today's schedule…</p>
-          ) : !todaySummary ? null : (() => {
+          ) : todayError ? (
+            <div className="card text-center py-8 space-y-3">
+              <p className="text-red-400 text-sm">{todayError}</p>
+              <button onClick={loadTodaySummary} className="btn-primary text-sm">Retry</button>
+            </div>
+          ) : !todaySummary ? (
+            <div className="card text-center py-8 space-y-3">
+              <p className="text-slate-400 text-sm">No data loaded.</p>
+              <button onClick={loadTodaySummary} className="btn-primary text-sm">Load</button>
+            </div>
+          ) : (() => {
             const { bookings, coaching, social } = todaySummary
             const todayLabel = new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })
 
@@ -775,8 +791,7 @@ const [sessionForm,      setSessionForm]      = useState({
                 if (type === 'booking')  await checkinAPI.adminCheckInBooking(refId, userId)
                 if (type === 'coaching') await checkinAPI.adminCheckInCoaching(refId, userId)
                 if (type === 'social')   await checkinAPI.adminCheckInSocial(refId, userId)
-                const { data } = await checkinAPI.getTodaySummary()
-                setTodaySummary(data)
+                loadTodaySummary()
               } catch (err) {
                 alert(err.response?.data?.message ?? 'Check-in failed.')
               }
@@ -788,7 +803,10 @@ const [sessionForm,      setSessionForm]      = useState({
 
             return (
               <>
-                <p className="text-slate-400 text-sm">{todayLabel}</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-slate-400 text-sm">{todayLabel}</p>
+                  <button onClick={loadTodaySummary} className="text-xs text-slate-400 hover:text-white transition-colors">↺ Refresh</button>
+                </div>
 
                 {noActivity && (
                   <p className="text-slate-400 text-sm">No activities scheduled for today.</p>
