@@ -121,7 +121,7 @@ function groupByWeek(sessions) {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 
-const TABS = ['Members', 'Bookings', 'Coaching', 'Social Play', 'Pay Report', 'Analytics']
+const TABS = ['Today', 'Members', 'Bookings', 'Coaching', 'Social Play', 'Pay Report', 'Analytics']
 
 const BOOKABLE_COURTS = [
   { id: 1, label: 'Court 1' },
@@ -164,7 +164,7 @@ function layoutEvents(events) {
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function AdminDashboard() {
-  const [activeTab,    setActiveTab]    = useState('Members')
+  const [activeTab,    setActiveTab]    = useState('Today')
 const [members,      setMembers]      = useState([])
   const [bookings,                setBookings]                = useState([])
   const [bookingViewSessions,     setBookingViewSessions]     = useState([])
@@ -216,6 +216,10 @@ const [sessionForm,      setSessionForm]      = useState({
   const [payTo,      setPayTo]      = useState(() => toISO(new Date()))
   const [payReport,  setPayReport]  = useState(null)
   const [payLoading, setPayLoading] = useState(false)
+
+  // Today summary state
+  const [todaySummary,    setTodaySummary]    = useState(null)
+  const [todayLoading,    setTodayLoading]    = useState(false)
 
   // Analytics state
   const [analyticsData,    setAnalyticsData]    = useState(null)
@@ -429,6 +433,16 @@ const [sessionForm,      setSessionForm]      = useState({
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
+  }, [activeTab])
+
+  // Fetch today summary when Today tab is active
+  useEffect(() => {
+    if (activeTab !== 'Today') return
+    setTodayLoading(true)
+    checkinAPI.getTodaySummary()
+      .then(({ data }) => setTodaySummary(data))
+      .catch(() => {})
+      .finally(() => setTodayLoading(false))
   }, [activeTab])
 
   // Fetch analytics when Analytics tab is active
@@ -729,6 +743,167 @@ const [sessionForm,      setSessionForm]      = useState({
           </button>
         ))}
       </div>
+
+      {/* ── Today tab ────────────────────────────────────────────────────── */}
+      {activeTab === 'Today' && (
+        <div className="animate-fade-in space-y-6">
+          {todayLoading ? (
+            <p className="text-slate-400 text-sm">Loading today's schedule…</p>
+          ) : !todaySummary ? null : (() => {
+            const { bookings, coaching, social } = todaySummary
+            const todayLabel = new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })
+
+            // Group bookings by group_id (one row per unique booking slot per member)
+            const bookingGroups = bookings.reduce((acc, b) => {
+              const key = `${b.group_id}-${b.start_time}`
+              if (!acc[key]) acc[key] = { ...b, members: [] }
+              acc[key].members.push({ user_id: b.user_id, user_name: b.user_name, checked_in: b.checked_in })
+              return acc
+            }, {})
+
+            // Group social by session id
+            const socialGroups = social.reduce((acc, r) => {
+              if (!acc[r.id]) acc[r.id] = { ...r, members: [] }
+              acc[r.id].members.push({ user_id: r.user_id, user_name: r.user_name, checked_in: r.checked_in })
+              return acc
+            }, {})
+
+            const noActivity = bookings.length === 0 && coaching.length === 0 && social.length === 0
+
+            const handleCheckIn = async (type, refId, userId) => {
+              try {
+                if (type === 'booking')  await checkinAPI.adminCheckInBooking(refId, userId)
+                if (type === 'coaching') await checkinAPI.adminCheckInCoaching(refId, userId)
+                if (type === 'social')   await checkinAPI.adminCheckInSocial(refId, userId)
+                const { data } = await checkinAPI.getTodaySummary()
+                setTodaySummary(data)
+              } catch (err) {
+                alert(err.response?.data?.message ?? 'Check-in failed.')
+              }
+            }
+
+            const Badge = ({ in: checkedIn }) => checkedIn
+              ? <span className="text-[10px] bg-emerald-500/15 text-emerald-400 px-2 py-0.5 rounded-full font-medium">Checked in</span>
+              : <span className="text-[10px] bg-red-500/15 text-red-400 px-2 py-0.5 rounded-full font-medium">Not in</span>
+
+            return (
+              <>
+                <p className="text-slate-400 text-sm">{todayLabel}</p>
+
+                {noActivity && (
+                  <p className="text-slate-400 text-sm">No activities scheduled for today.</p>
+                )}
+
+                {/* ── Bookings ──────────────────────────────────────── */}
+                {Object.keys(bookingGroups).length > 0 && (
+                  <div>
+                    <p className="text-xs text-slate-400 uppercase tracking-widest mb-3">Court Bookings</p>
+                    <div className="space-y-3">
+                      {Object.values(bookingGroups).map(g => (
+                        <div key={g.group_id + g.start_time} className="card py-3 px-4">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="text-xs font-mono text-slate-300">{fmtTime(g.start_time)} – {fmtTime(g.end_time)}</span>
+                            <span className="text-xs text-slate-500">{g.court_name}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {g.members.map(m => (
+                              <div key={m.user_id} className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
+                                <span className="text-xs text-white">{m.user_name}</span>
+                                <Badge in={m.checked_in} />
+                                {!m.checked_in && (
+                                  <button
+                                    onClick={() => handleCheckIn('booking', g.group_id, m.user_id)}
+                                    className="text-[10px] text-sky-400 hover:text-sky-300 font-medium"
+                                  >Check in</button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Coaching ──────────────────────────────────────── */}
+                {coaching.length > 0 && (
+                  <div>
+                    <p className="text-xs text-slate-400 uppercase tracking-widest mb-3">Coaching Sessions</p>
+                    <div className="space-y-3">
+                      {coaching.map(c => (
+                        <div key={c.id} className="card py-3 px-4">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="text-xs font-mono text-slate-300">{fmtTime(c.start_time)} – {fmtTime(c.end_time)}</span>
+                            <span className="text-xs text-slate-500">{c.court_name}</span>
+                            <span className="text-xs text-slate-400">Coach: {c.coach_name}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {/* Student */}
+                            <div className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
+                              <span className="text-xs text-white">{c.student_name}</span>
+                              <span className="text-[10px] text-slate-500">student</span>
+                              {c.admin_checked_in
+                                ? <span className="text-[10px] bg-sky-500/15 text-sky-400 px-2 py-0.5 rounded-full font-medium">Admin ✓</span>
+                                : <Badge in={c.student_checked_in} />
+                              }
+                              {!c.admin_checked_in && !c.student_checked_in && (
+                                <button
+                                  onClick={() => handleCheckIn('coaching', c.id, c.student_id)}
+                                  className="text-[10px] text-sky-400 hover:text-sky-300 font-medium"
+                                >Check in</button>
+                              )}
+                            </div>
+                            {/* Coach */}
+                            <div className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
+                              <span className="text-xs text-white">{c.coach_name}</span>
+                              <span className="text-[10px] text-slate-500">coach</span>
+                              {c.coach_user_id
+                                ? <Badge in={c.coach_checked_in} />
+                                : <span className="text-[10px] text-slate-500">no account</span>
+                              }
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Social play ────────────────────────────────────── */}
+                {Object.keys(socialGroups).length > 0 && (
+                  <div>
+                    <p className="text-xs text-slate-400 uppercase tracking-widest mb-3">Social Play</p>
+                    <div className="space-y-3">
+                      {Object.values(socialGroups).map(g => (
+                        <div key={g.id} className="card py-3 px-4">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="text-white text-sm">{g.title}</span>
+                            <span className="text-xs font-mono text-slate-300">{fmtTime(g.start_time)} – {fmtTime(g.end_time)}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {g.members.map(m => (
+                              <div key={m.user_id} className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
+                                <span className="text-xs text-white">{m.user_name}</span>
+                                <Badge in={m.checked_in} />
+                                {!m.checked_in && (
+                                  <button
+                                    onClick={() => handleCheckIn('social', g.id, m.user_id)}
+                                    className="text-[10px] text-sky-400 hover:text-sky-300 font-medium"
+                                  >Check in</button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )
+          })()}
+        </div>
+      )}
 
       {/* ── Members tab ──────────────────────────────────────────────────── */}
       {activeTab === 'Members' && (

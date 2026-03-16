@@ -167,6 +167,7 @@ export const checkinAPI = {
   adminCheckInBooking:  (groupId, userId) => api.post(`/checkin/booking/${groupId}`, { user_id: userId }),
   adminCheckInCoaching: (sessionId, userId) => api.post(`/checkin/coaching/${sessionId}`, { user_id: userId }),
   adminCheckInSocial:   (sessionId, userId) => api.post(`/checkin/social/${sessionId}`, { user_id: userId }),
+  getTodaySummary:      ()                   => api.get('/checkin/today-summary'),
 }
 
 // ---------------------------------------------------------------------------

@@ -117,4 +117,96 @@ router.get('/admin', requireAuth, async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
+// GET /api/checkin/today-summary  (admin)
+// All activities scheduled for today with per-person check-in status.
+router.get('/today-summary', requireAuth, async (req, res) => {
+  if (req.user.role !== 'admin')
+    return res.status(403).json({ message: 'Admin only.' })
+  try {
+    // ── Bookings ─────────────────────────────────────────────────────────────
+    const { rows: bookings } = await pool.query(`
+      SELECT
+        b.booking_group_id AS group_id,
+        b.start_time, b.end_time,
+        ct.name AS court_name,
+        u.id    AS user_id,
+        u.name  AS user_name,
+        EXISTS(
+          SELECT 1 FROM check_ins ci
+          WHERE ci.user_id = b.user_id
+            AND ci.type = 'booking'
+            AND ci.reference_id = b.booking_group_id
+        ) AS checked_in
+      FROM bookings b
+      JOIN users  u  ON u.id  = b.user_id
+      JOIN courts ct ON ct.id = b.court_id
+      WHERE b.date = CURRENT_DATE AND b.status = 'confirmed'
+      ORDER BY b.start_time ASC, u.name ASC
+    `)
+
+    // ── Coaching sessions ─────────────────────────────────────────────────────
+    const { rows: coaching } = await pool.query(`
+      SELECT
+        cs.id,
+        cs.start_time, cs.end_time,
+        ct.name  AS court_name,
+        st.id    AS student_id,
+        st.name  AS student_name,
+        co.name  AS coach_name,
+        co_u.id  AS coach_user_id,
+        EXISTS(
+          SELECT 1 FROM check_ins ci
+          WHERE ci.user_id = cs.student_id
+            AND ci.type = 'coaching'
+            AND ci.reference_id = cs.id::text
+        ) AS student_checked_in,
+        EXISTS(
+          SELECT 1 FROM check_ins ci
+          WHERE ci.user_id = co_u.id
+            AND ci.type = 'coaching'
+            AND ci.reference_id = cs.id::text
+        ) AS coach_checked_in,
+        EXISTS(
+          SELECT 1 FROM check_ins ci
+          WHERE ci.type = 'coaching'
+            AND ci.reference_id = cs.id::text
+            AND ci.checked_in_by IS NOT NULL
+        ) AS admin_checked_in
+      FROM coaching_sessions cs
+      JOIN users  st ON st.id  = cs.student_id
+      JOIN coaches co ON co.id = cs.coach_id
+      LEFT JOIN users co_u ON co_u.id = co.user_id
+      JOIN courts ct ON ct.id = cs.court_id
+      WHERE cs.date = CURRENT_DATE AND cs.status = 'confirmed'
+      ORDER BY cs.start_time ASC
+    `)
+
+    // ── Social play ───────────────────────────────────────────────────────────
+    const { rows: social } = await pool.query(`
+      SELECT
+        sps.id,
+        sps.title,
+        sps.start_time, sps.end_time,
+        u.id   AS user_id,
+        u.name AS user_name,
+        EXISTS(
+          SELECT 1 FROM check_ins ci
+          WHERE ci.user_id = spp.user_id
+            AND ci.type = 'social'
+            AND ci.reference_id = sps.id::text
+        ) AS checked_in
+      FROM social_play_sessions sps
+      JOIN social_play_participants spp ON spp.session_id = sps.id
+      JOIN users u ON u.id = spp.user_id
+      WHERE sps.date = CURRENT_DATE AND sps.status = 'open'
+      ORDER BY sps.start_time ASC, u.name ASC
+    `)
+
+    res.json({ bookings, coaching, social })
+  } catch (err) {
+    console.error('today-summary error:', err)
+    res.status(500).json({ message: 'Server error.' })
+  }
+})
+
 module.exports = router
