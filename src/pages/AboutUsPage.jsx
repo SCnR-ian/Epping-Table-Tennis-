@@ -46,14 +46,14 @@ export default function AboutUsPage() {
             Our Story
           </p>
           <h1 className="section-title text-5xl md:text-6xl mb-6">About Us</h1>
-          <p className="text-slate-600 text-lg leading-relaxed">
+          <p className="text-slate-400 text-lg leading-relaxed">
             Sydney's premier table tennis club — built by players, for players.
           </p>
         </div>
       </section>
 
       {/* ── Story ───────────────────────────────────────────────────────── */}
-      <section className="py-20 px-4 bg-slate-100 border-y border-slate-200">
+      <section className="py-20 px-4 bg-court-mid border-y border-court-light">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
           <div>
             <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-3">
@@ -62,18 +62,18 @@ export default function AboutUsPage() {
             <h2 className="section-title text-4xl md:text-5xl mb-6">
               More Than Just a Club
             </h2>
-            <p className="text-slate-600 leading-relaxed mb-4">
+            <p className="text-slate-400 leading-relaxed mb-4">
               Founded in 2015, Epping Table Tennis Club has grown into Sydney's
               premier destination for players of all levels. Whether you're
               picking up a paddle for the first time or competing at a national
               level, you'll find your place here.
             </p>
-            <p className="text-slate-600 leading-relaxed mb-4">
+            <p className="text-slate-400 leading-relaxed mb-4">
               We offer six competition-grade courts, certified coaching, weekly
               social nights, and a vibrant tournament calendar. Our community is
               what makes us special — come and experience it for yourself.
             </p>
-            <p className="text-slate-600 leading-relaxed mb-8">
+            <p className="text-slate-400 leading-relaxed mb-8">
               Our coaches hold national and state-level certifications and are
               dedicated to helping every member reach their full potential. From
               beginners learning the basics to competitive players honing
@@ -125,8 +125,8 @@ export default function AboutUsPage() {
               >
                 <span className="text-2xl mt-0.5">{icon}</span>
                 <div>
-                  <p className="text-slate-900 font-medium mb-1">{title}</p>
-                  <p className="text-slate-600 text-sm leading-relaxed">{desc}</p>
+                  <p className="text-white font-medium mb-1">{title}</p>
+                  <p className="text-slate-400 text-sm leading-relaxed">{desc}</p>
                 </div>
               </div>
             ))}
@@ -142,7 +142,7 @@ export default function AboutUsPage() {
               Expert Guidance
             </p>
             <h2 className="section-title text-4xl">Meet Our Coaches</h2>
-            <p className="text-slate-600 mt-4 max-w-xl mx-auto">
+            <p className="text-slate-400 mt-4 max-w-xl mx-auto">
               Learn from the best. Our certified coaches bring decades of
               competitive and teaching experience to every session.
             </p>
@@ -167,14 +167,14 @@ export default function AboutUsPage() {
                     </span>
                   </div>
                 )}
-                <p className="font-display text-xl text-slate-900 tracking-wide">
+                <p className="font-display text-xl text-white tracking-wide">
                   {coach.name}
                 </p>
                 <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mt-1 mb-3">
                   {coach.title ?? "Coach"}
                 </p>
                 {coach.bio && (
-                  <p className="text-slate-600 text-sm leading-relaxed">{coach.bio}</p>
+                  <p className="text-slate-400 text-sm leading-relaxed">{coach.bio}</p>
                 )}
               </div>
             ))}
@@ -183,7 +183,7 @@ export default function AboutUsPage() {
       </section>
 
       {/* ── Find Us ─────────────────────────────────────────────────────── */}
-      <section className="py-20 px-4 bg-slate-100 border-t border-slate-200">
+      <section className="py-20 px-4 bg-court-mid border-t border-court-light">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12">
             <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">
@@ -195,14 +195,14 @@ export default function AboutUsPage() {
             <div className="space-y-6">
               <div className="card">
                 <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">Address</p>
-                <p className="text-slate-900 font-medium">Epping Table Tennis Club</p>
-                <p className="text-slate-600 text-sm mt-1 leading-relaxed">
+                <p className="text-white font-medium">Epping Table Tennis Club</p>
+                <p className="text-slate-400 text-sm mt-1 leading-relaxed">
                   33 Oxford St<br />Epping NSW 2121<br />Australia
                 </p>
               </div>
               <div className="card">
                 <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">Getting Here</p>
-                <ul className="text-slate-600 text-sm space-y-2">
+                <ul className="text-slate-400 text-sm space-y-2">
                   <li>🚆 2 min walk from Epping Station</li>
                   <li>🚌 Bus stop directly outside</li>
                   <li>🚗 Free parking on-site</li>
@@ -210,11 +210,11 @@ export default function AboutUsPage() {
               </div>
               <div className="card">
                 <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">Contact</p>
-                <p className="text-slate-600 text-sm">📞 (02) 9876 5432</p>
-                <p className="text-slate-600 text-sm mt-1">✉️ info@eppingttclub.com.au</p>
+                <p className="text-slate-400 text-sm">📞 (02) 9876 5432</p>
+                <p className="text-slate-400 text-sm mt-1">✉️ info@eppingttclub.com.au</p>
               </div>
             </div>
-            <div className="lg:col-span-2 rounded-2xl overflow-hidden shadow-2xl border border-slate-200 h-[420px]">
+            <div className="lg:col-span-2 rounded-2xl overflow-hidden shadow-2xl border border-court-light h-[420px]">
               <iframe
                 title="Club location"
                 src="https://maps.google.com/maps?q=Epping+NSW+2121+Australia&output=embed"
@@ -235,7 +235,7 @@ export default function AboutUsPage() {
         <div className="absolute inset-0 bg-gradient-to-r from-brand-900/20 via-transparent to-brand-900/20 pointer-events-none" />
         <div className="relative z-10 max-w-2xl mx-auto">
           <h2 className="section-title text-5xl mb-4">Ready to join?</h2>
-          <p className="text-slate-600 mb-8 leading-relaxed">
+          <p className="text-slate-400 mb-8 leading-relaxed">
             Become part of Epping Table Tennis Club — Sydney's most welcoming
             competitive table tennis community.
           </p>

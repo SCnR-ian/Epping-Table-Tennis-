@@ -91,7 +91,7 @@ export default function TrainingProgramPage() {
           <h1 className="section-title text-5xl md:text-6xl mb-6">
             Training Programs
           </h1>
-          <p className="text-slate-600 text-lg leading-relaxed">
+          <p className="text-slate-400 text-lg leading-relaxed">
             From beginner to competitive — we have a program designed for every
             stage of your journey.
           </p>
@@ -110,12 +110,12 @@ export default function TrainingProgramPage() {
                 className={`grid grid-cols-1 lg:grid-cols-2 gap-10 items-center ${flip ? "lg:[direction:rtl]" : ""}`}
               >
                 {/* Icon card */}
-                <div className={`[direction:ltr] flex flex-col items-center justify-center rounded-2xl border border-slate-200 bg-slate-100 p-12 ${c.ring} ring-1 min-h-[280px]`}>
+                <div className={`[direction:ltr] flex flex-col items-center justify-center rounded-2xl border border-court-light bg-court-mid p-12 ${c.ring} ring-1 min-h-[280px]`}>
                   <span className="text-7xl mb-6">{prog.icon}</span>
                   <p className={`font-display text-2xl tracking-wide mb-2 ${c.text}`}>
                     {prog.label}
                   </p>
-                  <p className="text-slate-600 text-sm text-center">{prog.tagline}</p>
+                  <p className="text-slate-400 text-sm text-center">{prog.tagline}</p>
                 </div>
 
                 {/* Details */}
@@ -126,12 +126,12 @@ export default function TrainingProgramPage() {
                   <h2 className="section-title text-3xl md:text-4xl mb-4">
                     {prog.tagline}
                   </h2>
-                  <p className="text-slate-600 leading-relaxed mb-6">
+                  <p className="text-slate-400 leading-relaxed mb-6">
                     {prog.description}
                   </p>
                   <ul className="space-y-2 mb-8">
                     {prog.features.map((f) => (
-                      <li key={f} className="flex items-start gap-2 text-sm text-slate-700">
+                      <li key={f} className="flex items-start gap-2 text-sm text-slate-300">
                         <span className={`mt-0.5 text-base ${c.text}`}>✓</span>
                         {f}
                       </li>
@@ -151,11 +151,11 @@ export default function TrainingProgramPage() {
       </section>
 
       {/* ── CTA ─────────────────────────────────────────────────────────── */}
-      <section className="py-24 px-4 text-center bg-slate-100 border-t border-slate-200 relative overflow-hidden">
+      <section className="py-24 px-4 text-center bg-court-mid border-t border-court-light relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-r from-brand-900/20 via-transparent to-brand-900/20 pointer-events-none" />
         <div className="relative z-10 max-w-2xl mx-auto">
           <h2 className="section-title text-5xl mb-4">Not sure where to start?</h2>
-          <p className="text-slate-600 mb-8 leading-relaxed">
+          <p className="text-slate-400 mb-8 leading-relaxed">
             Reach out and one of our coaches will help you find the right
             program based on your age, skill level, and goals.
           </p>

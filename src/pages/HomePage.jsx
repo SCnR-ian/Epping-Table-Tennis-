@@ -57,7 +57,7 @@ export default function HomePage() {
             Table Tennis Club
           </h1>
           <p
-            className="text-slate-600 text-lg md:text-xl max-w-xl mx-auto mb-10 leading-relaxed animate-slide-up"
+            className="text-slate-400 text-lg md:text-xl max-w-xl mx-auto mb-10 leading-relaxed animate-slide-up"
             style={{ animationDelay: "0.1s", opacity: 0 }}
           >
             World-class courts, competitive tournaments, and a community that
@@ -90,7 +90,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Club Introduction ─────────────────────────────────────────────── */}
-      <section className="py-20 px-4 bg-slate-100 border-y border-slate-200">
+      <section className="py-20 px-4 bg-court-mid border-y border-court-light">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
           {/* Text */}
           <div>
@@ -100,13 +100,13 @@ export default function HomePage() {
             <h2 className="section-title text-4xl md:text-5xl mb-6">
               More Than Just a Club
             </h2>
-            <p className="text-slate-600 leading-relaxed mb-4">
+            <p className="text-slate-400 leading-relaxed mb-4">
               Founded in 2015, Epping Table Tennis Club has grown into Sydney's
               premier destination for players of all levels. Whether you're
               picking up a paddle for the first time or competing at a national
               level, you'll find your place here.
             </p>
-            <p className="text-slate-600 leading-relaxed mb-8">
+            <p className="text-slate-400 leading-relaxed mb-8">
               We offer six competition-grade courts, certified coaching, weekly
               social nights, and a vibrant tournament calendar. Our community is
               what makes us special — come and experience it for yourself.
@@ -182,7 +182,7 @@ export default function HomePage() {
               <p className="font-display text-3xl text-brand-500 tracking-wider">
                 {day}
               </p>
-              <p className="text-slate-900 font-medium text-sm mt-2">{label}</p>
+              <p className="text-white font-medium text-sm mt-2">{label}</p>
               <p className="text-slate-500 text-xs mt-1">{time}</p>
             </div>
           ))}
@@ -205,10 +205,10 @@ export default function HomePage() {
                 <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">
                   Address
                 </p>
-                <p className="text-slate-900 font-medium">
+                <p className="text-white font-medium">
                   Epping Table Tennis Club
                 </p>
-                <p className="text-slate-600 text-sm mt-1 leading-relaxed">
+                <p className="text-slate-400 text-sm mt-1 leading-relaxed">
                   33 Oxford St
                   <br />
                   Epping NSW 2121
@@ -220,7 +220,7 @@ export default function HomePage() {
                 <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">
                   Getting Here
                 </p>
-                <ul className="text-slate-600 text-sm space-y-2">
+                <ul className="text-slate-400 text-sm space-y-2">
                   <li>🚆 2 min walk from Epping Station</li>
                   <li>🚌 Bus stop directly outside</li>
                   <li>🚗 Free parking on-site</li>
@@ -230,15 +230,15 @@ export default function HomePage() {
                 <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">
                   Contact
                 </p>
-                <p className="text-slate-600 text-sm">📞 (02) 9876 5432</p>
-                <p className="text-slate-600 text-sm mt-1">
+                <p className="text-slate-400 text-sm">📞 (02) 9876 5432</p>
+                <p className="text-slate-400 text-sm mt-1">
                   ✉️ info@eppingttclub.com.au
                 </p>
               </div>
             </div>
 
             {/* Map embed */}
-            <div className="lg:col-span-2 rounded-2xl overflow-hidden shadow-2xl border border-slate-200 h-[420px]">
+            <div className="lg:col-span-2 rounded-2xl overflow-hidden shadow-2xl border border-court-light h-[420px]">
               <iframe
                 title="Club location"
                 src="https://maps.google.com/maps?q=Epping+NSW+2121+Australia&output=embed"
@@ -255,15 +255,15 @@ export default function HomePage() {
       </section>
 
       {/* ── CTA ──────────────────────────────────────────────────────────── */}
-      <section className="py-24 px-4 text-center relative overflow-hidden bg-brand-500">
-        <div className="absolute inset-0 bg-gradient-to-r from-brand-600/30 via-transparent to-brand-600/30 pointer-events-none" />
+      <section className="py-24 px-4 text-center relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-r from-brand-900/20 via-transparent to-brand-900/20 pointer-events-none" />
         <div className="relative z-10 max-w-2xl mx-auto">
-          <h2 className="section-title text-5xl text-white mb-4">Ready to play?</h2>
-          <p className="text-white/80 mb-8 leading-relaxed">
+          <h2 className="section-title text-5xl mb-4">Ready to play?</h2>
+          <p className="text-slate-400 mb-8 leading-relaxed">
             Join hundreds of members who train, compete, and improve every week
-            at Epping Table Tennis Club.
+            at Spin & Win.
           </p>
-          <Link to="/register" className="bg-white text-brand-600 hover:bg-slate-100 font-normal text-base px-10 py-3 rounded-lg transition-all inline-block">
+          <Link to="/register" className="btn-primary text-base px-10 py-3">
             Get Started Free
           </Link>
         </div>

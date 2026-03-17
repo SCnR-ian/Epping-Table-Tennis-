@@ -206,7 +206,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="page-wrapper py-8 px-4 max-w-4xl mx-auto bg-court-dark min-h-screen text-slate-100">
+    <div className="page-wrapper py-8 px-4 max-w-4xl mx-auto">
 
       {/* Tab bar */}
       <div className="flex gap-1 mb-6 border-b border-court-light">
