@@ -10,15 +10,15 @@ const MOCK_SCHEDULE = [
 ];
 
 // ---- Hero background photo ------------------------------------------------
-const HERO_BG = "https://picsum.photos/seed/pingpong/1920/1080";
+const HERO_BG = "https://images.unsplash.com/photo-1534158914592-062992fbe900?auto=format&fit=crop&w=1920&q=80";
 
 // ---- Intro photos (replace src with your actual image paths) -------------
 const INTRO_PHOTOS = [
-  { src: "https://picsum.photos/seed/sport1/800/600",   alt: "Club training session" },
-  { src: "https://picsum.photos/seed/sport2/800/600",   alt: "Court action" },
-  { src: "https://picsum.photos/seed/sport3/800/600",   alt: "Social play night" },
-  { src: "https://picsum.photos/seed/sport4/800/600",   alt: "Junior coaching" },
-  { src: "https://picsum.photos/seed/sport5/800/600",   alt: "Tournament play" },
+  { src: "https://images.unsplash.com/photo-1611251126112-a44b3e2c6f16?auto=format&fit=crop&w=800&q=80", alt: "Club training session" },
+  { src: "https://images.unsplash.com/photo-1534158914592-062992fbe900?auto=format&fit=crop&w=800&q=80", alt: "Table tennis paddle and ball" },
+  { src: "https://images.unsplash.com/photo-1628891890467-b79f2c8ba9dc?auto=format&fit=crop&w=800&q=80", alt: "Competitive match" },
+  { src: "https://images.unsplash.com/photo-1599474924187-334a4ae5bd3c?auto=format&fit=crop&w=800&q=80", alt: "Training session" },
+  { src: "https://images.unsplash.com/photo-1620326740460-648e8d0af594?auto=format&fit=crop&w=800&q=80", alt: "Social play night" },
 ];
 
 // ---- Page ----------------------------------------------------------------
@@ -42,14 +42,12 @@ export default function HomePage() {
           alt="Epping Table Tennis Club"
           className="absolute inset-0 w-full h-full object-cover"
         />
-        {/* Dark overlay so text stays readable */}
-        <div className="absolute inset-0 bg-gradient-to-br from-court-dark/90 via-court-dark/70 to-brand-900/60 pointer-events-none" />
         {/* Decorative ping-pong ball */}
         <div className="absolute top-24 right-12 md:right-32 w-20 h-20 rounded-full border-2 border-brand-500/20 flex items-center justify-center">
           <div className="w-12 h-12 rounded-full bg-brand-500/10 ball-bounce" />
         </div>
 
-        <div className="relative z-10 text-center px-4 max-w-4xl mx-auto">
+        <div className="relative z-10 text-center px-4 max-w-4xl mx-auto" style={{ textShadow: '0 2px 16px rgba(0,0,0,0.8)' }}>
           <p className="text-brand-400 font-normal text-sm uppercase tracking-widest mb-4 animate-fade-in">
             Sydney's Premier Table Tennis Club
           </p>
