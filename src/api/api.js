@@ -121,6 +121,7 @@ export const coachingAPI = {
   getCoaches:       ()       => api.get('/coaching/coaches'),
   createCoach:      (data)   => api.post('/coaching/coaches', data),
   deleteCoach:      (id)     => api.delete(`/coaching/coaches/${id}`),
+  deleteCoachByUserId: (uid) => api.delete(`/coaching/coaches/by-user/${uid}`),
   // Session management (admin)
   getSessions:      (params) => api.get('/coaching/sessions', { params }),
   createSession:    (data)   => api.post('/coaching/sessions', data),

@@ -325,6 +325,11 @@ const [sessionForm,      setSessionForm]      = useState({
     try {
       await adminAPI.updateMemberRole(id, { role: newRole })
       setMembers(prev => prev.map(m => m.id === id ? { ...m, role: newRole } : m))
+      // If demoting a coach, also remove from coaches table
+      if (currentRole === 'coach') {
+        try { await coachingAPI.deleteCoachByUserId(id) } catch {}
+        setCoaches(prev => prev.filter(c => c.user_id !== id))
+      }
     } catch {
       alert('Could not update role. Please try again.')
     }
@@ -371,7 +376,6 @@ const [sessionForm,      setSessionForm]      = useState({
     try {
       await adminAPI.deleteMember(id)
       setMembers(prev => prev.filter(m => m.id !== id))
-      setStats(prev => ({ ...prev, members: Math.max(0, prev.members - 1) }))
     } catch {
       alert('Could not remove member. Please try again.')
     }

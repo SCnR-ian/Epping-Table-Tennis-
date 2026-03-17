@@ -40,6 +40,18 @@ router.post('/coaches', requireAuth, requireAdmin, async (req, res) => {
   }
 })
 
+// DELETE /api/coaching/coaches/by-user/:userId  — remove coach record by linked user id
+router.delete('/coaches/by-user/:userId', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM coaches WHERE user_id=$1', [req.params.userId])
+    res.json({ message: 'Coach removed.' })
+  } catch (err) {
+    if (err.code === '23503')
+      return res.status(409).json({ message: 'Cannot delete coach with existing sessions.' })
+    res.status(500).json({ message: 'Server error.' })
+  }
+})
+
 // DELETE /api/coaching/coaches/:id
 router.delete('/coaches/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
