@@ -192,8 +192,8 @@ export default function BookingPage({ embedded = false }) {
 
   return (
     <div className={`${embedded ? "" : "page-wrapper"} py-10 px-4 max-w-2xl mx-auto`}>
-      <h1 className="font-display text-5xl text-white tracking-wider mb-2">Book a Slot</h1>
-      <p className="text-slate-500 mb-8">Choose a date and time — we'll handle the rest.</p>
+      <h1 className="font-display text-5xl text-white tracking-wider mb-2 text-center">Book a Slot</h1>
+      <p className="text-slate-500 mb-8 text-center">Choose a date and time — we'll handle the rest.</p>
 
       {/* Step indicator */}
       <div className="flex items-center gap-3 mb-10">

@@ -58,10 +58,10 @@ export default function SocialPlayPage({ embedded = false }) {
     <div className={`${embedded ? "" : "page-wrapper"} py-10 px-4 max-w-7xl mx-auto`}>
 
       {/* Header */}
-      <div className="mb-10">
+      <div className="mb-10 text-center">
         <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">Join &amp; Play</p>
         <h1 className="font-display text-5xl md:text-6xl text-white tracking-wider mb-3">Social Play</h1>
-        <p className="text-slate-400 max-w-xl">
+        <p className="text-slate-400 max-w-xl mx-auto">
           Drop-in sessions open to all members — come along, meet other players,
           and enjoy some casual table tennis.
         </p>
@@ -75,7 +75,7 @@ export default function SocialPlayPage({ embedded = false }) {
 
       {/* Date filter */}
       {!loading && sorted.length > 0 && (
-        <div className="flex items-center gap-3 mb-8">
+        <div className="flex items-center justify-center gap-3 mb-8">
           <label className="text-sm text-slate-400">Filter by date</label>
           <input
             type="date"
