@@ -9,7 +9,7 @@ const { checkOpenHours } = require('../utils/scheduleCheck')
 // GET /api/coaching/coaches
 router.get('/coaches', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM coaches ORDER BY name ASC')
+    const { rows } = await pool.query('SELECT * FROM coaches WHERE user_id IS NOT NULL ORDER BY name ASC')
     res.json({ coaches: rows })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
