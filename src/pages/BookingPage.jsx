@@ -196,7 +196,7 @@ export default function BookingPage({ embedded = false }) {
       <p className="text-slate-500 mb-8 text-center">Choose a date and time — we'll handle the rest.</p>
 
       {/* Step indicator */}
-      <div className="flex items-center gap-3 mb-10">
+      <div className="flex items-center justify-center gap-3 mb-10">
         {STEPS.map((label, i) => (
           <div key={i} className="flex items-center gap-3">
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-normal transition-colors ${
@@ -222,12 +222,12 @@ export default function BookingPage({ embedded = false }) {
 
           {/* Date picker */}
           <div className="card">
-            <h2 className="text-sm font-normal text-slate-300 uppercase tracking-wider mb-4">Select a Date</h2>
+            <h2 className="text-sm font-normal text-slate-300 uppercase tracking-wider mb-4 text-center">Select a Date</h2>
 
             {thisWeekDates.length > 0 && (
               <div className="mb-5">
-                <p className="text-[11px] text-slate-600 uppercase tracking-widest font-normal mb-2">This Week</p>
-                <div className="flex gap-2 flex-wrap">
+                <p className="text-[11px] text-slate-600 uppercase tracking-widest font-normal mb-2 text-center">This Week</p>
+                <div className="flex gap-2 flex-wrap justify-center">
                   {thisWeekDates.map(d => {
                     const iso    = toISO(d);
                     const active = selectedDate === iso;
@@ -252,8 +252,8 @@ export default function BookingPage({ embedded = false }) {
 
             {nextWeekDates.length > 0 && (
               <div>
-                <p className="text-[11px] text-slate-600 uppercase tracking-widest font-normal mb-2">Next Week</p>
-                <div className="flex gap-2 flex-wrap">
+                <p className="text-[11px] text-slate-600 uppercase tracking-widest font-normal mb-2 text-center">Next Week</p>
+                <div className="flex gap-2 flex-wrap justify-center">
                   {nextWeekDates.map(d => {
                     const iso    = toISO(d);
                     const active = selectedDate === iso;
@@ -283,7 +283,7 @@ export default function BookingPage({ embedded = false }) {
 
               {/* Duration */}
               <div>
-                <h2 className="text-sm font-normal text-slate-300 uppercase tracking-wider mb-3">Duration</h2>
+                <h2 className="text-sm font-normal text-slate-300 uppercase tracking-wider mb-3 text-center">Duration</h2>
                 <div className="flex gap-2">
                   {DURATIONS.map(d => (
                     <button
@@ -303,7 +303,7 @@ export default function BookingPage({ embedded = false }) {
 
               {/* Time slots */}
               <div>
-                <h2 className="text-sm font-normal text-slate-300 uppercase tracking-wider mb-3">Start Time</h2>
+                <h2 className="text-sm font-normal text-slate-300 uppercase tracking-wider mb-3 text-center">Start Time</h2>
                 {slotsLoading ? (
                   <p className="text-slate-500 text-sm">Loading availability…</p>
                 ) : (
@@ -370,7 +370,7 @@ export default function BookingPage({ embedded = false }) {
 
       {/* ── Step 2: Confirm ──────────────────────────────────────────────────── */}
       {step === 2 && (
-        <div className="card max-w-lg space-y-6 animate-fade-in">
+        <div className="card max-w-lg mx-auto space-y-6 animate-fade-in">
           <h2 className="font-normal text-white">Confirm Your Booking</h2>
 
           <div className="space-y-0 text-sm">

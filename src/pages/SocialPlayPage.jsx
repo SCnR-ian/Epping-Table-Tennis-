@@ -105,18 +105,19 @@ export default function SocialPlayPage({ embedded = false }) {
       ) : (
         <div>
           {/* Cards row */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="flex flex-wrap justify-center gap-6">
             {pageSlice.map(s => {
               const isPast = new Date(`${s.date}T${s.end_time}`) < new Date()
               return (
-                <SocialPlayCard
-                  key={s.id}
-                  session={{ ...s, joined_user_id: user?.id }}
-                  isAuthenticated={isAuthenticated}
-                  isPast={isPast}
-                  onJoin={() => handleJoin(s.id)}
-                  onLeave={() => handleLeave(s.id)}
-                />
+                <div key={s.id} className="w-full sm:w-[340px]">
+                  <SocialPlayCard
+                    session={{ ...s, joined_user_id: user?.id }}
+                    isAuthenticated={isAuthenticated}
+                    isPast={isPast}
+                    onJoin={() => handleJoin(s.id)}
+                    onLeave={() => handleLeave(s.id)}
+                  />
+                </div>
               )
             })}
           </div>
