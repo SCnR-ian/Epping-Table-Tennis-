@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { adminAPI } from "@/api/api";
+import { coachingAPI } from "@/api/api";
 
 // ── Fallback coaches if API unavailable ──────────────────────────────────────
 const FALLBACK_COACHES = [
@@ -31,7 +31,7 @@ export default function AboutUsPage() {
   const [coaches, setCoaches] = useState([]);
 
   useEffect(() => {
-    adminAPI.getCoaches().then(({ data }) => {
+    coachingAPI.getCoaches().then(({ data }) => {
       setCoaches(data.coaches?.length ? data.coaches : FALLBACK_COACHES);
     }).catch(() => setCoaches(FALLBACK_COACHES));
   }, []);
