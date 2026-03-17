@@ -143,7 +143,7 @@ export default function Navbar() {
           mobileOpen ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
         }`}
       >
-        <div className="bg-court-mid border-t border-court-light px-4 py-4 space-y-1">
+        <div className="bg-slate-900 border-t border-slate-700 px-4 py-4 space-y-1">
           {visibleLinks.map((l) => (
             <NavLink
               key={l.to}
@@ -152,7 +152,7 @@ export default function Navbar() {
                 `block px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive
                     ? "bg-brand-500/10 text-brand-400"
-                    : "text-slate-300 hover:bg-court-light hover:text-white"
+                    : "text-slate-300 hover:bg-slate-700 hover:text-white"
                 }`
               }
               onClick={() => setMobileOpen(false)}
@@ -167,7 +167,7 @@ export default function Navbar() {
                 `block px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive
                     ? "bg-brand-500/10 text-brand-400"
-                    : "text-slate-300 hover:bg-court-light hover:text-white"
+                    : "text-slate-300 hover:bg-slate-700 hover:text-white"
                 }`
               }
               onClick={() => setMobileOpen(false)}

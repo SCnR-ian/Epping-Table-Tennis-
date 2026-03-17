@@ -691,7 +691,7 @@ const [sessionForm,      setSessionForm]      = useState({
   }
 
   return (
-    <div className="page-wrapper py-8 px-4 max-w-7xl mx-auto">
+    <div className="page-wrapper py-8 px-4 max-w-7xl mx-auto bg-court-dark min-h-screen text-slate-100">
 
 
       {/* Today's coaching — per-coach session count with hover tooltip */}
