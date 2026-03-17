@@ -29,7 +29,7 @@ export default function PlayPage() {
 
       {/* ── Tabs ────────────────────────────────────────────────────────── */}
       <div className="sticky top-16 z-30 bg-court-dark/95 backdrop-blur border-b border-court-light">
-        <div className="max-w-7xl mx-auto px-4 flex gap-1 py-2">
+        <div className="max-w-7xl mx-auto px-4 flex justify-center gap-1 py-2">
           {TABS.map((t) => (
             <button
               key={t.id}

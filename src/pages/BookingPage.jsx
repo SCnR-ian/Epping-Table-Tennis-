@@ -73,7 +73,7 @@ function getFreeCourts(slotTime, duration, bookedSlots) {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function BookingPage() {
+export default function BookingPage({ embedded = false }) {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
 
@@ -160,7 +160,7 @@ export default function BookingPage() {
   // ── Confirmed screen ──────────────────────────────────────────────────────
   if (confirmed) {
     return (
-      <div className="page-wrapper flex items-center justify-center px-4">
+      <div className={`${embedded ? "flex items-center justify-center px-4 py-10" : "page-wrapper flex items-center justify-center px-4"}`}>
         <div className="card max-w-md w-full text-center space-y-4 animate-slide-up">
           <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto">
             <svg className="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -191,7 +191,7 @@ export default function BookingPage() {
   const STEPS = ["Date & Time", "Confirm"];
 
   return (
-    <div className="page-wrapper py-10 px-4 max-w-2xl mx-auto">
+    <div className={`${embedded ? "" : "page-wrapper"} py-10 px-4 max-w-2xl mx-auto`}>
       <h1 className="font-display text-5xl text-white tracking-wider mb-2">Book a Slot</h1>
       <p className="text-slate-500 mb-8">Choose a date and time — we'll handle the rest.</p>
 

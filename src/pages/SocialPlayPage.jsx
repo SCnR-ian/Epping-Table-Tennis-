@@ -5,7 +5,7 @@ import SocialPlayCard from '@/components/common/SocialPlayCard'
 
 const PAGE_SIZE = 3
 
-export default function SocialPlayPage() {
+export default function SocialPlayPage({ embedded = false }) {
   const { isAuthenticated, user } = useAuth()
   const [sessions,      setSessions]      = useState([])
   const [loading,       setLoading]       = useState(true)
@@ -55,7 +55,7 @@ export default function SocialPlayPage() {
   const pageSlice   = filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE)
 
   return (
-    <div className="page-wrapper py-10 px-4 max-w-7xl mx-auto">
+    <div className={`${embedded ? "" : "page-wrapper"} py-10 px-4 max-w-7xl mx-auto`}>
 
       {/* Header */}
       <div className="mb-10">
