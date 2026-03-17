@@ -9,28 +9,16 @@ const MOCK_SCHEDULE = [
   { day: "Sat", time: "1:00 – 6:30 PM", label: "Open Practice" },
 ];
 
+// ---- Hero background photo ------------------------------------------------
+const HERO_BG = "https://picsum.photos/seed/pingpong/1920/1080";
+
 // ---- Intro photos (replace src with your actual image paths) -------------
 const INTRO_PHOTOS = [
-  {
-    src: "https://placehold.co/800x600/1a1a2e/e94560?text=Photo+1",
-    alt: "Club photo 1",
-  },
-  {
-    src: "https://placehold.co/800x600/1a1a2e/e94560?text=Photo+2",
-    alt: "Club photo 2",
-  },
-  {
-    src: "https://placehold.co/800x600/1a1a2e/e94560?text=Photo+3",
-    alt: "Club photo 3",
-  },
-  {
-    src: "https://placehold.co/800x600/1a1a2e/e94560?text=Photo+4",
-    alt: "Club photo 4",
-  },
-  {
-    src: "https://placehold.co/800x600/1a1a2e/e94560?text=Photo+5",
-    alt: "Club photo 5",
-  },
+  { src: "https://picsum.photos/seed/sport1/800/600",   alt: "Club training session" },
+  { src: "https://picsum.photos/seed/sport2/800/600",   alt: "Court action" },
+  { src: "https://picsum.photos/seed/sport3/800/600",   alt: "Social play night" },
+  { src: "https://picsum.photos/seed/sport4/800/600",   alt: "Junior coaching" },
+  { src: "https://picsum.photos/seed/sport5/800/600",   alt: "Tournament play" },
 ];
 
 // ---- Page ----------------------------------------------------------------
@@ -48,10 +36,14 @@ export default function HomePage() {
     <div className="page-wrapper">
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="relative min-h-[92vh] flex items-center justify-center overflow-hidden bg-court-pattern">
-        {/* Background glow */}
-        <div className="absolute inset-0 bg-gradient-to-br from-court-dark via-court-mid/50 to-brand-900/20 pointer-events-none" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-brand-500/5 rounded-full blur-3xl pointer-events-none" />
-
+        {/* Background photo */}
+        <img
+          src={HERO_BG}
+          alt="Epping Table Tennis Club"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+        {/* Dark overlay so text stays readable */}
+        <div className="absolute inset-0 bg-gradient-to-br from-court-dark/90 via-court-dark/70 to-brand-900/60 pointer-events-none" />
         {/* Decorative ping-pong ball */}
         <div className="absolute top-24 right-12 md:right-32 w-20 h-20 rounded-full border-2 border-brand-500/20 flex items-center justify-center">
           <div className="w-12 h-12 rounded-full bg-brand-500/10 ball-bounce" />
