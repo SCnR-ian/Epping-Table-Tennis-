@@ -32,8 +32,14 @@ router.get('/overview', async (req, res) => {
         -- Regular bookings
         SELECT date, start_time FROM bookings WHERE status = 'confirmed'
         UNION ALL
-        -- Coaching sessions
-        SELECT date, start_time FROM coaching_sessions WHERE status = 'confirmed'
+        -- Coaching sessions (deduplicate group sessions — one slot per group)
+        SELECT date, start_time FROM coaching_sessions WHERE status = 'confirmed' AND group_id IS NULL
+        UNION ALL
+        SELECT date, start_time FROM (
+          SELECT DISTINCT ON (group_id, date, start_time) date, start_time
+          FROM coaching_sessions WHERE status = 'confirmed' AND group_id IS NOT NULL
+          ORDER BY group_id, date, start_time
+        ) cg
         UNION ALL
         -- Social play (each session counts once regardless of courts)
         SELECT date, start_time FROM social_play_sessions WHERE status = 'open'

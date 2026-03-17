@@ -135,6 +135,12 @@ export const coachingAPI = {
   // Reschedule a single session to a new date (admin)
   rescheduleSession:   (id, date, start_time, end_time) => api.put(`/coaching/sessions/${id}/reschedule`, { date, ...(start_time && end_time ? { start_time, end_time } : {}) }),
   rescheduleBulk:      (updates)    => api.put('/coaching/sessions/reschedule-bulk', { updates }),
+  // Group coaching (admin)
+  createGroupSession:  (data)       => api.post('/coaching/sessions/group', data),
+  getGroupSessions:    (params)     => api.get('/coaching/sessions/groups', { params }),
+  cancelGroupSession:       (groupId)                           => api.delete(`/coaching/sessions/group/${groupId}`),
+  rescheduleGroupSession:   (groupId, date, start_time, end_time) =>
+    api.put(`/coaching/sessions/group/${groupId}/reschedule`, { date, ...(start_time && end_time ? { start_time, end_time } : {}) }),
 }
 
 // ---------------------------------------------------------------------------

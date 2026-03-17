@@ -25,11 +25,10 @@ export default function Footer() {
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
             <span className="font-display text-2xl text-white tracking-widest">
-              SPIN<span className="text-brand-500">&</span>WIN
+              EPPING<span className="text-brand-500"> TT</span>
             </span>
             <p className="mt-3 text-sm text-slate-500 leading-relaxed max-w-xs">
-              Your home for competitive and recreational table tennis. Play
-              hard, spin harder.
+              Sydney's premier table tennis club — built by players, for players.
             </p>
             <div className="flex gap-3 mt-4">
               {/* Placeholder social icons */}
@@ -69,7 +68,7 @@ export default function Footer() {
 
         <div className="mt-10 pt-6 border-t border-court-light flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-600">
           <p>
-            © {new Date().getFullYear()} Spin & Win TT Club. All rights
+            © {new Date().getFullYear()} Epping Table Tennis Club. All rights
             reserved.
           </p>
           <p>Built with ❤️ for the love of the game.</p>

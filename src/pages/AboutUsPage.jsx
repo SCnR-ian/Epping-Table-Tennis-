@@ -1,6 +1,4 @@
-import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { coachingAPI } from "@/api/api";
 
 // ── Fallback coaches if API unavailable ──────────────────────────────────────
 const FALLBACK_COACHES = [
@@ -8,39 +6,77 @@ const FALLBACK_COACHES = [
     id: 1,
     name: "David Chen",
     title: "Head Coach",
-    bio: "National champion with 15+ years of coaching experience. Specialises in advanced technique and competitive play.",
-    avatar: null,
+    nationality: "AUS",
+    bio: "A two-time national champion turned elite coach, David has spent over 15 years shaping Australia's top table tennis talent. His precision-focused training philosophy and deep technical knowledge have produced five Australian national representatives under his direct guidance.",
+    avatar: "https://images.unsplash.com/photo-1566492031773-4f4e44671857?auto=format&fit=crop&w=800&q=80",
+    stats: [
+      { value: "15+", label: "Yrs Coaching" },
+      { value: "2×", label: "Nat. Champion" },
+      { value: "5", label: "Nat. Reps" },
+    ],
+    achievements: [
+      "2× Australian National Singles Champion",
+      "ITTF Level 3 Certified Head Coach",
+      "NSW Coach of the Year — 2019 & 2021",
+      "Oceania Championships — Team Manager 2022",
+      "Trained 5 Australian national representatives",
+      "Peak world ranking: #38 (2009)",
+    ],
   },
   {
     id: 2,
     name: "Sarah Kim",
     title: "Junior Development Coach",
-    bio: "Passionate about nurturing young talent. Former state representative with a gift for making the game fun and accessible.",
-    avatar: null,
+    nationality: "AUS",
+    bio: "Former Australian U21 representative and three-time NSW State Women's Champion, Sarah brings world-class experience to every junior session. Her ability to break down complex techniques into simple, engaging lessons has made her one of the most sought-after development coaches in the country.",
+    avatar: "https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=800&q=80",
+    stats: [
+      { value: "10+", label: "Yrs Coaching" },
+      { value: "3×", label: "State Champion" },
+      { value: "40+", label: "Juniors Ranked" },
+    ],
+    achievements: [
+      "3× NSW State Women's Singles Champion",
+      "ITTF Level 2 Certified Coach",
+      "Australian U21 National Representative",
+      "Junior Development Coach Award 2022",
+      "40+ state-ranked junior players developed",
+      "Peak world ranking: #112 (2015)",
+    ],
   },
   {
     id: 3,
     name: "Marcus Liu",
     title: "Fitness & Strategy Coach",
-    bio: "Sports science graduate combining physical conditioning with tactical coaching to elevate every player's game.",
-    avatar: null,
+    nationality: "AUS",
+    bio: "Armed with a Bachelor of Sports Science and a former top-50 NSW ranking, Marcus bridges the gap between physical athleticism and tactical intelligence. His data-driven training programs have become the backbone of the club's competitive conditioning system.",
+    avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=80",
+    stats: [
+      { value: "8+", label: "Yrs Coaching" },
+      { value: "Top 50", label: "NSW Peak" },
+      { value: "BSc", label: "Sports Science" },
+    ],
+    achievements: [
+      "Bachelor of Sports Science — University of Sydney",
+      "ITTF Level 2 Certified Coach",
+      "Certified Strength & Conditioning Specialist",
+      "Former NSW top-50 ranked player",
+      "Introduced video analysis program at ETTC",
+      "Specialises in footwork, speed & match tactics",
+    ],
   },
 ];
 
 export default function AboutUsPage() {
-  const [coaches, setCoaches] = useState([]);
-
-  useEffect(() => {
-    coachingAPI.getCoaches().then(({ data }) => {
-      setCoaches(data.coaches?.length ? data.coaches : FALLBACK_COACHES);
-    }).catch(() => setCoaches(FALLBACK_COACHES));
-  }, []);
+  const coaches = FALLBACK_COACHES;
 
   return (
     <div className="page-wrapper">
       {/* ── Hero ────────────────────────────────────────────────────────── */}
       <section className="relative py-32 px-4 -mt-16 bg-court-pattern text-center">
-        <div className="absolute inset-0 bg-gradient-to-br from-court-dark via-court-mid/50 to-brand-900/20 pointer-events-none" />
+        <img src="https://images.unsplash.com/photo-1534158914592-062992fbe900?auto=format&fit=crop&w=1920&q=80"
+          alt="" className="absolute inset-0 w-full h-full object-cover opacity-50" />
+        <div className="absolute inset-0 bg-court-dark/60 pointer-events-none" />
         <div className="relative z-10 max-w-3xl mx-auto">
           <p className="text-brand-400 font-normal text-sm uppercase tracking-widest mb-4">
             Our Story
@@ -148,36 +184,73 @@ export default function AboutUsPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {coaches.map((coach) => (
-              <div
-                key={coach.id}
-                className="card flex flex-col items-center text-center group hover:border-brand-500/40 transition-all duration-300"
-              >
-                {coach.avatar ? (
-                  <img
-                    src={coach.avatar}
-                    alt={coach.name}
-                    className="w-24 h-24 rounded-full object-cover mb-4 ring-2 ring-court-light group-hover:ring-brand-500/50 transition-all"
-                  />
-                ) : (
-                  <div className="w-24 h-24 rounded-full bg-brand-500/10 border-2 border-brand-500/20 flex items-center justify-center mb-4 ring-2 ring-court-light group-hover:ring-brand-500/50 transition-all">
-                    <span className="font-display text-2xl text-brand-400">
-                      {coach.name?.[0] ?? "C"}
-                    </span>
+          <div className="space-y-1">
+            {coaches.map((coach, idx) => {
+              const photoLeft = idx % 2 === 0
+              return (
+                <div key={coach.id} className="relative overflow-hidden bg-court-mid border border-court-light">
+                  <div className={`flex flex-col lg:flex-row ${photoLeft ? '' : 'lg:flex-row-reverse'}`} style={{ minHeight: '340px' }}>
+
+                    {/* ── Photo column ── */}
+                    <div className="lg:w-[42%] relative flex-shrink-0" style={{ minHeight: '260px' }}>
+                      {coach.avatar ? (
+                        <img
+                          src={coach.avatar}
+                          alt={coach.name}
+                          className="absolute inset-0 w-full h-full object-cover object-[center_20%]"
+                        />
+                      ) : (
+                        <div className="absolute inset-0 bg-court-dark flex items-center justify-center">
+                          <span className="font-display text-8xl text-brand-400/20">{coach.name?.[0] ?? 'C'}</span>
+                        </div>
+                      )}
+                      {/* Diagonal overlay towards content side */}
+                      <div
+                        className="absolute inset-0"
+                        style={{
+                          background: photoLeft
+                            ? 'linear-gradient(to right, transparent 60%, #1e293b 100%)'
+                            : 'linear-gradient(to left, transparent 60%, #1e293b 100%)',
+                        }}
+                      />
+                      {/* Bottom fade */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-court-mid/80 via-transparent to-transparent" />
+                    </div>
+
+                    {/* ── Content column ── */}
+                    <div className="flex-1 flex flex-col justify-center px-10 py-8 lg:px-14 lg:py-10 relative z-10">
+
+                      {/* Role tag */}
+                      <span className="text-[10px] uppercase tracking-widest text-brand-400 font-medium border border-brand-500/30 px-3 py-1 rounded-full self-start mb-4">
+                        {coach.title ?? 'Coach'}
+                      </span>
+
+                      {/* Name */}
+                      <h3 className="font-display text-4xl lg:text-5xl text-white tracking-wider leading-none mb-5">
+                        {coach.name}
+                      </h3>
+
+                      {/* Bio */}
+                      {coach.bio && (
+                        <p className="text-slate-400 text-sm leading-relaxed mb-6 max-w-lg">{coach.bio}</p>
+                      )}
+
+                      {/* Achievements */}
+                      {coach.achievements?.length > 0 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {coach.achievements.map((a, i) => (
+                            <div key={i} className="flex items-center gap-2.5">
+                              <span className="w-1 h-4 bg-brand-500 rounded-full flex-shrink-0" />
+                              <span className="text-xs text-slate-300">{a}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                )}
-                <p className="font-display text-xl text-white tracking-wide">
-                  {coach.name}
-                </p>
-                <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mt-1 mb-3">
-                  {coach.title ?? "Coach"}
-                </p>
-                {coach.bio && (
-                  <p className="text-slate-400 text-sm leading-relaxed">{coach.bio}</p>
-                )}
-              </div>
-            ))}
+                </div>
+              )
+            })}
           </div>
         </div>
       </section>

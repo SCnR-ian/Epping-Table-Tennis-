@@ -14,7 +14,9 @@ export default function PlayPage() {
     <div className="page-wrapper">
       {/* ── Hero ────────────────────────────────────────────────────────── */}
       <section className="relative py-28 px-4 -mt-16 bg-court-pattern text-center">
-        <div className="absolute inset-0 bg-gradient-to-br from-court-dark via-court-mid/50 to-brand-900/20 pointer-events-none" />
+        <img src="https://images.unsplash.com/photo-1534158914592-062992fbe900?auto=format&fit=crop&w=1920&q=80"
+          alt="" className="absolute inset-0 w-full h-full object-cover opacity-50" />
+        <div className="absolute inset-0 bg-court-dark/60 pointer-events-none" />
         <div className="relative z-10 max-w-3xl mx-auto">
           <p className="text-brand-400 font-normal text-sm uppercase tracking-widest mb-4">
             Get on the Table
@@ -29,7 +31,7 @@ export default function PlayPage() {
 
       {/* ── Tabs ────────────────────────────────────────────────────────── */}
       <div className="sticky top-16 z-30 bg-court-dark/95 backdrop-blur border-b border-court-light">
-        <div className="max-w-7xl mx-auto px-4 flex justify-center gap-1 py-2">
+        <div className="max-w-7xl mx-auto px-4 flex items-center justify-center gap-1 py-2">
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -42,6 +44,11 @@ export default function PlayPage() {
             >
               <span>{t.icon}</span>
               {t.label}
+              <span className={`text-xs px-2 py-0.5 rounded-full font-normal ${
+                tab === t.id ? "bg-white/20 text-white" : "bg-court-light text-slate-400"
+              }`}>
+                {t.id === "booking" ? "$20/hr" : "$10/session"}
+              </span>
             </button>
           ))}
         </div>

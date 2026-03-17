@@ -150,6 +150,7 @@ router.get('/today-summary', requireAuth, async (req, res) => {
     const { rows: coaching } = await pool.query(`
       SELECT
         cs.id,
+        cs.group_id,
         cs.start_time, cs.end_time,
         ct.name  AS court_name,
         st.id    AS student_id,

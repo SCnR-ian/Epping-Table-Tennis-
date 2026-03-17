@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 
 // ---- Mock data (replace with API calls later) ----------------------------
 const MOCK_SCHEDULE = [
@@ -24,6 +25,7 @@ const INTRO_PHOTOS = [
 // ---- Page ----------------------------------------------------------------
 export default function HomePage() {
   const [introPhoto, setIntroPhoto] = useState(0);
+  const { isAuthenticated } = useAuth();
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -67,18 +69,25 @@ export default function HomePage() {
             className="flex flex-col sm:flex-row items-center justify-center gap-4 animate-slide-up"
             style={{ animationDelay: "0.2s", opacity: 0 }}
           >
-            <Link
-              to="/register"
-              className="btn-primary text-base px-8 py-3 w-full sm:w-auto"
-            >
-              Join the Club
-            </Link>
-            <Link
-              to="/booking"
-              className="btn-outline text-base px-8 py-3 w-full sm:w-auto"
-            >
-              Book a Court
-            </Link>
+            {isAuthenticated ? (
+              <>
+                <Link to="/play" className="btn-primary text-base px-8 py-3 w-full sm:w-auto">
+                  Book a Court
+                </Link>
+                <Link to="/play" className="btn-outline text-base px-8 py-3 w-full sm:w-auto">
+                  Join Social Play
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link to="/register" className="btn-primary text-base px-8 py-3 w-full sm:w-auto">
+                  Join the Club
+                </Link>
+                <Link to="/play" className="btn-outline text-base px-8 py-3 w-full sm:w-auto">
+                  Book a Court
+                </Link>
+              </>
+            )}
           </div>
         </div>
 
@@ -125,8 +134,8 @@ export default function HomePage() {
                 </div>
               ))}
             </div>
-            <Link to="/register" className="btn-primary text-sm px-6 py-2.5">
-              Join Us →
+            <Link to="/about" className="btn-primary text-sm px-6 py-2.5">
+              About Us →
             </Link>
           </div>
 
@@ -160,20 +169,74 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ── Programs & Play overview ─────────────────────────────────────── */}
+      <section className="py-20 px-4 bg-court-mid border-y border-court-light">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-12">
+            <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">What We Offer</p>
+            <h2 className="section-title text-4xl">Get Involved</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Training Programs card */}
+            <div className="card flex flex-col gap-4 hover:border-brand-500/40 transition-all duration-300">
+              <div className="relative rounded-xl overflow-hidden h-48">
+                <img
+                  src="https://images.unsplash.com/photo-1534158914592-062992fbe900?auto=format&fit=crop&w=800&q=80"
+                  alt="Training Programs"
+                  className="w-full h-full object-cover opacity-60"
+                />
+                <div className="absolute inset-0 bg-court-dark/50" />
+                <span className="absolute top-3 left-3 text-[10px] uppercase tracking-widest text-brand-400 font-medium bg-court-dark/70 px-2 py-1 rounded-full">
+                  Training
+                </span>
+              </div>
+              <div className="flex-1">
+                <h3 className="font-display text-2xl text-white tracking-wider mb-2">Training Programs</h3>
+                <p className="text-slate-400 text-sm leading-relaxed">
+                  From beginner fundamentals to advanced competitive coaching — our structured programs are designed for every stage of your journey. Train with certified coaches on competition-grade courts.
+                </p>
+              </div>
+              <Link to="/training" className="btn-outline text-sm self-start">
+                View Programs →
+              </Link>
+            </div>
+
+            {/* Play card */}
+            <div className="card flex flex-col gap-4 hover:border-brand-500/40 transition-all duration-300">
+              <div className="relative rounded-xl overflow-hidden h-48">
+                <img
+                  src="https://images.unsplash.com/photo-1534158914592-062992fbe900?auto=format&fit=crop&w=800&q=80"
+                  alt="Book & Play"
+                  className="w-full h-full object-cover opacity-60"
+                />
+                <div className="absolute inset-0 bg-court-dark/50" />
+                <span className="absolute top-3 left-3 text-[10px] uppercase tracking-widest text-brand-400 font-medium bg-court-dark/70 px-2 py-1 rounded-full">
+                  Play
+                </span>
+              </div>
+              <div className="flex-1">
+                <h3 className="font-display text-2xl text-white tracking-wider mb-2">Book a Court & Social Play</h3>
+                <p className="text-slate-400 text-sm leading-relaxed">
+                  Reserve a court for a private session, or join one of our weekly social play nights. Open to all members — just show up, play, and meet the community.
+                </p>
+              </div>
+              <Link to="/play" className="btn-outline text-sm self-start">
+                Start Playing →
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ── Schedule Preview ─────────────────────────────────────────────── */}
       <section className="py-20 px-4 max-w-7xl mx-auto">
-        <div className="flex items-end justify-between mb-10">
-          <div>
-            <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">
-              Opening Hours
-            </p>
-            <h2 className="section-title text-4xl">Weekly Schedule</h2>
-          </div>
-          <Link to="/booking" className="btn-outline text-sm hidden sm:block">
-            Book Now →
-          </Link>
+        <div className="text-center mb-10">
+          <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">
+            Opening Hours
+          </p>
+          <h2 className="section-title text-4xl">Weekly Schedule</h2>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 max-w-3xl mx-auto">
           {MOCK_SCHEDULE.map(({ day, time, label }) => (
             <div
               key={day}
@@ -261,11 +324,22 @@ export default function HomePage() {
           <h2 className="section-title text-5xl mb-4">Ready to play?</h2>
           <p className="text-slate-400 mb-8 leading-relaxed">
             Join hundreds of members who train, compete, and improve every week
-            at Spin & Win.
+            at Epping Table Tennis Club.
           </p>
-          <Link to="/register" className="btn-primary text-base px-10 py-3">
-            Get Started Free
-          </Link>
+          {isAuthenticated ? (
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <Link to="/play" className="btn-primary text-base px-10 py-3">
+                Book a Court
+              </Link>
+              <Link to="/play" className="btn-outline text-base px-10 py-3">
+                Join Social Play
+              </Link>
+            </div>
+          ) : (
+            <Link to="/register" className="btn-primary text-base px-10 py-3">
+              Get Started Free
+            </Link>
+          )}
         </div>
       </section>
     </div>

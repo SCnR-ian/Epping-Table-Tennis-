@@ -55,17 +55,34 @@ export default function SocialPlayPage({ embedded = false }) {
   const pageSlice   = filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE)
 
   return (
-    <div className={`${embedded ? "" : "page-wrapper"} py-10 px-4 max-w-7xl mx-auto`}>
+    <div className={embedded ? "" : "page-wrapper"}>
+      {!embedded && (
+        <section className="relative py-28 px-4 -mt-16 bg-court-pattern text-center">
+          <img src="https://images.unsplash.com/photo-1534158914592-062992fbe900?auto=format&fit=crop&w=1920&q=80"
+            alt="" className="absolute inset-0 w-full h-full object-cover opacity-50" />
+          <div className="absolute inset-0 bg-court-dark/60 pointer-events-none" />
+          <div className="relative z-10 max-w-3xl mx-auto">
+            <p className="text-brand-400 font-normal text-sm uppercase tracking-widest mb-4">Join &amp; Play</p>
+            <h1 className="section-title text-5xl md:text-6xl mb-6">Social Play</h1>
+            <p className="text-slate-400 text-lg leading-relaxed">
+              Drop-in sessions open to all members — come along, meet other players,
+              and enjoy some casual table tennis.
+            </p>
+          </div>
+        </section>
+      )}
 
-      {/* Header */}
-      <div className="mb-10 text-center">
-        <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">Join &amp; Play</p>
-        <h1 className="font-display text-5xl md:text-6xl text-white tracking-wider mb-3">Social Play</h1>
-        <p className="text-slate-400 max-w-xl mx-auto">
-          Drop-in sessions open to all members — come along, meet other players,
-          and enjoy some casual table tennis.
-        </p>
-      </div>
+      <div className="py-10 px-4 max-w-7xl mx-auto">
+      {embedded && (
+        <div className="mb-10 text-center">
+          <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">Join &amp; Play</p>
+          <h1 className="font-display text-5xl md:text-6xl text-white tracking-wider mb-3">Social Play</h1>
+          <p className="text-slate-400 max-w-xl mx-auto">
+            Drop-in sessions open to all members — come along, meet other players,
+            and enjoy some casual table tennis.
+          </p>
+        </div>
+      )}
 
       {!isAuthenticated && (
         <div className="mb-8 p-4 rounded-lg bg-brand-500/10 border border-brand-500/20 text-sm text-brand-300">
@@ -155,6 +172,7 @@ export default function SocialPlayPage({ embedded = false }) {
         </div>
       )}
 
+      </div>
     </div>
   )
 }
