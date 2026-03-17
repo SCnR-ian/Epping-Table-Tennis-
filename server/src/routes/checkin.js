@@ -14,6 +14,8 @@ function checkedInBy(req, targetId) {
   return req.user.id === targetId ? null : req.user.id
 }
 
+const TODAY = () => new Date().toISOString().slice(0, 10)
+
 // POST /api/checkin/booking/:groupId
 // Member or admin checks a user in for a regular court booking.
 router.post('/booking/:groupId', requireAuth, async (req, res) => {
@@ -25,6 +27,8 @@ router.post('/booking/:groupId', requireAuth, async (req, res) => {
       [req.params.groupId, uid]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Booking not found.' })
+    if (rows[0].date > TODAY())
+      return res.status(409).json({ message: 'Cannot check in for a future session.' })
 
     await pool.query(
       `INSERT INTO check_ins (user_id, type, reference_id, date, checked_in_by)
@@ -48,6 +52,8 @@ router.post('/social/:sessionId', requireAuth, async (req, res) => {
       [req.params.sessionId, uid]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Not a participant.' })
+    if (rows[0].date > TODAY())
+      return res.status(409).json({ message: 'Cannot check in for a future session.' })
 
     await pool.query(
       `INSERT INTO check_ins (user_id, type, reference_id, date, checked_in_by)
@@ -72,6 +78,8 @@ router.post('/coaching/:sessionId', requireAuth, async (req, res) => {
       [req.params.sessionId, uid]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Coaching session not found.' })
+    if (rows[0].date > TODAY())
+      return res.status(409).json({ message: 'Cannot check in for a future session.' })
 
     await pool.query(
       `INSERT INTO check_ins (user_id, type, reference_id, date, checked_in_by)
@@ -117,11 +125,12 @@ router.get('/admin', requireAuth, async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
-// GET /api/checkin/today-summary  (admin)
-// All activities scheduled for today with per-person check-in status.
+// GET /api/checkin/today-summary?date=YYYY-MM-DD  (admin)
+// All activities scheduled for a given date (default: today) with per-person check-in status.
 router.get('/today-summary', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin')
     return res.status(403).json({ message: 'Admin only.' })
+  const date = req.query.date ?? TODAY()
   try {
     // ── Bookings ─────────────────────────────────────────────────────────────
     const { rows: bookings } = await pool.query(`
@@ -141,10 +150,10 @@ router.get('/today-summary', requireAuth, async (req, res) => {
       FROM bookings b
       JOIN users  u  ON u.id  = b.user_id
       JOIN courts ct ON ct.id = b.court_id
-      WHERE b.date = CURRENT_DATE AND b.status = 'confirmed'
+      WHERE b.date = $1 AND b.status = 'confirmed'
       GROUP BY b.booking_group_id, ct.name, u.id, u.name
       ORDER BY start_time ASC, u.name ASC
-    `)
+    `, [date])
 
     // ── Coaching sessions ─────────────────────────────────────────────────────
     const { rows: coaching } = await pool.query(`
@@ -180,9 +189,9 @@ router.get('/today-summary', requireAuth, async (req, res) => {
       JOIN coaches co ON co.id = cs.coach_id
       LEFT JOIN users co_u ON co_u.id = co.user_id
       JOIN courts ct ON ct.id = cs.court_id
-      WHERE cs.date = CURRENT_DATE AND cs.status = 'confirmed'
+      WHERE cs.date = $1 AND cs.status = 'confirmed'
       ORDER BY cs.start_time ASC
-    `)
+    `, [date])
 
     // ── Social play ───────────────────────────────────────────────────────────
     const { rows: social } = await pool.query(`
@@ -201,15 +210,33 @@ router.get('/today-summary', requireAuth, async (req, res) => {
       FROM social_play_sessions sps
       JOIN social_play_participants spp ON spp.session_id = sps.id
       JOIN users u ON u.id = spp.user_id
-      WHERE sps.date = CURRENT_DATE AND sps.status = 'open'
+      WHERE sps.date = $1 AND sps.status = 'open'
       ORDER BY sps.start_time ASC, u.name ASC
-    `)
+    `, [date])
 
     res.json({ bookings, coaching, social })
   } catch (err) {
     console.error('today-summary error:', err)
     res.status(500).json({ message: err.message ?? 'Server error.' })
   }
+})
+
+// DELETE /api/checkin/:type/:refId/:userId  (admin)
+// Cancel (undo) a check-in.
+router.delete('/:type/:refId/:userId', requireAuth, async (req, res) => {
+  if (req.user.role !== 'admin')
+    return res.status(403).json({ message: 'Admin only.' })
+  const { type, refId, userId } = req.params
+  if (!['booking', 'social', 'coaching'].includes(type))
+    return res.status(400).json({ message: 'Invalid type.' })
+  try {
+    const { rowCount } = await pool.query(
+      'DELETE FROM check_ins WHERE user_id=$1 AND type=$2 AND reference_id=$3',
+      [userId, type, refId]
+    )
+    if (rowCount === 0) return res.status(404).json({ message: 'Check-in not found.' })
+    res.json({ message: 'Check-in cancelled.' })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
 module.exports = router

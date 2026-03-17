@@ -224,6 +224,7 @@ const [sessionForm,      setSessionForm]      = useState({
   const [payLoading, setPayLoading] = useState(false)
 
   // Today summary state
+  const [todayDate,       setTodayDate]       = useState(() => new Date().toISOString().slice(0, 10))
   const [todaySummary,    setTodaySummary]    = useState(null)
   const [todayLoading,    setTodayLoading]    = useState(false)
   const [todayError,      setTodayError]      = useState(null)
@@ -458,20 +459,20 @@ const [sessionForm,      setSessionForm]      = useState({
     return () => { cancelled = true }
   }, [activeTab])
 
-  const loadTodaySummary = () => {
+  const loadTodaySummary = (date) => {
     setTodayLoading(true)
     setTodayError(null)
-    checkinAPI.getTodaySummary()
+    checkinAPI.getTodaySummary({ date })
       .then(({ data }) => setTodaySummary(data))
-      .catch(err => setTodayError(err.response?.data?.message ?? 'Failed to load today\'s summary.'))
+      .catch(err => setTodayError(err.response?.data?.message ?? 'Failed to load summary.'))
       .finally(() => setTodayLoading(false))
   }
 
-  // Fetch today summary when Today tab is active
+  // Fetch today summary when Today tab is active or date changes
   useEffect(() => {
     if (activeTab !== 'Today') return
-    loadTodaySummary()
-  }, [activeTab])
+    loadTodaySummary(todayDate)
+  }, [activeTab, todayDate])
 
   // Fetch analytics when Analytics tab is active
   useEffect(() => {
@@ -845,30 +846,63 @@ const [sessionForm,      setSessionForm]      = useState({
 
             const noActivity = bookings.length === 0 && coaching.length === 0 && social.length === 0
 
+            const todayStr = new Date().toISOString().slice(0, 10)
+            const isFuture = todayDate > todayStr
+
             const handleCheckIn = async (type, refId, userId) => {
               try {
                 if (type === 'booking')  await checkinAPI.adminCheckInBooking(refId, userId)
                 if (type === 'coaching') await checkinAPI.adminCheckInCoaching(refId, userId)
                 if (type === 'social')   await checkinAPI.adminCheckInSocial(refId, userId)
-                loadTodaySummary()
+                loadTodaySummary(todayDate)
               } catch (err) {
                 alert(err.response?.data?.message ?? 'Check-in failed.')
               }
             }
 
-            const Badge = ({ in: checkedIn }) => checkedIn
-              ? <span className="text-[10px] bg-emerald-500/15 text-emerald-400 px-2 py-0.5 rounded-full font-medium">Checked in</span>
+            const handleUndoCheckIn = async (type, refId, userId) => {
+              try {
+                await checkinAPI.cancelCheckIn(type, String(refId), userId)
+                loadTodaySummary(todayDate)
+              } catch (err) {
+                alert(err.response?.data?.message ?? 'Could not undo check-in.')
+              }
+            }
+
+            const Badge = ({ in: checkedIn, type, refId, userId }) => checkedIn
+              ? (
+                <span className="flex items-center gap-1">
+                  <span className="text-[10px] bg-emerald-500/15 text-emerald-400 px-2 py-0.5 rounded-full font-medium">Checked in</span>
+                  <button
+                    onClick={() => handleUndoCheckIn(type, refId, userId)}
+                    className="text-[10px] text-slate-500 hover:text-red-400 font-medium transition-colors"
+                    title="Undo check-in"
+                  >✕</button>
+                </span>
+              )
               : <span className="text-[10px] bg-red-500/15 text-red-400 px-2 py-0.5 rounded-full font-medium">Not in</span>
 
             return (
               <>
-                <div className="flex items-center justify-between">
-                  <p className="text-slate-400 text-sm">{todayLabel}</p>
-                  <button onClick={loadTodaySummary} className="text-xs text-slate-400 hover:text-white transition-colors">↺ Refresh</button>
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <p className="text-slate-400 text-sm">{todayLabel}</p>
+                    <input
+                      type="date"
+                      max={todayStr}
+                      value={todayDate}
+                      onChange={e => { setTodayDate(e.target.value); setTodaySummary(null) }}
+                      className="input text-xs py-1 px-2"
+                    />
+                  </div>
+                  <button onClick={() => loadTodaySummary(todayDate)} className="text-xs text-slate-400 hover:text-white transition-colors">↺ Refresh</button>
                 </div>
+                {isFuture && (
+                  <p className="text-amber-400 text-xs">Future date selected — check-in is not available.</p>
+                )}
 
                 {noActivity && (
-                  <p className="text-slate-400 text-sm">No activities scheduled for today.</p>
+                  <p className="text-slate-400 text-sm">No activities scheduled for this date.</p>
                 )}
 
                 {/* ── Bookings ──────────────────────────────────────── */}
@@ -886,8 +920,8 @@ const [sessionForm,      setSessionForm]      = useState({
                             {g.members.map(m => (
                               <div key={m.user_id} className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
                                 <span className="text-xs text-white">{m.user_name}</span>
-                                <Badge in={m.checked_in} />
-                                {!m.checked_in && (
+                                <Badge in={m.checked_in} type="booking" refId={g.group_id} userId={m.user_id} />
+                                {!m.checked_in && !isFuture && (
                                   <button
                                     onClick={() => handleCheckIn('booking', g.group_id, m.user_id)}
                                     className="text-[10px] text-sky-400 hover:text-sky-300 font-medium"
@@ -920,10 +954,15 @@ const [sessionForm,      setSessionForm]      = useState({
                               <span className="text-xs text-white">{c.student_name}</span>
                               <span className="text-[10px] text-slate-500">student</span>
                               {c.admin_checked_in
-                                ? <span className="text-[10px] bg-sky-500/15 text-sky-400 px-2 py-0.5 rounded-full font-medium">Admin ✓</span>
-                                : <Badge in={c.student_checked_in} />
+                                ? (
+                                  <span className="flex items-center gap-1">
+                                    <span className="text-[10px] bg-sky-500/15 text-sky-400 px-2 py-0.5 rounded-full font-medium">Admin ✓</span>
+                                    <button onClick={() => handleUndoCheckIn('coaching', c.id, c.student_id)} className="text-[10px] text-slate-500 hover:text-red-400 font-medium transition-colors" title="Undo">✕</button>
+                                  </span>
+                                )
+                                : <Badge in={c.student_checked_in} type="coaching" refId={c.id} userId={c.student_id} />
                               }
-                              {!c.admin_checked_in && !c.student_checked_in && (
+                              {!c.admin_checked_in && !c.student_checked_in && !isFuture && (
                                 <button
                                   onClick={() => handleCheckIn('coaching', c.id, c.student_id)}
                                   className="text-[10px] text-sky-400 hover:text-sky-300 font-medium"
@@ -934,7 +973,7 @@ const [sessionForm,      setSessionForm]      = useState({
                               <span className="text-xs text-white">{c.coach_name}</span>
                               <span className="text-[10px] text-slate-500">coach</span>
                               {c.coach_user_id
-                                ? <Badge in={c.coach_checked_in} />
+                                ? <Badge in={c.coach_checked_in} type="coaching" refId={c.id} userId={c.coach_user_id} />
                                 : <span className="text-[10px] text-slate-500">no account</span>
                               }
                             </div>
@@ -956,10 +995,15 @@ const [sessionForm,      setSessionForm]      = useState({
                                 <span className="text-xs text-white">{s.student_name}</span>
                                 <span className="text-[10px] text-slate-500">student</span>
                                 {s.admin_checked_in
-                                  ? <span className="text-[10px] bg-sky-500/15 text-sky-400 px-2 py-0.5 rounded-full font-medium">Admin ✓</span>
-                                  : <Badge in={s.student_checked_in} />
+                                  ? (
+                                    <span className="flex items-center gap-1">
+                                      <span className="text-[10px] bg-sky-500/15 text-sky-400 px-2 py-0.5 rounded-full font-medium">Admin ✓</span>
+                                      <button onClick={() => handleUndoCheckIn('coaching', s.id, s.student_id)} className="text-[10px] text-slate-500 hover:text-red-400 font-medium transition-colors" title="Undo">✕</button>
+                                    </span>
+                                  )
+                                  : <Badge in={s.student_checked_in} type="coaching" refId={s.id} userId={s.student_id} />
                                 }
-                                {!s.admin_checked_in && !s.student_checked_in && (
+                                {!s.admin_checked_in && !s.student_checked_in && !isFuture && (
                                   <button
                                     onClick={() => handleCheckIn('coaching', s.id, s.student_id)}
                                     className="text-[10px] text-sky-400 hover:text-sky-300 font-medium"
@@ -971,7 +1015,7 @@ const [sessionForm,      setSessionForm]      = useState({
                               <span className="text-xs text-white">{g.coach_name}</span>
                               <span className="text-[10px] text-slate-500">coach</span>
                               {g.coach_user_id
-                                ? <Badge in={g.students.some(s => s.coach_checked_in)} />
+                                ? <Badge in={g.students.some(s => s.coach_checked_in)} type="coaching" refId={g.students[0]?.id} userId={g.coach_user_id} />
                                 : <span className="text-[10px] text-slate-500">no account</span>
                               }
                             </div>
@@ -997,8 +1041,8 @@ const [sessionForm,      setSessionForm]      = useState({
                             {g.members.map(m => (
                               <div key={m.user_id} className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
                                 <span className="text-xs text-white">{m.user_name}</span>
-                                <Badge in={m.checked_in} />
-                                {!m.checked_in && (
+                                <Badge in={m.checked_in} type="social" refId={g.id} userId={m.user_id} />
+                                {!m.checked_in && !isFuture && (
                                   <button
                                     onClick={() => handleCheckIn('social', g.id, m.user_id)}
                                     className="text-[10px] text-sky-400 hover:text-sky-300 font-medium"
