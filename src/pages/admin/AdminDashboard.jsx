@@ -371,9 +371,13 @@ const [sessionForm,      setSessionForm]      = useState({
     }
   }
 
-  const handleRemoveMember = async (id, name) => {
+  const handleRemoveMember = async (id, name, role) => {
     if (!window.confirm(`Remove ${name}? This cannot be undone.`)) return
     try {
+      if (role === 'coach') {
+        try { await coachingAPI.deleteCoachByUserId(id) } catch {}
+        setCoaches(prev => prev.filter(c => c.user_id !== id))
+      }
       await adminAPI.deleteMember(id)
       setMembers(prev => prev.filter(m => m.id !== id))
     } catch {
@@ -1089,7 +1093,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                 <button onClick={() => { setCoachModal({ id: m.id, name: m.name }); setCoachForm({ availability_start: '', availability_end: '', bio: '', resume: null }) }} className="text-xs text-emerald-400 hover:text-emerald-300">Make Coach</button>
                               </>
                             )}
-                            <button onClick={() => handleRemoveMember(m.id, m.name)} className="text-xs text-red-400 hover:text-red-300">Remove</button>
+                            <button onClick={() => handleRemoveMember(m.id, m.name, m.role)} className="text-xs text-red-400 hover:text-red-300">Remove</button>
                           </div>
                         </td>
                       </tr>
