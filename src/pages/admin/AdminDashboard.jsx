@@ -325,10 +325,10 @@ const [sessionForm,      setSessionForm]      = useState({
     try {
       await adminAPI.updateMemberRole(id, { role: newRole })
       setMembers(prev => prev.map(m => m.id === id ? { ...m, role: newRole } : m))
-      // If demoting a coach, also remove from coaches table
+      // If demoting a coach, also remove from coaches table and refresh list
       if (currentRole === 'coach') {
         try { await coachingAPI.deleteCoachByUserId(id) } catch {}
-        setCoaches(prev => prev.filter(c => c.user_id !== id))
+        coachingAPI.getCoaches().then(({ data }) => setCoaches(data.coaches ?? [])).catch(() => {})
       }
     } catch {
       alert('Could not update role. Please try again.')
@@ -376,10 +376,12 @@ const [sessionForm,      setSessionForm]      = useState({
     try {
       if (role === 'coach') {
         try { await coachingAPI.deleteCoachByUserId(id) } catch {}
-        setCoaches(prev => prev.filter(c => c.user_id !== id))
       }
       await adminAPI.deleteMember(id)
       setMembers(prev => prev.filter(m => m.id !== id))
+      if (role === 'coach') {
+        coachingAPI.getCoaches().then(({ data }) => setCoaches(data.coaches ?? [])).catch(() => {})
+      }
     } catch {
       alert('Could not remove member. Please try again.')
     }
