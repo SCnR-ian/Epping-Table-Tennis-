@@ -413,6 +413,17 @@ const [sessionForm,      setSessionForm]      = useState({
     }
   }
 
+  const handleAdminUndoCheckIn = async (type, refId, userId) => {
+    try {
+      await checkinAPI.cancelCheckIn(type, String(refId), userId)
+      setAdminCheckIns(prev =>
+        prev.filter(ci => !(ci.type === type && ci.reference_id === String(refId) && ci.user_id === userId))
+      )
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not undo check-in.')
+    }
+  }
+
   // Fetch coaches + sessions when Coaching tab is active
   useEffect(() => {
     if (activeTab !== 'Coaching') return
@@ -1312,7 +1323,11 @@ const [sessionForm,      setSessionForm]      = useState({
                             <p className="text-slate-300 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
                             <div className="mt-auto flex items-center justify-between gap-1">
                               {checkedIn ? (
-                                <span className="text-xs text-emerald-400 leading-none">✓ In</span>
+                                <button
+                                  onClick={() => handleAdminUndoCheckIn('booking', ev.booking_group_id, ev.user_id)}
+                                  className="text-xs text-emerald-400 hover:text-red-400 leading-none transition-colors"
+                                  title="Undo check-in"
+                                >✓ In</button>
                               ) : (
                                 <button
                                   onClick={() => handleAdminCheckIn('booking', ev.booking_group_id, ev.user_id)}
@@ -1347,7 +1362,11 @@ const [sessionForm,      setSessionForm]      = useState({
                             <p className="text-slate-300 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
                             <div className="mt-auto flex items-center justify-between gap-1">
                               {checkedIn ? (
-                                <span className="text-xs text-emerald-400 leading-none">✓ In</span>
+                                <button
+                                  onClick={() => handleAdminUndoCheckIn('coaching', ev.id, ev.student_id)}
+                                  className="text-xs text-emerald-400 hover:text-red-400 leading-none transition-colors"
+                                  title="Undo check-in"
+                                >✓ In</button>
                               ) : (
                                 <button
                                   onClick={() => handleAdminCheckIn('coaching', ev.id, ev.student_id)}
