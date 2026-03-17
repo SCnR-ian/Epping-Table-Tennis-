@@ -58,5 +58,20 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }))
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ message: 'Not found.' }))
 
+// ── Migrations ────────────────────────────────────────────────────────────────
+// Idempotent schema patches applied at startup so new columns are never missing.
+async function runMigrations() {
+  const pool = require('./db')
+  const patches = [
+    `ALTER TABLE social_play_sessions ADD COLUMN IF NOT EXISTS recurrence_id UUID`,
+    `CREATE INDEX IF NOT EXISTS idx_social_sessions_recurrence ON social_play_sessions(recurrence_id)`,
+  ]
+  for (const sql of patches) {
+    try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }
+  }
+}
+
 // ── Start ─────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`))
+runMigrations().then(() =>
+  app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`))
+)
