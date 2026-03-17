@@ -35,7 +35,7 @@ export default function HomePage() {
   return (
     <div className="page-wrapper">
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <section className="relative min-h-[92vh] flex items-center justify-center overflow-hidden bg-court-pattern">
+      <section className="relative min-h-[92vh] -mt-16 flex items-center justify-center overflow-hidden bg-court-pattern">
         {/* Background photo */}
         <img
           src={HERO_BG}
