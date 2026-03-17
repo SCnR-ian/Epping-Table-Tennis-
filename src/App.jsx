@@ -1,18 +1,21 @@
 import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import { AuthProvider } from '@/context/AuthContext'
 import { ProtectedRoute, AdminRoute } from '@/routes/ProtectedRoute'
-import RootLayout        from '@/components/layout/RootLayout'
-import HomePage          from '@/pages/HomePage'
-import LoginPage         from '@/pages/LoginPage'
-import RegisterPage      from '@/pages/RegisterPage'
-import DashboardPage     from '@/pages/DashboardPage'
-import BookingPage       from '@/pages/BookingPage'
-import SocialPlayPage    from '@/pages/SocialPlayPage'
-import ProfilePage       from '@/pages/ProfilePage'
-import AdminDashboard    from '@/pages/admin/AdminDashboard'
-import CoachingPage      from '@/pages/CoachingPage'
-import NotFoundPage      from '@/pages/NotFoundPage'
-import OAuthCallbackPage from '@/pages/OAuthCallbackPage'
+import RootLayout          from '@/components/layout/RootLayout'
+import HomePage            from '@/pages/HomePage'
+import AboutUsPage         from '@/pages/AboutUsPage'
+import TrainingProgramPage from '@/pages/TrainingProgramPage'
+import PlayPage            from '@/pages/PlayPage'
+import LoginPage           from '@/pages/LoginPage'
+import RegisterPage        from '@/pages/RegisterPage'
+import DashboardPage       from '@/pages/DashboardPage'
+import BookingPage         from '@/pages/BookingPage'
+import SocialPlayPage      from '@/pages/SocialPlayPage'
+import ProfilePage         from '@/pages/ProfilePage'
+import AdminDashboard      from '@/pages/admin/AdminDashboard'
+import CoachingPage        from '@/pages/CoachingPage'
+import NotFoundPage        from '@/pages/NotFoundPage'
+import OAuthCallbackPage   from '@/pages/OAuthCallbackPage'
 
 const router = createBrowserRouter([
   {
@@ -20,6 +23,9 @@ const router = createBrowserRouter([
     children: [
       // ── Public routes ────────────────────────────────────────
       { path: '/',              element: <HomePage /> },
+      { path: '/about',         element: <AboutUsPage /> },
+      { path: '/training',      element: <TrainingProgramPage /> },
+      { path: '/play',          element: <PlayPage /> },
       { path: '/login',         element: <LoginPage /> },
       { path: '/register',      element: <RegisterPage /> },
       { path: '/social-play',   element: <SocialPlayPage /> },

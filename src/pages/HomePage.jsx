@@ -9,31 +9,6 @@ const MOCK_SCHEDULE = [
   { day: "Sat", time: "1:00 – 6:30 PM", label: "Open Practice" },
 ];
 
-// ---- Coaches -------------------------------------------------------------
-const COACHES = [
-  {
-    id: 1,
-    name: "David Chen",
-    title: "Head Coach",
-    bio: "National champion with 15+ years of coaching experience. Specialises in advanced technique and competitive play.",
-    avatar: "https://placehold.co/300x300/1a1a2e/e94560?text=DC",
-  },
-  {
-    id: 2,
-    name: "Sarah Kim",
-    title: "Junior Development Coach",
-    bio: "Passionate about nurturing young talent. Former state representative with a gift for making the game fun and accessible.",
-    avatar: "https://placehold.co/300x300/1a1a2e/e94560?text=SK",
-  },
-  {
-    id: 3,
-    name: "Marcus Liu",
-    title: "Fitness & Strategy Coach",
-    bio: "Sports science graduate combining physical conditioning with tactical coaching to elevate every player's game.",
-    avatar: "https://placehold.co/300x300/1a1a2e/e94560?text=ML",
-  },
-];
-
 // ---- Intro photos (replace src with your actual image paths) -------------
 const INTRO_PHOTOS = [
   {
@@ -221,45 +196,6 @@ export default function HomePage() {
               <p className="text-slate-500 text-xs mt-1">{time}</p>
             </div>
           ))}
-        </div>
-      </section>
-
-      {/* ── Coaches ──────────────────────────────────────────────────────── */}
-      <section className="py-20 px-4 bg-court-mid border-t border-court-light">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-12">
-            <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mb-2">
-              Expert Guidance
-            </p>
-            <h2 className="section-title text-4xl">Meet Our Coaches</h2>
-            <p className="text-slate-400 mt-4 max-w-xl mx-auto">
-              Learn from the best. Our certified coaches bring decades of
-              competitive and teaching experience to every session.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {COACHES.map((coach) => (
-              <div
-                key={coach.id}
-                className="card flex flex-col items-center text-center group hover:border-brand-500/40 transition-all duration-300"
-              >
-                <img
-                  src={coach.avatar}
-                  alt={coach.name}
-                  className="w-24 h-24 rounded-full object-cover mb-4 ring-2 ring-court-light group-hover:ring-brand-500/50 transition-all duration-300"
-                />
-                <p className="font-display text-xl text-white tracking-wide">
-                  {coach.name}
-                </p>
-                <p className="text-brand-500 text-xs uppercase tracking-widest font-normal mt-1 mb-3">
-                  {coach.title}
-                </p>
-                <p className="text-slate-400 text-sm leading-relaxed">
-                  {coach.bio}
-                </p>
-              </div>
-            ))}
-          </div>
         </div>
       </section>
 

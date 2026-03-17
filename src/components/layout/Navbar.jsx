@@ -3,11 +3,11 @@ import { NavLink, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 
 const NAV_LINKS = [
-  { to: "/", label: "Home", public: true },
-  { to: "/social-play", label: "Social Play", public: true },
-  { to: "/coaching", label: "Coaching", public: true },
-  { to: "/booking", label: "Booking", public: true },
-  { to: "/dashboard", label: "Dashboard", public: false },
+  { to: "/",         label: "Home",             public: true  },
+  { to: "/about",    label: "About Us",          public: true  },
+  { to: "/training", label: "Training Program",  public: true  },
+  { to: "/play",     label: "Play",              public: true  },
+  { to: "/dashboard",label: "Dashboard",         public: false },
 ];
 
 export default function Navbar() {
