@@ -1,6 +1,7 @@
 const router = require('express').Router()
 const pool   = require('../db')
 const jwt    = require('jsonwebtoken')
+const crypto = require('crypto')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
 const { checkOpenHours } = require('../utils/scheduleCheck')
 
@@ -15,7 +16,7 @@ function softAuth(req) {
 
 const SESSION_COLS = `
   s.id, s.title, s.description, s.date, s.start_time, s.end_time,
-  s.max_players, s.num_courts, s.status, s.created_at,
+  s.max_players, s.num_courts, s.status, s.recurrence_id, s.created_at,
   COUNT(p.user_id)::int AS participant_count
 `
 
@@ -151,48 +152,84 @@ async function checkCourtsAvailable(date, startTime, endTime, excludeId, request
   return null
 }
 
-// POST /api/social — admin creates a session
+// POST /api/social — admin creates a session (supports weeks for recurrence)
 router.post('/', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin')
     return res.status(403).json({ message: 'Admin only.' })
 
-  const { title, description, num_courts, date, start_time, end_time, max_players } = req.body
-  const courts = Math.min(Math.max(Number(num_courts) || 1, 1), 6)
+  const { title, description, num_courts, date, start_time, end_time, max_players, weeks } = req.body
+  const courts   = Math.min(Math.max(Number(num_courts) || 1, 1), 6)
+  const numWeeks = Math.min(Math.max(Number(weeks) || 1, 1), 52)
   if (!date || !start_time || !end_time)
     return res.status(400).json({ message: 'date, start_time, end_time are required.' })
 
+  // Build the list of dates for all weekly occurrences
+  const dates = []
+  const baseDate = new Date(date + 'T12:00:00')
+  for (let i = 0; i < numWeeks; i++) {
+    const d = new Date(baseDate)
+    d.setDate(d.getDate() + i * 7)
+    dates.push(d.toISOString().slice(0, 10))
+  }
+
+  const recurrenceId = numWeeks > 1 ? crypto.randomUUID() : null
+
+  const client = await pool.connect()
   try {
-    const scheduleError = await checkOpenHours(date, start_time, end_time)
-    if (scheduleError) return res.status(409).json({ message: scheduleError })
+    await client.query('BEGIN')
 
-    const availError = await checkCourtsAvailable(date, start_time, end_time, null, courts)
-    if (availError) return res.status(409).json({ message: availError })
+    // Validate each date
+    for (const d of dates) {
+      const scheduleError = await checkOpenHours(d, start_time, end_time)
+      if (scheduleError) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({ message: `${d}: ${scheduleError}` })
+      }
+      const availError = await checkCourtsAvailable(d, start_time, end_time, null, courts)
+      if (availError) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({ message: `${d}: ${availError}` })
+      }
+    }
 
-    const { rows } = await pool.query(
-      `INSERT INTO social_play_sessions
-         (title, description, num_courts, date, start_time, end_time, max_players, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       RETURNING *`,
-      [
-        title || 'Social Play',
-        description || null,
-        courts, date, start_time, end_time,
-        max_players || 12,
-        req.user.id,
-      ]
-    )
+    const insertedIds = []
+    for (const d of dates) {
+      const { rows } = await client.query(
+        `INSERT INTO social_play_sessions
+           (title, description, num_courts, date, start_time, end_time, max_players, created_by, recurrence_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         RETURNING id`,
+        [
+          title || 'Social Play',
+          description || null,
+          courts, d, start_time, end_time,
+          max_players || 12,
+          req.user.id,
+          recurrenceId,
+        ]
+      )
+      insertedIds.push(rows[0].id)
+    }
+
+    await client.query('COMMIT')
+
     const { rows: full } = await pool.query(
       `SELECT ${SESSION_COLS}
        FROM social_play_sessions s
        LEFT JOIN social_play_participants p ON p.session_id = s.id
-       WHERE s.id = $1
-       GROUP BY s.id`,
-      [rows[0].id]
+       WHERE s.id = ANY($1)
+       GROUP BY s.id
+       ORDER BY s.date ASC`,
+      [insertedIds]
     )
-    res.status(201).json({
-      session: { ...full[0], participant_count: 0, participants: [], joined: false },
-    })
-  } catch (err) { res.status(500).json({ message: err.message ?? 'Server error.' }) }
+    const sessions = full.map(s => ({ ...s, participants: [], joined: false }))
+    res.status(201).json({ sessions })
+  } catch (err) {
+    await client.query('ROLLBACK')
+    res.status(500).json({ message: err.message ?? 'Server error.' })
+  } finally {
+    client.release()
+  }
 })
 
 // PATCH /api/social/:id — admin updates num_courts and/or time window
@@ -254,6 +291,17 @@ router.patch('/:id', requireAuth, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ message: 'Session not found.' })
     res.json({ session: rows[0] })
   } catch (err) { res.status(500).json({ message: err.message ?? 'Server error.' }) }
+})
+
+// DELETE /api/social/recurrence/:recurrenceId — cancel all future sessions in a series
+router.delete('/recurrence/:recurrenceId', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM social_play_sessions WHERE recurrence_id=$1 AND date >= CURRENT_DATE`,
+      [req.params.recurrenceId]
+    )
+    res.json({ message: `Cancelled ${rowCount} session(s).`, count: rowCount })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
 // DELETE /api/social/:id — admin deletes a session

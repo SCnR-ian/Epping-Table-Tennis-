@@ -240,7 +240,7 @@ const [sessionForm,      setSessionForm]      = useState({
   const [socialPage,        setSocialPage]        = useState(0)
   const [socialDateFilter,  setSocialDateFilter]  = useState('')
   const [socialForm,      setSocialForm]      = useState({
-    title: '', description: '', num_courts: 1, date: '', start_time: '', end_time: '', max_players: 12,
+    title: '', description: '', num_courts: 1, date: '', start_time: '', end_time: '', max_players: 12, weeks: 1,
   })
   // { [sessionId]: { start_time: 'HH:MM', end_time: 'HH:MM' } } — open when admin is editing times
   const [editingTimes, setEditingTimes] = useState({})
@@ -485,7 +485,7 @@ const [sessionForm,      setSessionForm]      = useState({
   }, [activeTab])
 
   const handleCreateSocialSession = async () => {
-    const { title, description, num_courts, date, start_time, end_time, max_players } = socialForm
+    const { title, description, num_courts, date, start_time, end_time, max_players, weeks } = socialForm
     if (!date || !start_time || !end_time) {
       alert('Date, start time and end time are required.')
       return
@@ -497,12 +497,24 @@ const [sessionForm,      setSessionForm]      = useState({
         num_courts: Number(num_courts),
         date, start_time, end_time,
         max_players: Number(max_players) || 12,
+        weeks: Number(weeks) || 1,
       })
-      setSocialSessions(prev => [...prev, data.session])
+      setSocialSessions(prev => [...prev, ...data.sessions])
       setShowSocialForm(false)
-      setSocialForm({ title: '', description: '', num_courts: 1, date: '', start_time: '', end_time: '', max_players: 12 })
+      setSocialForm({ title: '', description: '', num_courts: 1, date: '', start_time: '', end_time: '', max_players: 12, weeks: 1 })
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not create session.')
+    }
+  }
+
+  const handleCancelSocialSeries = async (recurrenceId) => {
+    if (!window.confirm('Cancel ALL future sessions in this series?')) return
+    try {
+      const { data } = await socialAPI.cancelRecurringSessions(recurrenceId)
+      setSocialSessions(prev => prev.filter(s => s.recurrence_id !== recurrenceId || new Date(s.date + 'T12:00:00') < new Date()))
+      alert(data.message)
+    } catch {
+      alert('Could not cancel series.')
     }
   }
 
@@ -2015,17 +2027,27 @@ const [sessionForm,      setSessionForm]      = useState({
                   )
                 })()}
 
-                <div>
-                  <label className="block text-xs text-slate-200 mb-1">Max Players</label>
-                  <input
-                    type="number" min={2} max={50} className="input w-32"
-                    value={socialForm.max_players}
-                    onChange={e => setSocialForm(f => ({ ...f, max_players: e.target.value }))}
-                  />
+                <div className="flex gap-4 items-end">
+                  <div>
+                    <label className="block text-xs text-slate-200 mb-1">Max Players</label>
+                    <input
+                      type="number" min={2} max={50} className="input w-32"
+                      value={socialForm.max_players}
+                      onChange={e => setSocialForm(f => ({ ...f, max_players: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-200 mb-1">Repeat (weeks)</label>
+                    <input
+                      type="number" min={1} max={52} className="input w-24"
+                      value={socialForm.weeks}
+                      onChange={e => setSocialForm(f => ({ ...f, weeks: e.target.value }))}
+                    />
+                  </div>
                 </div>
 
                 <button onClick={handleCreateSocialSession} className="btn-primary text-sm">
-                  Open Session
+                  {Number(socialForm.weeks) > 1 ? `Open ${socialForm.weeks} Sessions` : 'Open Session'}
                 </button>
               </div>
             )}
@@ -2095,7 +2117,14 @@ const [sessionForm,      setSessionForm]      = useState({
                     {/* Header row */}
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <p className="text-white text-base">{s.title}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-white text-base">{s.title}</p>
+                          {s.recurrence_id && (
+                            <span className="text-[10px] uppercase tracking-widest text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded-full font-medium">
+                              Recurring
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-slate-300 mt-0.5 font-medium">
                           {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
                         </p>
@@ -2103,12 +2132,22 @@ const [sessionForm,      setSessionForm]      = useState({
                           <p className="text-sm text-slate-300 mt-1">{s.description}</p>
                         )}
                       </div>
-                      <button
-                        onClick={() => handleCancelSocialSession(s.id)}
-                        className="text-xs text-red-400 hover:text-red-300 font-medium flex-shrink-0"
-                      >
-                        Cancel
-                      </button>
+                      <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                        <button
+                          onClick={() => handleCancelSocialSession(s.id)}
+                          className="text-xs text-red-400 hover:text-red-300 font-medium"
+                        >
+                          Cancel
+                        </button>
+                        {s.recurrence_id && (
+                          <button
+                            onClick={() => handleCancelSocialSeries(s.recurrence_id)}
+                            className="text-xs text-orange-400 hover:text-orange-300 font-medium whitespace-nowrap"
+                          >
+                            Cancel Series
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {/* Courts adjuster */}
