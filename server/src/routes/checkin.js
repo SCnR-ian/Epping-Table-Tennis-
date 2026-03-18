@@ -67,11 +67,14 @@ router.post('/social/:sessionId', requireAuth, async (req, res) => {
 
 // POST /api/checkin/coaching/:sessionId
 // Student or linked coach (or admin) checks in for a coaching session.
+// When the student checks in, coaching hours are deducted from their balance.
 router.post('/coaching/:sessionId', requireAuth, async (req, res) => {
   const uid = resolveTarget(req)
+  const client = await pool.connect()
   try {
-    const { rows } = await pool.query(
-      `SELECT cs.date FROM coaching_sessions cs
+    const { rows } = await client.query(
+      `SELECT cs.date, cs.start_time, cs.end_time, cs.student_id
+       FROM coaching_sessions cs
        LEFT JOIN coaches co ON co.id = cs.coach_id
        WHERE cs.id=$1 AND (cs.student_id=$2 OR co.user_id=$2)
          AND cs.status='confirmed' LIMIT 1`,
@@ -81,14 +84,32 @@ router.post('/coaching/:sessionId', requireAuth, async (req, res) => {
     if (rows[0].date > TODAY())
       return res.status(409).json({ message: 'Cannot check in for a future session.' })
 
-    await pool.query(
+    await client.query('BEGIN')
+    const { rowCount } = await client.query(
       `INSERT INTO check_ins (user_id, type, reference_id, date, checked_in_by)
        VALUES ($1, 'coaching', $2, $3, $4)
        ON CONFLICT (user_id, type, reference_id) DO NOTHING`,
       [uid, req.params.sessionId, rows[0].date, checkedInBy(req, uid)]
     )
+    // Deduct hours only when the student checks in (not the coach), and only once
+    if (rowCount > 0 && uid === rows[0].student_id) {
+      const [sh, sm] = rows[0].start_time.substring(0, 5).split(':').map(Number)
+      const [eh, em] = rows[0].end_time.substring(0, 5).split(':').map(Number)
+      const hrs = ((eh * 60 + em) - (sh * 60 + sm)) / 60
+      await client.query(
+        `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_id, created_by)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [uid, -hrs, 'Coaching session attended', req.params.sessionId, checkedInBy(req, uid)]
+      )
+    }
+    await client.query('COMMIT')
     res.json({ message: 'Checked in.' })
-  } catch { res.status(500).json({ message: 'Server error.' }) }
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    res.status(500).json({ message: 'Server error.' })
+  } finally {
+    client.release()
+  }
 })
 
 // GET /api/checkin/today
@@ -222,21 +243,49 @@ router.get('/today-summary', requireAuth, async (req, res) => {
 })
 
 // DELETE /api/checkin/:type/:refId/:userId  (admin)
-// Cancel (undo) a check-in.
+// Cancel (undo) a check-in. For coaching, refunds the deducted hours.
 router.delete('/:type/:refId/:userId', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin')
     return res.status(403).json({ message: 'Admin only.' })
   const { type, refId, userId } = req.params
   if (!['booking', 'social', 'coaching'].includes(type))
     return res.status(400).json({ message: 'Invalid type.' })
+  const client = await pool.connect()
   try {
-    const { rowCount } = await pool.query(
+    await client.query('BEGIN')
+    const { rowCount } = await client.query(
       'DELETE FROM check_ins WHERE user_id=$1 AND type=$2 AND reference_id=$3',
       [userId, type, refId]
     )
-    if (rowCount === 0) return res.status(404).json({ message: 'Check-in not found.' })
+    if (rowCount === 0) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: 'Check-in not found.' })
+    }
+    // Refund coaching hours when undoing a student coaching check-in
+    if (type === 'coaching') {
+      const { rows: [session] } = await client.query(
+        'SELECT start_time, end_time, student_id FROM coaching_sessions WHERE id=$1',
+        [refId]
+      )
+      if (session && Number(userId) === session.student_id) {
+        const [sh, sm] = session.start_time.substring(0, 5).split(':').map(Number)
+        const [eh, em] = session.end_time.substring(0, 5).split(':').map(Number)
+        const hrs = ((eh * 60 + em) - (sh * 60 + sm)) / 60
+        await client.query(
+          `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_id, created_by)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [userId, hrs, 'Check-in undone — hours refunded', refId, req.user.id]
+        )
+      }
+    }
+    await client.query('COMMIT')
     res.json({ message: 'Check-in cancelled.' })
-  } catch { res.status(500).json({ message: 'Server error.' }) }
+  } catch {
+    await client.query('ROLLBACK').catch(() => {})
+    res.status(500).json({ message: 'Server error.' })
+  } finally {
+    client.release()
+  }
 })
 
 module.exports = router

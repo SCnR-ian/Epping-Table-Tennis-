@@ -145,6 +145,90 @@ router.delete('/members/:id', async (req, res) => {
   }
 })
 
+// GET /api/admin/members/:userId/activities
+router.get('/members/:userId/activities', async (req, res) => {
+  const { userId } = req.params
+  try {
+    const userRes = await pool.query(
+      'SELECT id,name,email,role,phone,avatar_url,created_at FROM users WHERE id=$1',
+      [userId]
+    )
+    if (!userRes.rows[0]) return res.status(404).json({ message: 'Member not found.' })
+
+    const [bookingsRes, coachingRes, socialRes, hoursRes, coachSessionsRes] = await Promise.allSettled([
+      pool.query(
+        `SELECT b.booking_group_id, b.court_id,
+                b.date, MIN(b.start_time) AS start_time, MAX(b.end_time) AS end_time, b.status
+         FROM bookings b
+         WHERE b.user_id=$1 AND b.status='confirmed'
+         GROUP BY b.booking_group_id, b.court_id, b.date, b.status
+         ORDER BY b.date DESC, MIN(b.start_time) ASC
+         LIMIT 50`,
+        [userId]
+      ),
+      pool.query(
+        `SELECT cs.id, cs.coach_id, cs.student_id, cs.date, cs.start_time, cs.end_time, cs.notes,
+                cs.recurrence_id, cs.group_id, cs.status,
+                co.name AS coach_name,
+                EXISTS(
+                  SELECT 1 FROM check_ins ci
+                  WHERE ci.type='coaching' AND ci.reference_id=cs.id::text AND ci.user_id=cs.student_id
+                ) AS checked_in
+         FROM coaching_sessions cs
+         JOIN coaches co ON co.id = cs.coach_id
+         WHERE cs.student_id=$1 AND cs.status='confirmed'
+         ORDER BY cs.date DESC, cs.start_time ASC
+         LIMIT 50`,
+        [userId]
+      ),
+      pool.query(
+        `SELECT sps.id, sps.date, sps.start_time, sps.end_time,
+                sps.status, sps.num_courts, sps.title
+         FROM social_play_sessions sps
+         JOIN social_play_participants spp ON spp.session_id = sps.id
+         WHERE spp.user_id=$1 AND sps.status != 'cancelled'
+         ORDER BY sps.date DESC, sps.start_time ASC
+         LIMIT 50`,
+        [userId]
+      ),
+      pool.query(
+        `SELECT COALESCE(SUM(delta),0)::numeric AS balance FROM coaching_hour_ledger WHERE user_id=$1`,
+        [userId]
+      ),
+      // Sessions this user coaches (only if they have a coaches record)
+      pool.query(
+        `SELECT cs.id, cs.date, cs.start_time, cs.end_time, cs.notes, cs.group_id,
+                u.id AS student_id, u.name AS student_name,
+                EXISTS(
+                  SELECT 1 FROM check_ins ci
+                  WHERE ci.type='coaching' AND ci.reference_id=cs.id::text AND ci.user_id=u.id
+                ) AS checked_in
+         FROM coaching_sessions cs
+         JOIN users u ON u.id = cs.student_id
+         WHERE cs.coach_id = (SELECT id FROM coaches WHERE user_id=$1 LIMIT 1)
+           AND cs.status='confirmed'
+         ORDER BY cs.date DESC, cs.start_time ASC
+         LIMIT 100`,
+        [userId]
+      ),
+    ])
+
+    res.json({
+      member:        userRes.rows[0],
+      bookings:      bookingsRes.status       === 'fulfilled' ? bookingsRes.value.rows       : [],
+      coaching:      coachingRes.status       === 'fulfilled' ? coachingRes.value.rows       : [],
+      social:        socialRes.status         === 'fulfilled' ? socialRes.value.rows         : [],
+      coachSessions: coachSessionsRes.status  === 'fulfilled' ? coachSessionsRes.value.rows  : [],
+      hoursBalance:  hoursRes.status          === 'fulfilled'
+        ? Math.round(parseFloat(hoursRes.value.rows[0].balance) * 100) / 100
+        : 0,
+    })
+  } catch (err) {
+    console.error('member activities error:', err.message)
+    res.status(500).json({ message: 'Server error.' })
+  }
+})
+
 // GET /api/admin/bookings?date=YYYY-MM-DD
 // Returns one row per booking session (grouped by booking_group_id),
 // with the full time span (min start → max end) so each session appears

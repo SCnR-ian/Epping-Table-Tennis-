@@ -65,6 +65,16 @@ async function runMigrations() {
   const patches = [
     `ALTER TABLE social_play_sessions ADD COLUMN IF NOT EXISTS recurrence_id UUID`,
     `CREATE INDEX IF NOT EXISTS idx_social_sessions_recurrence ON social_play_sessions(recurrence_id)`,
+    `CREATE TABLE IF NOT EXISTS coaching_hour_ledger (
+       id         SERIAL        PRIMARY KEY,
+       user_id    INTEGER       NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       delta      DECIMAL(6,2)  NOT NULL,
+       note       TEXT,
+       session_id INTEGER       REFERENCES coaching_sessions(id) ON DELETE SET NULL,
+       created_by INTEGER       REFERENCES users(id) ON DELETE SET NULL,
+       created_at TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_chl_user ON coaching_hour_ledger(user_id)`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }

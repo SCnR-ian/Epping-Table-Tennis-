@@ -88,6 +88,7 @@ export default function DashboardPage() {
   const [coachSessions,    setCoachSessions]    = useState([])
   const [socialSessions,   setSocialSessions]   = useState([])
   const [checkedIn,        setCheckedIn]        = useState(new Set())
+  const [hoursBalance,     setHoursBalance]     = useState(null)
   const [confirmCheckIn,   setConfirmCheckIn]   = useState(null)
   const [loadingData,      setLoadingData]      = useState(false)
 
@@ -110,8 +111,9 @@ export default function DashboardPage() {
       coachingAPI.getMyCoachSessions(),
       socialAPI.getSessions(),
       checkinAPI.getToday(),
+      user?.id ? coachingAPI.getHoursBalance(user.id) : Promise.resolve(null),
     ])
-      .then(([coachingRes, coachRes, socialRes, checkinRes]) => {
+      .then(([coachingRes, coachRes, socialRes, checkinRes, hoursRes]) => {
         if (cancelled) return
         if (coachingRes.status === 'fulfilled')
           setCoachingSessions(coachingRes.value.data.sessions)
@@ -123,6 +125,8 @@ export default function DashboardPage() {
           setCheckedIn(new Set(
             checkinRes.value.data.checkIns.map(ci => `${ci.type}:${ci.reference_id}`)
           ))
+        if (hoursRes?.status === 'fulfilled' && hoursRes.value)
+          setHoursBalance(hoursRes.value.data.balance)
       })
       .finally(() => { if (!cancelled) setLoadingData(false) })
     return () => { cancelled = true }
@@ -232,59 +236,19 @@ export default function DashboardPage() {
       {activeTab === 'checkin' && (
         <div className="space-y-6 animate-fade-in">
 
-          {/* Coaching sessions remaining */}
-          {(() => {
-            if (!coachingSessions.length) return null
-            const entries = []
-            const seenRecurrence = new Set()
-            for (const s of coachingSessions) {
-              if (s.recurrence_id) {
-                if (!seenRecurrence.has(s.recurrence_id)) {
-                  seenRecurrence.add(s.recurrence_id)
-                  const upcoming = coachingSessions.filter(c => c.recurrence_id === s.recurrence_id).length
-                  const total    = s.series_total || upcoming
-                  const used     = s.series_used != null ? s.series_used : Math.max(0, total - upcoming)
-                  entries.push({ key: s.recurrence_id, coach_name: s.coach_name, total, used })
-                }
-              }
-            }
-            const standaloneByCoach = {}
-            for (const s of coachingSessions) {
-              if (!s.recurrence_id) {
-                standaloneByCoach[s.coach_name] = (standaloneByCoach[s.coach_name] || 0) + 1
-              }
-            }
-            for (const [coach_name, count] of Object.entries(standaloneByCoach)) {
-              entries.push({ key: `standalone-${coach_name}`, coach_name, total: count, used: 0 })
-            }
-            if (!entries.length) return null
-            return (
+          {/* Coaching hours balance */}
+          {hoursBalance !== null && (
               <div className="card">
-                <h3 className="text-sm font-normal text-white mb-4">Coaching Sessions</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  {entries.map(({ key, coach_name, total, used }) => {
-                    const remaining = Math.max(0, total - used)
-                    const pct       = total > 0 ? Math.round((remaining / total) * 100) : 0
-                    return (
-                      <div key={key}>
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="text-xs text-slate-400">{coach_name}</p>
-                          <p className="text-xs text-slate-500">{used} used · {total} total</p>
-                        </div>
-                        <div className="flex items-end gap-3 mb-2">
-                          <p className="font-display text-4xl text-emerald-400 tracking-wider leading-none">{remaining}</p>
-                          <p className="text-sm text-slate-400 mb-0.5">sessions left</p>
-                        </div>
-                        <div className="w-full bg-court-light rounded-full h-1.5 overflow-hidden">
-                          <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
-                        </div>
-                      </div>
-                    )
-                  })}
+                <h3 className="text-sm font-normal text-white mb-4">Coaching Hours</h3>
+                <div className="flex items-end gap-3">
+                  <p className={`font-display text-4xl tracking-wider leading-none ${(hoursBalance ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {(hoursBalance ?? 0).toFixed(1)}
+                  </p>
+                  <p className="text-sm text-slate-400 mb-0.5">hours remaining</p>
                 </div>
               </div>
             )
-          })()}
+          }
 
           {/* Check-In */}
           <div className="card">

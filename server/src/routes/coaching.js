@@ -4,6 +4,23 @@ const { requireAuth, requireAdmin } = require('../middleware/auth')
 const { randomUUID } = require('crypto')
 const { checkOpenHours } = require('../utils/scheduleCheck')
 
+// ─── Coaching hours helpers ───────────────────────────────────────────────────
+
+function sessionHours(startTime, endTime) {
+  const [sh, sm] = startTime.substring(0, 5).split(':').map(Number)
+  const [eh, em] = endTime.substring(0, 5).split(':').map(Number)
+  return ((eh * 60 + em) - (sh * 60 + sm)) / 60
+}
+
+// Deduct (or refund) hours for one student/session pair within a pg client transaction.
+async function ledgerEntry(client, userId, delta, note, sessionId, createdBy) {
+  await client.query(
+    `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_id, created_by)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [userId, delta, note, sessionId ?? null, createdBy ?? null]
+  )
+}
+
 // ─── COACH CRUD (admin only) ──────────────────────────────────────────────────
 
 // GET /api/coaching/coaches
@@ -92,11 +109,12 @@ router.get('/sessions', requireAuth, requireAdmin, async (req, res) => {
 })
 
 // POST /api/coaching/sessions
-// body: { coach_id, student_id, date, start_time, end_time, notes, weeks }
+// body: { coach_id, student_id, date, start_time, end_time, notes, weeks, recurrence_id? }
 // court_id is auto-assigned (first court not blocked by bookings or coaching at that time)
 // weeks >= 2 → generate that many weekly instances sharing a recurrence_id
+// Pass recurrence_id to append new sessions into an existing series (e.g. makeup sessions)
 router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
-  const { coach_id, student_id, date, start_time, end_time, notes, weeks } = req.body
+  const { coach_id, student_id, date, start_time, end_time, notes, weeks, recurrence_id: existingRecurrenceId } = req.body
 
   if (!coach_id || !student_id || !date || !start_time || !end_time)
     return res.status(400).json({ message: 'coach_id, student_id, date, start_time and end_time are required.' })
@@ -107,7 +125,7 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
     return res.status(400).json({ message: 'end_time must be after start_time.' })
 
   const numWeeks     = Number(weeks) >= 1 ? Math.min(Number(weeks), 52) : 1
-  const recurrenceId = numWeeks > 1 ? randomUUID() : null
+  const recurrenceId = existingRecurrenceId || (numWeeks > 1 ? randomUUID() : null)
 
   // Build the list of weekly dates starting from `date`
   const dates = []
@@ -501,26 +519,30 @@ router.post('/sessions/group', requireAuth, requireAdmin, async (req, res) => {
 
 // DELETE /api/coaching/sessions/group/:groupId  (admin) — cancel all confirmed sessions in a group
 router.delete('/sessions/group/:groupId', requireAuth, requireAdmin, async (req, res) => {
+  const client = await pool.connect()
   try {
-    const { rowCount } = await pool.query(
-      `UPDATE coaching_sessions SET status='cancelled'
-       WHERE group_id=$1 AND status='confirmed'`,
+    const { rowCount } = await client.query(
+      `UPDATE coaching_sessions SET status='cancelled' WHERE group_id=$1 AND status='confirmed'`,
       [req.params.groupId]
     )
     if (rowCount === 0) return res.status(404).json({ message: 'Group not found.' })
     res.json({ message: 'Group sessions cancelled.' })
-  } catch { res.status(500).json({ message: 'Server error.' }) }
+  } catch {
+    res.status(500).json({ message: 'Server error.' })
+  } finally {
+    client.release()
+  }
 })
 
 // DELETE /api/coaching/sessions/recurrence/:recurrenceId  — must be before /:id
 router.delete('/sessions/recurrence/:recurrenceId', requireAuth, requireAdmin, async (req, res) => {
   try {
-    await pool.query(
+    const { rowCount } = await pool.query(
       `UPDATE coaching_sessions SET status='cancelled'
        WHERE recurrence_id=$1 AND date >= CURRENT_DATE AND status='confirmed'`,
       [req.params.recurrenceId]
     )
-    res.json({ message: 'Recurring sessions cancelled.' })
+    res.json({ message: `Cancelled ${rowCount} session(s).`, count: rowCount })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
@@ -1077,6 +1099,48 @@ router.get('/my', requireAuth, async (req, res) => {
       [req.user.id]
     )
     res.json({ sessions: rows })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// ─── COACHING HOURS (admin + student) ─────────────────────────────────────────
+
+// GET /api/coaching/hours/:userId  — balance + recent transactions (admin or self)
+router.get('/hours/:userId', requireAuth, async (req, res) => {
+  const targetId = Number(req.params.userId)
+  if (req.user.role !== 'admin' && req.user.id !== targetId)
+    return res.status(403).json({ message: 'Forbidden.' })
+  try {
+    const { rows: ledger } = await pool.query(
+      `SELECT id, delta, note, session_id, created_by, created_at
+       FROM coaching_hour_ledger
+       WHERE user_id=$1
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [targetId]
+    )
+    const balance = ledger.reduce((sum, r) => sum + parseFloat(r.delta), 0)
+    res.json({ balance: Math.round(balance * 100) / 100, ledger })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// POST /api/coaching/hours/:userId  — admin manually credits or debits hours
+// body: { delta, note }  (positive = add, negative = deduct)
+router.post('/hours/:userId', requireAuth, requireAdmin, async (req, res) => {
+  const targetId = Number(req.params.userId)
+  const { delta, note } = req.body
+  if (delta === undefined || delta === null || delta === 0)
+    return res.status(400).json({ message: 'delta is required and must be non-zero.' })
+  try {
+    await pool.query(
+      `INSERT INTO coaching_hour_ledger (user_id, delta, note, created_by)
+       VALUES ($1, $2, $3, $4)`,
+      [targetId, delta, note ?? null, req.user.id]
+    )
+    const { rows } = await pool.query(
+      `SELECT COALESCE(SUM(delta), 0)::numeric AS balance FROM coaching_hour_ledger WHERE user_id=$1`,
+      [targetId]
+    )
+    res.json({ message: 'Hours updated.', balance: Math.round(parseFloat(rows[0].balance) * 100) / 100 })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 

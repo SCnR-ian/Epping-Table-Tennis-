@@ -111,6 +111,7 @@ export const adminAPI = {
   deleteMember: (id) => api.delete(`/admin/members/${id}`),
   makeCoach: (id, formData) => api.post(`/admin/members/${id}/make-coach`, formData),
   getCoachResume: (coachId) => `${api.defaults.baseURL}/admin/coaches/${coachId}/resume`,
+  getMemberActivities: (id) => api.get(`/admin/members/${id}/activities`),
 };
 
 // ---------------------------------------------------------------------------
@@ -142,6 +143,9 @@ export const coachingAPI = {
   cancelGroupSession:       (groupId)                           => api.delete(`/coaching/sessions/group/${groupId}`),
   rescheduleGroupSession:   (groupId, date, start_time, end_time) =>
     api.put(`/coaching/sessions/group/${groupId}/reschedule`, { date, ...(start_time && end_time ? { start_time, end_time } : {}) }),
+  // Coaching hours
+  getHoursBalance: (userId)       => api.get(`/coaching/hours/${userId}`),
+  addHours:        (userId, data) => api.post(`/coaching/hours/${userId}`, data),
 }
 
 // ---------------------------------------------------------------------------

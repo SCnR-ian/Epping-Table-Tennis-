@@ -31,6 +31,14 @@ function toISO(d) {
   return `${y}-${m}-${day}`
 }
 
+// Returns the first date on or after `isoDate` that falls on `targetDow` (0=Sun…6=Sat).
+function nextOccurrence(isoDate, targetDow) {
+  const d = new Date(isoDate + 'T12:00:00')
+  const diff = (targetDow - d.getDay() + 7) % 7
+  d.setDate(d.getDate() + diff)
+  return toISO(d)
+}
+
 // Returns the next `count` dates that fall on opening days (Mon/Tue/Wed/Sat),
 // starting from today.
 function getUpcomingOpenDates(count = 7) {
@@ -136,6 +144,7 @@ const SLOT_H = 48
 
 const WEEKDAY_SLOTS  = ['15:30','16:00','16:30','17:00','17:30','18:00','18:30','19:00','19:30','20:00']
 const SATURDAY_SLOTS = ['12:00','12:30','13:00','13:30','14:00','14:30','15:00','15:30','16:00','16:30','17:00','17:30']
+const ALL_SLOTS = [...new Set([...SATURDAY_SLOTS, ...WEEKDAY_SLOTS])].sort()
 
 const OPEN_DAYS = [
   { dow: 1, slots: WEEKDAY_SLOTS  },
@@ -175,6 +184,14 @@ const [members,      setMembers]      = useState([])
   const [addMemberForm,      setAddMemberForm]      = useState({ name: '', email: '', password: '', phone: '' })
   const [addMemberError,     setAddMemberError]     = useState('')
   const [loading,      setLoading]      = useState(false)
+  const [memberModal,  setMemberModal]  = useState(null) // { member, bookings, coaching, social, coachSessions, hoursBalance } | null
+  const [memberModalLoading, setMemberModalLoading] = useState(false)
+  const [memberModalEditId,   setMemberModalEditId]   = useState(null) // coaching session id being inline-edited
+  const [memberModalEditForm, setMemberModalEditForm] = useState({ date: '', start_time: '', end_time: '' })
+  const [memberModalEditSaving, setMemberModalEditSaving] = useState(false)
+  const [memberModalSelected, setMemberModalSelected] = useState(new Set()) // ids selected for bulk edit
+  const [memberModalBulkForm, setMemberModalBulkForm] = useState({ offsetDays: '0', start_time: '', end_time: '' })
+  const [memberModalTab,      setMemberModalTab]      = useState('upcoming') // 'upcoming' | 'past'
   const [coachModal,   setCoachModal]   = useState(null) // { id, name } of member being promoted
   const [coachForm,    setCoachForm]    = useState({ availability_start: '', availability_end: '', bio: '', resume: null })
   const [coachDragging, setCoachDragging] = useState(false)
@@ -192,13 +209,17 @@ const [members,      setMembers]      = useState([])
     return dates.length ? toISO(dates[0]) : ''
   })
   const [showSessionForm,  setShowSessionForm]  = useState(false)
+  const [sessionSaved,     setSessionSaved]     = useState(false)
   const [rescheduleModal,  setRescheduleModal]  = useState(null) // { studentName, sessions }
   const [rescheduleDates,  setRescheduleDates]  = useState({})  // { [id]: 'YYYY-MM-DD' }
   const [rescheduleTime,   setRescheduleTime]   = useState({ start_time: '', end_time: '' })
   const [rescheduleSaving, setRescheduleSaving] = useState(false)
+  const [coachingEditId,   setCoachingEditId]   = useState(null)
+  const [coachingEditForm, setCoachingEditForm] = useState({ date: '', start_time: '', end_time: '' })
+  const [coachingEditSaving, setCoachingEditSaving] = useState(false)
 const [sessionForm,      setSessionForm]      = useState({
     coach_id: '', student_id: '',
-    date: '', start_time: '', end_time: '', notes: '', weeks: 10,
+    date: '', selectedDays: [], start_time: '', end_time: '', notes: '', weeks: 10,
   })
   const [studentSearch,    setStudentSearch]    = useState('')
   const [coachingSearch,   setCoachingSearch]   = useState('')
@@ -208,10 +229,20 @@ const [sessionForm,      setSessionForm]      = useState({
   const [showGroupForm,    setShowGroupForm]    = useState(false)
   const [groupStudentSearch, setGroupStudentSearch] = useState('')
   const [groupForm,        setGroupForm]        = useState({
-    coach_id: '', student_ids: [], date: '', start_time: '', end_time: '', notes: '', weeks: 1,
+    coach_id: '', student_ids: [], date: '', selectedDays: [], start_time: '', end_time: '', notes: '', weeks: 10,
   })
   const [rescheduleGroupId,   setRescheduleGroupId]   = useState(null)
   const [rescheduleGroupForm, setRescheduleGroupForm] = useState({ date: '', start_time: '', end_time: '' })
+  // Coaching hours
+  const [hoursStudentSearch, setHoursStudentSearch] = useState('')
+  const [hoursTarget,        setHoursTarget]        = useState(null)  // { user_id, name, balance, ledger }
+  const [hoursLoading,       setHoursLoading]       = useState(false)
+  const [hoursForm,          setHoursForm]          = useState({ delta: '', note: '' })
+  // Hours balance shown inline when scheduling sessions
+  const [sessionStudentBalance, setSessionStudentBalance] = useState(null)   // number | null
+  const [groupStudentBalances,  setGroupStudentBalances]  = useState({})     // { [userId]: number }
+  // Hours balances for all students visible in the session tables
+  const [sessionBalances,       setSessionBalances]       = useState({})     // { [userId]: number }
   const [socialSearch,     setSocialSearch]     = useState('')
   // Set of session IDs the admin has checked in during this tab visit
   const [adminCheckedIn,   setAdminCheckedIn]   = useState(new Set())
@@ -388,6 +419,22 @@ const [sessionForm,      setSessionForm]      = useState({
     }
   }
 
+  const handleOpenMemberModal = async (memberId) => {
+    setMemberModal({ member: members.find(m => m.id === memberId) ?? { id: memberId }, bookings: [], coaching: [], social: [], coachSessions: [], hoursBalance: 0, error: null })
+    setMemberModalTab('upcoming')
+    setMemberModalSelected(new Set())
+    setMemberModalEditId(null)
+    setMemberModalLoading(true)
+    try {
+      const { data } = await adminAPI.getMemberActivities(memberId)
+      setMemberModal({ ...data, error: null })
+    } catch (err) {
+      setMemberModal(prev => ({ ...prev, error: err.response?.data?.message ?? 'Could not load activities.' }))
+    } finally {
+      setMemberModalLoading(false)
+    }
+  }
+
   const handleCancelBooking = async (bookingGroupId) => {
     try {
       await bookingsAPI.cancelGroup(bookingGroupId)
@@ -408,6 +455,7 @@ const [sessionForm,      setSessionForm]      = useState({
         if (prev.some(key)) return prev
         return [...prev, { type, reference_id: String(refId), user_id: userId }]
       })
+      if (type === 'coaching') setAdminCheckedIn(prev => new Set([...prev, refId]))
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not check in.')
     }
@@ -419,6 +467,7 @@ const [sessionForm,      setSessionForm]      = useState({
       setAdminCheckIns(prev =>
         prev.filter(ci => !(ci.type === type && ci.reference_id === String(refId) && ci.user_id === userId))
       )
+      if (type === 'coaching') setAdminCheckedIn(prev => { const n = new Set(prev); n.delete(refId); return n })
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not undo check-in.')
     }
@@ -451,6 +500,24 @@ const [sessionForm,      setSessionForm]      = useState({
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [activeTab, coachingDate])
+
+  // When coaching sessions change, bulk-fetch hours balances for all students shown
+  useEffect(() => {
+    const ids = [...new Set([
+      ...coachingSessions.map(s => s.student_id),
+      ...groupSessions.flatMap(g => g.student_ids || []),
+    ])].filter(Boolean)
+    if (!ids.length) return
+    let cancelled = false
+    Promise.allSettled(ids.map(id => coachingAPI.getHoursBalance(id).then(r => ({ id, balance: r.data.balance }))))
+      .then(results => {
+        if (cancelled) return
+        const map = {}
+        results.forEach(r => { if (r.status === 'fulfilled') map[r.value.id] = r.value.balance })
+        setSessionBalances(map)
+      })
+    return () => { cancelled = true }
+  }, [coachingSessions, groupSessions])
 
   // Fetch social play sessions when Social Play tab is active
   useEffect(() => {
@@ -594,12 +661,34 @@ const [sessionForm,      setSessionForm]      = useState({
   }
 
   const handleCreateSession = async () => {
+    const { student_id, coach_id, date, selectedDays, start_time, end_time, notes, weeks } = sessionForm
+    const days = selectedDays.length ? selectedDays : (date ? [new Date(date + 'T12:00:00').getDay()] : [])
+    if (!coach_id || !student_id || !date || !days.length || !start_time || !end_time) {
+      alert('Please fill in all required fields.')
+      return
+    }
     try {
-      await coachingAPI.createSession(sessionForm)
-      setShowSessionForm(false)
-      setSessionForm({ coach_id: '', student_id: '', date: '', start_time: '', end_time: '', notes: '', weeks: 1 })
+      // Create one recurring series per selected day
+      for (const dow of days) {
+        const startDate = nextOccurrence(date, dow)
+        await coachingAPI.createSession({ ...sessionForm, date: startDate })
+      }
+      // Auto-credit total hours: duration × weeks × number of days
+      const hrsPerSession = (toMins(end_time) - toMins(start_time)) / 60
+      const totalHrs = hrsPerSession * weeks * days.length
+      await coachingAPI.addHours(student_id, {
+        delta: totalHrs,
+        note: `Coaching hours — ${days.length > 1 ? `${days.length} days/week, ` : ''}${weeks} week${weeks > 1 ? 's' : ''}`,
+      })
+      setSessionForm(f => ({ ...f, date: '', selectedDays: [], start_time: '', end_time: '' }))
+      setSessionSaved(true)
+      setTimeout(() => setSessionSaved(false), 4000)
       const { data } = await coachingAPI.getSessions({ date: coachingDate })
       setCoachingSessions(data.sessions)
+      try {
+        const { data: hd } = await coachingAPI.getHoursBalance(student_id)
+        setSessionStudentBalance(hd.balance)
+      } catch {}
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not schedule session.')
     }
@@ -674,28 +763,100 @@ const [sessionForm,      setSessionForm]      = useState({
     } finally { setRescheduleSaving(false) }
   }
 
+  const offerMakeupSession = async (session, allSessions) => {
+    // Find the last session in this series (or just the session itself for one-offs)
+    const series = session.recurrence_id
+      ? allSessions.filter(s => s.recurrence_id === session.recurrence_id)
+      : [session]
+    const lastDate = series.map(s => s.date.slice(0, 10)).sort().at(-1)
+    const firstCandidate = new Date(lastDate + 'T12:00:00Z')
+    firstCandidate.setUTCDate(firstCandidate.getUTCDate() + 7)
+    const firstISO = firstCandidate.toISOString().slice(0, 10)
+    if (!window.confirm(`Schedule a makeup session after ${fmtDate(lastDate)} (same time)?`)) return
+
+    const payload = {
+      coach_id:   session.coach_id,
+      student_id: session.student_id,
+      start_time: session.start_time.slice(0, 5),
+      end_time:   session.end_time.slice(0, 5),
+      notes:      session.notes ?? '',
+      weeks:      1,
+      ...(session.recurrence_id ? { recurrence_id: session.recurrence_id } : {}),
+    }
+
+    // Try up to 4 weeks, advancing by 1 week on each 409 conflict
+    let attemptISO = firstISO
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        await coachingAPI.createSession({ ...payload, date: attemptISO })
+        const hrs = (toMins(session.end_time.slice(0, 5)) - toMins(session.start_time.slice(0, 5))) / 60
+        await coachingAPI.addHours(session.student_id, { delta: hrs, note: 'Makeup session' })
+        const { data } = await coachingAPI.getSessions({ date: coachingDate })
+        setCoachingSessions(data.sessions)
+        if (attemptISO !== firstISO)
+          alert(`Makeup session scheduled on ${fmtDate(attemptISO)} (earlier dates were unavailable).`)
+        return
+      } catch (err) {
+        if (err.response?.status === 409) {
+          const d = new Date(attemptISO + 'T12:00:00Z')
+          d.setUTCDate(d.getUTCDate() + 7)
+          attemptISO = d.toISOString().slice(0, 10)
+        } else {
+          alert(err.response?.data?.message ?? 'Could not schedule makeup.')
+          return
+        }
+      }
+    }
+    alert('Could not find an available slot for the makeup session within 4 weeks — please schedule it manually.')
+  }
+
   const handleCancelSession = async (id) => {
     if (!window.confirm('Cancel this coaching session?')) return
     try {
+      const session = allCoachingSessions.find(s => s.id === id) ?? coachingSessions.find(s => s.id === id)
       await coachingAPI.cancelSession(id)
       setCoachingSessions(prev => prev.filter(s => s.id !== id))
       setBookingViewSessions(prev => prev.filter(s => s.id !== id))
+      if (session) await offerMakeupSession(session, allCoachingSessions)
     } catch {
       alert('Could not cancel session.')
     }
   }
 
   const handleCreateGroupSession = async () => {
-    const { coach_id, student_ids, date, start_time, end_time, notes, weeks } = groupForm
-    if (!coach_id || student_ids.length < 2 || !date || !start_time || !end_time) {
+    const { coach_id, student_ids, date, selectedDays, start_time, end_time, notes, weeks } = groupForm
+    const days = selectedDays.length ? selectedDays : (date ? [new Date(date + 'T12:00:00').getDay()] : [])
+    if (!coach_id || student_ids.length < 2 || !date || !days.length || !start_time || !end_time) {
       alert('Select a coach, at least 2 students, date and times.')
       return
     }
     try {
-      await coachingAPI.createGroupSession({ coach_id, student_ids, date, start_time, end_time, notes, weeks })
-      setShowGroupForm(false)
-      setGroupForm({ coach_id: '', student_ids: [], date: '', start_time: '', end_time: '', notes: '', weeks: 1 })
+      // Create one group series per selected day
+      for (const dow of days) {
+        const startDate = nextOccurrence(date, dow)
+        await coachingAPI.createGroupSession({ coach_id, student_ids, date: startDate, start_time, end_time, notes, weeks })
+      }
+      // Auto-credit hours to each student: duration × weeks × days
+      const hrsPerSession = (toMins(end_time) - toMins(start_time)) / 60
+      const totalHrs = hrsPerSession * weeks * days.length
+      await Promise.allSettled(student_ids.map(id =>
+        coachingAPI.addHours(id, {
+          delta: totalHrs,
+          note: `Group coaching hours — ${days.length > 1 ? `${days.length} days/week, ` : ''}${weeks} week${weeks > 1 ? 's' : ''}`,
+        })
+      ))
+      // Keep students/coach/weeks — clear date/days/time so admin can add another block
+      setGroupForm(f => ({ ...f, date: '', selectedDays: [], start_time: '', end_time: '' }))
       setGroupStudentSearch('')
+      // Refresh balances
+      const updatedBalances = {}
+      await Promise.allSettled(student_ids.map(async id => {
+        try {
+          const { data: hd } = await coachingAPI.getHoursBalance(id)
+          updatedBalances[id] = hd.balance
+        } catch {}
+      }))
+      setGroupStudentBalances(updatedBalances)
       const [{ data: sd }, { data: gd }] = await Promise.all([
         coachingAPI.getSessions({ date: coachingDate }),
         coachingAPI.getGroupSessions({ date: coachingDate }),
@@ -735,8 +896,22 @@ const [sessionForm,      setSessionForm]      = useState({
     try {
       await checkinAPI.adminCheckInCoaching(sessionId, studentId)
       setAdminCheckedIn(prev => new Set([...prev, sessionId]))
+      setAdminCheckIns(prev => {
+        if (prev.some(ci => ci.type === 'coaching' && ci.reference_id === String(sessionId) && ci.user_id === studentId)) return prev
+        return [...prev, { type: 'coaching', reference_id: String(sessionId), user_id: studentId }]
+      })
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not check in.')
+    }
+  }
+
+  const handleAdminUndoCheckInCoaching = async (sessionId, studentId) => {
+    try {
+      await checkinAPI.cancelCheckIn('coaching', String(sessionId), studentId)
+      setAdminCheckedIn(prev => { const n = new Set(prev); n.delete(sessionId); return n })
+      setAdminCheckIns(prev => prev.filter(ci => !(ci.type === 'coaching' && ci.reference_id === String(sessionId) && ci.user_id === studentId)))
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not undo check-in.')
     }
   }
 
@@ -865,6 +1040,13 @@ const [sessionForm,      setSessionForm]      = useState({
                 if (type === 'booking')  await checkinAPI.adminCheckInBooking(refId, userId)
                 if (type === 'coaching') await checkinAPI.adminCheckInCoaching(refId, userId)
                 if (type === 'social')   await checkinAPI.adminCheckInSocial(refId, userId)
+                if (type === 'coaching') {
+                  setAdminCheckedIn(prev => new Set([...prev, refId]))
+                  setAdminCheckIns(prev => {
+                    if (prev.some(ci => ci.type === 'coaching' && ci.reference_id === String(refId) && ci.user_id === userId)) return prev
+                    return [...prev, { type: 'coaching', reference_id: String(refId), user_id: userId }]
+                  })
+                }
                 loadTodaySummary(todayDate)
               } catch (err) {
                 alert(err.response?.data?.message ?? 'Check-in failed.')
@@ -874,6 +1056,10 @@ const [sessionForm,      setSessionForm]      = useState({
             const handleUndoCheckIn = async (type, refId, userId) => {
               try {
                 await checkinAPI.cancelCheckIn(type, String(refId), userId)
+                if (type === 'coaching') {
+                  setAdminCheckedIn(prev => { const n = new Set(prev); n.delete(refId); return n })
+                  setAdminCheckIns(prev => prev.filter(ci => !(ci.type === 'coaching' && ci.reference_id === String(refId) && ci.user_id === userId)))
+                }
                 loadTodaySummary(todayDate)
               } catch (err) {
                 alert(err.response?.data?.message ?? 'Could not undo check-in.')
@@ -1129,17 +1315,19 @@ const [sessionForm,      setSessionForm]      = useState({
             ) : (
               <div className="overflow-x-auto overflow-y-auto max-h-[480px]">
                 <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-court z-10">
-                    <tr className="border-b border-court-light">
+                  <thead>
+                    <tr>
                       {['Name', 'Email', 'Role', 'Joined', 'Actions'].map(h => (
-                        <th key={h} className="text-left px-5 py-3 text-xs text-slate-300 uppercase tracking-wider">{h}</th>
+                        <th key={h} className="sticky top-0 bg-court-mid text-left px-5 py-3 text-xs text-slate-300 uppercase tracking-wider border-b border-court-light z-10">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {filtered.map(m => (
                       <tr key={m.id} className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors">
-                        <td className="px-5 py-3 font-medium text-white w-[20%]">{m.name}</td>
+                        <td className="px-5 py-3 font-medium w-[20%]">
+                          <button onClick={() => handleOpenMemberModal(m.id)} className="text-white hover:text-brand-400 transition-colors text-left">{m.name}</button>
+                        </td>
                         <td className="px-5 py-3 text-slate-300 w-[30%]">{m.email}</td>
                         <td className="px-5 py-3 w-[15%]">
                           <span className={`badge border ${
@@ -1494,7 +1682,7 @@ const [sessionForm,      setSessionForm]      = useState({
             />
             {coachingSubTab === 'one-on-one' && (
               <button
-                onClick={() => { setShowSessionForm(v => !v); setShowGroupForm(false) }}
+                onClick={() => { setShowSessionForm(v => !v); setShowGroupForm(false); setSessionSaved(false) }}
                 className="btn-primary text-sm flex-shrink-0 ml-auto"
               >
                 {showSessionForm ? 'Cancel' : '+ Schedule Session'}
@@ -1520,7 +1708,16 @@ const [sessionForm,      setSessionForm]      = useState({
                 const endSlots  = formSlots.filter(s => !sessionForm.start_time || toMins(s) > toMins(sessionForm.start_time))
                 return (
                   <div className="card mb-2 space-y-4">
-                    <p className="text-xs text-slate-300 uppercase tracking-widest">New One-on-One Session</p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-slate-300 uppercase tracking-widest">New One-on-One Session</p>
+                      <button onClick={() => { setShowSessionForm(false); setSessionSaved(false) }}
+                        className="text-xs text-slate-400 hover:text-white">✕ Close</button>
+                    </div>
+                    {sessionSaved && (
+                      <div className="bg-emerald-500/15 border border-emerald-500/30 rounded-lg px-3 py-2 text-xs text-emerald-300">
+                        Session scheduled! Student/coach kept — pick another day to add a second session this week.
+                      </div>
+                    )}
                     <div>
                       <label className="block text-xs text-slate-200 mb-1">Coach</label>
                       <select className="input w-full" value={sessionForm.coach_id}
@@ -1533,7 +1730,11 @@ const [sessionForm,      setSessionForm]      = useState({
                       <label className="block text-xs text-slate-200 mb-1">Student (Member)</label>
                       <input type="text" className="input w-full" placeholder="Search student name…"
                         value={studentSearch}
-                        onChange={e => { setStudentSearch(e.target.value); setSessionForm(f => ({ ...f, student_id: '' })) }}
+                        onChange={e => {
+                          setStudentSearch(e.target.value)
+                          setSessionForm(f => ({ ...f, student_id: '' }))
+                          setSessionStudentBalance(null)
+                        }}
                       />
                       {studentSearch && (
                         <div className="mt-1 border border-court-light rounded-lg overflow-y-auto max-h-[160px] bg-court">
@@ -1541,7 +1742,14 @@ const [sessionForm,      setSessionForm]      = useState({
                             .filter(m => m.name.toLowerCase().includes(studentSearch.toLowerCase()) || m.email.toLowerCase().includes(studentSearch.toLowerCase()))
                             .map(m => (
                               <button key={m.id} type="button"
-                                onClick={() => { setSessionForm(f => ({ ...f, student_id: String(m.id) })); setStudentSearch(m.name) }}
+                                onClick={async () => {
+                                  setSessionForm(f => ({ ...f, student_id: String(m.id) }))
+                                  setStudentSearch(m.name)
+                                  try {
+                                    const { data } = await coachingAPI.getHoursBalance(m.id)
+                                    setSessionStudentBalance(data.balance)
+                                  } catch { setSessionStudentBalance(null) }
+                                }}
                                 className={`w-full text-left px-3 py-2 text-sm hover:bg-court-light/40 transition-colors ${String(sessionForm.student_id) === String(m.id) ? 'text-brand-300 bg-court-light/20' : 'text-slate-300'}`}
                               >
                                 {m.name}<span className="text-slate-400 text-xs ml-2">{m.email}</span>
@@ -1551,15 +1759,40 @@ const [sessionForm,      setSessionForm]      = useState({
                       )}
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-200 mb-1">Date</label>
+                      <label className="block text-xs text-slate-200 mb-1">Starting week</label>
                       <input type="date" className="input w-full" value={sessionForm.date}
                         onChange={e => setSessionForm(f => ({ ...f, date: e.target.value, start_time: '', end_time: '' }))} />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-200 mb-1">Days of week</label>
+                      <div className="flex gap-2 flex-wrap">
+                        {[{dow:1,label:'Mon'},{dow:2,label:'Tue'},{dow:3,label:'Wed'},{dow:6,label:'Sat'}].map(({dow,label}) => {
+                          const active = sessionForm.selectedDays.includes(dow)
+                          return (
+                            <button key={dow} type="button"
+                              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${active ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+                              onClick={() => setSessionForm(f => ({
+                                ...f,
+                                selectedDays: active
+                                  ? f.selectedDays.filter(d => d !== dow)
+                                  : [...f.selectedDays, dow]
+                              }))}>
+                              {label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">Leave all unselected to use the starting-week date as-is.</p>
                     </div>
                     <div className="flex gap-3">
                       <div className="flex-1">
                         <label className="block text-xs text-slate-200 mb-1">Start Time</label>
                         <select className="input w-full" value={sessionForm.start_time}
-                          onChange={e => setSessionForm(f => ({ ...f, start_time: e.target.value, end_time: '' }))}>
+                          onChange={e => {
+                            const s = e.target.value
+                            const autoEnd = formSlots.find(t => toMins(t) === toMins(s) + 60) ?? ''
+                            setSessionForm(f => ({ ...f, start_time: s, end_time: autoEnd }))
+                          }}>
                           <option value="">Select…</option>
                           {formSlots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
                         </select>
@@ -1586,8 +1819,24 @@ const [sessionForm,      setSessionForm]      = useState({
                         value={sessionForm.notes}
                         onChange={e => setSessionForm(f => ({ ...f, notes: e.target.value }))} />
                     </div>
+                    {sessionForm.start_time && sessionForm.end_time && (() => {
+                      const hrsPerSession = (toMins(sessionForm.end_time) - toMins(sessionForm.start_time)) / 60
+                      const numDays = sessionForm.selectedDays.length || 1
+                      const total = hrsPerSession * sessionForm.weeks * numDays
+                      return (
+                        <p className="text-xs text-slate-400">
+                          Will credit <span className="font-medium text-white">{total.toFixed(1)} hrs</span> to student
+                          {' '}({hrsPerSession.toFixed(1)} hr × {sessionForm.weeks} week{sessionForm.weeks > 1 ? 's' : ''}{numDays > 1 ? ` × ${numDays} days` : ''}).
+                          Deducted each time they attend.
+                        </p>
+                      )
+                    })()}
                     <button onClick={handleCreateSession} className="btn-primary text-sm">
-                      Create Session{sessionForm.weeks > 1 ? ` (${sessionForm.weeks} weeks)` : ''}
+                      {(() => {
+                        const numDays = sessionForm.selectedDays.length || 1
+                        const total = sessionForm.weeks * numDays
+                        return `Create Session${total > 1 ? ` (${total} session${total > 1 ? 's' : ''})` : ''}`
+                      })()}
                     </button>
                   </div>
                 )
@@ -1612,7 +1861,7 @@ const [sessionForm,      setSessionForm]      = useState({
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-court-light">
-                        {['Student', 'Coach', 'Time', 'Notes', 'Actions'].map(h => (
+                        {['Student', 'Coach', 'Time', 'Hours', 'Notes', 'Actions'].map(h => (
                           <th key={h} className="text-left px-5 py-3 text-xs text-slate-300 uppercase tracking-wider">{h}</th>
                         ))}
                       </tr>
@@ -1627,27 +1876,37 @@ const [sessionForm,      setSessionForm]      = useState({
                         return (
                           <tr key={s.id} className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors">
                             <td className="px-5 py-3">
-                              <p className="font-medium text-white">{s.student_name}</p>
+                              <button onClick={() => handleOpenMemberModal(s.student_id)}
+                                className="font-medium text-white hover:text-brand-400 transition-colors text-left">
+                                {s.student_name}
+                              </button>
                               <p className="text-slate-400 text-xs">{s.student_email}</p>
                             </td>
                             <td className="px-5 py-3 text-slate-300">{s.coach_name}</td>
                             <td className="px-5 py-3 text-slate-300 text-xs font-mono whitespace-nowrap">
                               {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
                             </td>
+                            <td className="px-5 py-3 text-xs font-mono">
+                              {sessionBalances[s.student_id] !== undefined ? (
+                                <span className={sessionBalances[s.student_id] < 0 ? 'text-red-400' : sessionBalances[s.student_id] < 1 ? 'text-amber-400' : 'text-emerald-400'}>
+                                  {sessionBalances[s.student_id].toFixed(1)}h
+                                </span>
+                              ) : <span className="text-slate-600">—</span>}
+                            </td>
                             <td className="px-5 py-3 text-slate-400 text-xs max-w-[160px] truncate">{s.notes ?? '—'}</td>
                             <td className="px-5 py-3">
                               <div className="flex items-center gap-3">
-                                {checkedIn ? (
-                                  <span className="text-xs text-emerald-400">Checked In ✓</span>
-                                ) : (
-                                  <button onClick={() => handleAdminCheckInCoaching(s.id, s.student_id)}
-                                    className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">
-                                    Check In
-                                  </button>
-                                )}
-                                <button onClick={() => handleOpenReschedule(s)}
-                                  className="text-xs text-sky-400 hover:text-sky-300 font-medium">
-                                  Reschedule
+                                <button
+                                  onClick={() => checkedIn
+                                    ? handleAdminUndoCheckInCoaching(s.id, s.student_id)
+                                    : handleAdminCheckInCoaching(s.id, s.student_id)}
+                                  className={`text-xs font-medium transition-colors ${checkedIn ? 'text-emerald-400 hover:text-red-400' : 'text-slate-400 hover:text-emerald-400'}`}
+                                  title={checkedIn ? 'Click to undo check-in' : 'Check in'}>
+                                  {checkedIn ? 'Checked In ✓' : 'Check In'}
+                                </button>
+                                <button onClick={() => handleCancelSession(s.id)}
+                                  className="text-xs text-red-400 hover:text-red-300 font-medium">
+                                  Cancel
                                 </button>
                               </div>
                             </td>
@@ -1667,7 +1926,8 @@ const [sessionForm,      setSessionForm]      = useState({
               {/* Group session form */}
               {showGroupForm && (() => {
                 const formDow   = groupForm.date ? new Date(groupForm.date + 'T12:00:00').getDay() : null
-                const formSlots = formDow === 6 ? SATURDAY_SLOTS : WEEKDAY_SLOTS
+                const formSlots = groupForm.selectedDays.length > 1 ? ALL_SLOTS
+                  : formDow === 6 ? SATURDAY_SLOTS : WEEKDAY_SLOTS
                 const endSlots  = formSlots.filter(s => !groupForm.start_time || toMins(s) > toMins(groupForm.start_time))
                 const selectedStudents = members.filter(m => groupForm.student_ids.includes(m.id))
                 const filteredStudents = groupStudentSearch
@@ -1698,16 +1958,22 @@ const [sessionForm,      setSessionForm]      = useState({
                       {/* Selected chips */}
                       {selectedStudents.length > 0 && (
                         <div className="flex flex-wrap gap-2 mb-2">
-                          {selectedStudents.map(m => (
-                            <span key={m.id} className="flex items-center gap-1 bg-brand-500/20 border border-brand-500/40 text-brand-300 text-xs px-2.5 py-1 rounded-full">
-                              {m.name}
-                              <button
-                                type="button"
-                                onClick={() => setGroupForm(f => ({ ...f, student_ids: f.student_ids.filter(id => id !== m.id) }))}
-                                className="ml-1 text-brand-400 hover:text-white leading-none"
-                              >×</button>
-                            </span>
-                          ))}
+                          {selectedStudents.map(m => {
+                            const bal = groupStudentBalances[m.id]
+                            return (
+                              <span key={m.id} className="flex items-center gap-1 bg-brand-500/20 border border-brand-500/40 text-brand-300 text-xs px-2.5 py-1 rounded-full">
+                                {m.name}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setGroupForm(f => ({ ...f, student_ids: f.student_ids.filter(id => id !== m.id) }))
+                                    setGroupStudentBalances(b => { const n = { ...b }; delete n[m.id]; return n })
+                                  }}
+                                  className="ml-1 opacity-75 hover:opacity-100 leading-none"
+                                >×</button>
+                              </span>
+                            )
+                          })}
                         </div>
                       )}
                       {/* Student search */}
@@ -1721,9 +1987,13 @@ const [sessionForm,      setSessionForm]      = useState({
                         <div className="mt-1 border border-court-light rounded-lg overflow-y-auto max-h-[160px] bg-court">
                           {filteredStudents.map(m => (
                             <button key={m.id} type="button"
-                              onClick={() => {
+                              onClick={async () => {
                                 setGroupForm(f => ({ ...f, student_ids: [...f.student_ids, m.id] }))
                                 setGroupStudentSearch('')
+                                try {
+                                  const { data } = await coachingAPI.getHoursBalance(m.id)
+                                  setGroupStudentBalances(b => ({ ...b, [m.id]: data.balance }))
+                                } catch {}
                               }}
                               className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-court-light/40 transition-colors"
                             >
@@ -1735,16 +2005,42 @@ const [sessionForm,      setSessionForm]      = useState({
                     </div>
 
                     <div>
-                      <label className="block text-xs text-slate-200 mb-1">Date</label>
+                      <label className="block text-xs text-slate-200 mb-1">Starting week</label>
                       <input type="date" className="input w-full" value={groupForm.date}
                         onChange={e => setGroupForm(f => ({ ...f, date: e.target.value, start_time: '', end_time: '' }))} />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-slate-200 mb-1">Days of week</label>
+                      <div className="flex gap-2 flex-wrap">
+                        {[{dow:1,label:'Mon'},{dow:2,label:'Tue'},{dow:3,label:'Wed'},{dow:6,label:'Sat'}].map(({dow,label}) => {
+                          const active = groupForm.selectedDays.includes(dow)
+                          return (
+                            <button key={dow} type="button"
+                              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${active ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+                              onClick={() => setGroupForm(f => ({
+                                ...f,
+                                selectedDays: active
+                                  ? f.selectedDays.filter(d => d !== dow)
+                                  : [...f.selectedDays, dow]
+                              }))}>
+                              {label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">Leave all unselected to use the starting-week date as-is.</p>
                     </div>
 
                     <div className="flex gap-3">
                       <div className="flex-1">
                         <label className="block text-xs text-slate-200 mb-1">Start Time</label>
                         <select className="input w-full" value={groupForm.start_time}
-                          onChange={e => setGroupForm(f => ({ ...f, start_time: e.target.value, end_time: '' }))}>
+                          onChange={e => {
+                            const s = e.target.value
+                            const autoEnd = formSlots.find(t => toMins(t) === toMins(s) + 60) ?? ''
+                            setGroupForm(f => ({ ...f, start_time: s, end_time: autoEnd }))
+                          }}>
                           <option value="">Select…</option>
                           {formSlots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
                         </select>
@@ -1752,7 +2048,9 @@ const [sessionForm,      setSessionForm]      = useState({
                       <div className="flex-1">
                         <label className="block text-xs text-slate-200 mb-1">End Time</label>
                         <select className="input w-full" value={groupForm.end_time}
-                          onChange={e => setGroupForm(f => ({ ...f, end_time: e.target.value }))}
+                          onChange={e => {
+                            setGroupForm(f => ({ ...f, end_time: e.target.value }))
+                          }}
                           disabled={!groupForm.start_time}>
                           <option value="">Select…</option>
                           {endSlots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
@@ -1774,6 +2072,18 @@ const [sessionForm,      setSessionForm]      = useState({
                         onChange={e => setGroupForm(f => ({ ...f, notes: e.target.value }))} />
                     </div>
 
+                    {groupForm.start_time && groupForm.end_time && (() => {
+                      const numDays = groupForm.selectedDays.length || 1
+                      const hrsPerSession = (toMins(groupForm.end_time) - toMins(groupForm.start_time)) / 60
+                      const total = hrsPerSession * groupForm.weeks * numDays
+                      return (
+                        <p className="text-xs text-slate-400">
+                          Will credit <span className="font-medium text-white">{total.toFixed(1)} hrs</span> to each student
+                          {' '}({hrsPerSession.toFixed(1)} hr × {groupForm.weeks} week{groupForm.weeks > 1 ? 's' : ''}{numDays > 1 ? ` × ${numDays} days` : ''}).
+                          Deducted each time they attend.
+                        </p>
+                      )
+                    })()}
                     <button onClick={handleCreateGroupSession} className="btn-primary text-sm"
                       disabled={groupForm.student_ids.length < 2}>
                       Create Group Session{groupForm.weeks > 1 ? ` (${groupForm.weeks} weeks)` : ''}
@@ -1792,7 +2102,7 @@ const [sessionForm,      setSessionForm]      = useState({
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-court-light">
-                        {['Students', 'Coach', 'Time', 'Court', 'Notes', 'Actions'].map(h => (
+                        {['Students / Hours', 'Coach', 'Time', 'Court', 'Notes', 'Actions'].map(h => (
                           <th key={h} className="text-left px-5 py-3 text-xs text-slate-300 uppercase tracking-wider">{h}</th>
                         ))}
                       </tr>
@@ -1803,9 +2113,24 @@ const [sessionForm,      setSessionForm]      = useState({
                           <tr className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors">
                             <td className="px-5 py-3">
                               <div className="flex flex-wrap gap-1">
-                                {g.student_names.map((name, i) => (
-                                  <span key={i} className="bg-brand-500/15 text-brand-300 text-xs px-2 py-0.5 rounded-full">{name}</span>
-                                ))}
+                                {g.student_names.map((name, i) => {
+                                  const sid = g.student_ids?.[i]
+                                  const bal = sid !== undefined ? sessionBalances[sid] : undefined
+                                  return (
+                                    <span key={i} className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${
+                                      bal !== undefined && bal < 0
+                                        ? 'bg-red-500/15 text-red-300'
+                                        : bal !== undefined && bal < 1
+                                          ? 'bg-amber-500/15 text-amber-300'
+                                          : 'bg-brand-500/15 text-brand-300'
+                                    }`}>
+                                      {name}
+                                      {bal !== undefined && (
+                                        <span className="opacity-70">{bal.toFixed(1)}h</span>
+                                      )}
+                                    </span>
+                                  )
+                                })}
                               </div>
                             </td>
                             <td className="px-5 py-3 text-slate-300">{g.coach_name}</td>
@@ -1884,6 +2209,167 @@ const [sessionForm,      setSessionForm]      = useState({
                       ))}
                     </tbody>
                   </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Hours sub-tab ── */}
+          {coachingSubTab === 'hours' && (
+            <div className="space-y-6">
+              {/* Student search */}
+              <div className="card space-y-4">
+                <h3 className="text-sm font-semibold text-slate-200">Student Hours Balance</h3>
+                <div className="flex gap-2">
+                  <input
+                    className="input flex-1"
+                    placeholder="Search member by name…"
+                    value={hoursStudentSearch}
+                    onChange={e => setHoursStudentSearch(e.target.value)}
+                  />
+                  <button
+                    className="btn-primary"
+                    disabled={hoursLoading}
+                    onClick={async () => {
+                      const q = hoursStudentSearch.trim().toLowerCase()
+                      const match = members.find(m => m.name?.toLowerCase().includes(q))
+                      if (!match) return
+                      setHoursLoading(true)
+                      try {
+                        const { data } = await coachingAPI.getHoursBalance(match.id)
+                        setHoursTarget({ user_id: match.id, name: match.name, balance: data.balance, ledger: data.ledger })
+                        setHoursForm({ delta: '', note: '' })
+                      } finally { setHoursLoading(false) }
+                    }}
+                  >
+                    Look Up
+                  </button>
+                </div>
+
+                {/* Suggestions */}
+                {hoursStudentSearch && (
+                  <ul className="divide-y divide-court-light max-h-40 overflow-y-auto rounded-lg border border-court-light">
+                    {members
+                      .filter(m => m.name?.toLowerCase().includes(hoursStudentSearch.toLowerCase()))
+                      .slice(0, 8)
+                      .map(m => (
+                        <li key={m.id}>
+                          <button
+                            className="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-court-light transition-colors"
+                            onClick={async () => {
+                              setHoursStudentSearch(m.name)
+                              setHoursLoading(true)
+                              try {
+                                const { data } = await coachingAPI.getHoursBalance(m.id)
+                                setHoursTarget({ user_id: m.id, name: m.name, balance: data.balance, ledger: data.ledger })
+                                setHoursForm({ delta: '', note: '' })
+                              } finally { setHoursLoading(false) }
+                            }}
+                          >
+                            {m.name}
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* Balance display + manual adjustment */}
+              {hoursTarget && (
+                <div className="card space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-white">{hoursTarget.name}</p>
+                      <p className={`text-2xl font-bold mt-1 ${hoursTarget.balance >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {hoursTarget.balance.toFixed(2)} hrs
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        className="btn-secondary text-sm"
+                        onClick={async () => {
+                          setHoursLoading(true)
+                          try {
+                            const { data } = await coachingAPI.addHours(hoursTarget.user_id, { delta: 10, note: '10-hour coaching pack' })
+                            setHoursTarget(prev => ({ ...prev, balance: data.balance }))
+                            const { data: d2 } = await coachingAPI.getHoursBalance(hoursTarget.user_id)
+                            setHoursTarget(prev => ({ ...prev, balance: d2.balance, ledger: d2.ledger }))
+                          } finally { setHoursLoading(false) }
+                        }}
+                        disabled={hoursLoading}
+                      >
+                        + 10 hrs (pack)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Manual adjustment form */}
+                  <div className="border-t border-court-light pt-4">
+                    <p className="text-xs text-slate-400 mb-2">Manual adjustment</p>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        step="0.5"
+                        className="input w-28"
+                        placeholder="±hours"
+                        value={hoursForm.delta}
+                        onChange={e => setHoursForm(f => ({ ...f, delta: e.target.value }))}
+                      />
+                      <input
+                        className="input flex-1"
+                        placeholder="Note (optional)"
+                        value={hoursForm.note}
+                        onChange={e => setHoursForm(f => ({ ...f, note: e.target.value }))}
+                      />
+                      <button
+                        className="btn-primary"
+                        disabled={hoursLoading || !hoursForm.delta || hoursForm.delta === '0'}
+                        onClick={async () => {
+                          setHoursLoading(true)
+                          try {
+                            await coachingAPI.addHours(hoursTarget.user_id, {
+                              delta: parseFloat(hoursForm.delta),
+                              note: hoursForm.note || null,
+                            })
+                            const { data } = await coachingAPI.getHoursBalance(hoursTarget.user_id)
+                            setHoursTarget(prev => ({ ...prev, balance: data.balance, ledger: data.ledger }))
+                            setHoursForm({ delta: '', note: '' })
+                          } finally { setHoursLoading(false) }
+                        }}
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Ledger */}
+                  {hoursTarget.ledger?.length > 0 && (
+                    <div className="border-t border-court-light pt-4">
+                      <p className="text-xs text-slate-400 mb-2">Recent transactions</p>
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-xs text-slate-400 text-left">
+                            <th className="py-1 pr-4">Date</th>
+                            <th className="py-1 pr-4">Hours</th>
+                            <th className="py-1">Note</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-court-light">
+                          {hoursTarget.ledger.map(entry => (
+                            <tr key={entry.id}>
+                              <td className="py-1.5 pr-4 text-slate-400 whitespace-nowrap">
+                                {new Date(entry.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+                              </td>
+                              <td className={`py-1.5 pr-4 font-mono font-medium ${parseFloat(entry.delta) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                {parseFloat(entry.delta) >= 0 ? '+' : ''}{parseFloat(entry.delta).toFixed(2)}
+                              </td>
+                              <td className="py-1.5 text-slate-300">{entry.note || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -2565,6 +3051,371 @@ const [sessionForm,      setSessionForm]      = useState({
           })()}
         </div>
       )}
+
+      {/* ── Member Activity Modal ─────────────────────────────────────────── */}
+      {memberModal && (() => {
+        const { member, bookings: mBookings, coaching: mCoaching, social: mSocial, coachSessions: mCoachSessions = [], hoursBalance } = memberModal
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
+               onClick={e => { if (e.target === e.currentTarget) { setMemberModal(null); setMemberModalEditId(null); setMemberModalSelected(new Set()) } }}>
+            <div className="bg-court-mid border border-court-light rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+              {/* Header */}
+              <div className="flex items-start justify-between px-6 py-4 border-b border-court-light shrink-0">
+                <div>
+                  <h2 className="text-white font-medium text-lg">{member.name}</h2>
+                  <p className="text-slate-400 text-sm mt-0.5">{member.email}{member.phone ? ` · ${member.phone}` : ''}</p>
+                  <div className="flex gap-2 mt-2">
+                    <span className={`badge border text-xs ${
+                      member.role === 'admin' ? 'bg-brand-500/10 text-brand-400 border-brand-500/30'
+                      : member.role === 'coach' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                      : 'bg-court-light text-slate-400 border-court-light'}`}>
+                      {member.role}
+                    </span>
+                    {hoursBalance !== undefined && hoursBalance !== 0 && (
+                      <span className={`badge border text-xs ${hoursBalance > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-red-500/10 text-red-400 border-red-500/30'}`}>
+                        {hoursBalance > 0 ? `${hoursBalance.toFixed(1)} coaching hrs` : `${hoursBalance.toFixed(1)} hrs`}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button onClick={() => { setMemberModal(null); setMemberModalEditId(null); setMemberModalSelected(new Set()) }} className="text-slate-400 hover:text-white text-xl leading-none mt-1">✕</button>
+              </div>
+
+              {/* Scrollable body */}
+              <div className="overflow-y-auto flex-1 px-6 py-4 space-y-6">
+                {memberModalLoading ? (
+                  <p className="text-slate-400 text-sm">Loading activities…</p>
+                ) : memberModal.error ? (
+                  <p className="text-red-400 text-sm">{memberModal.error}</p>
+                ) : (() => {
+                  const today = new Date().toISOString().slice(0, 10)
+
+                  // Unified list grouped by badge type, then sorted by date within each group
+                  const TYPE_ORDER = { booking: 0, teaching: 1, coaching: 2, social: 3 }
+
+                  // Group coach's teaching sessions by date+time slot (collapses group sessions)
+                  const teachingSlots = Object.values(
+                    mCoachSessions.reduce((acc, s) => {
+                      const key = `${String(s.date).slice(0,10)}_${s.start_time}`
+                      if (!acc[key]) acc[key] = { _type: 'teaching', _date: String(s.date).slice(0,10), _key: `teach-${key}`, date: s.date, start_time: s.start_time, end_time: s.end_time, notes: s.notes, students: [] }
+                      acc[key].students.push({ id: s.student_id, name: s.student_name, checked_in: s.checked_in })
+                      return acc
+                    }, {})
+                  )
+
+                  const allItems = [
+                    ...mBookings.map(b => ({ _type: 'booking', _date: String(b.date).slice(0,10), _key: `b-${b.booking_group_id}`, ...b })),
+                    ...teachingSlots,
+                    ...mCoaching.map(s => ({ _type: 'coaching', _date: String(s.date).slice(0,10), _key: `c-${s.id}`, ...s })),
+                    ...mSocial.map(s => ({ _type: 'social', _date: String(s.date).slice(0,10), _key: `sp-${s.id}`, ...s })),
+                  ]
+                  const byTypeDate = (dir) => (a, b) => {
+                    const t = TYPE_ORDER[a._type] - TYPE_ORDER[b._type]
+                    if (t !== 0) return t
+                    return dir === 'asc'
+                      ? (a._date < b._date ? -1 : a._date > b._date ? 1 : 0)
+                      : (a._date > b._date ? -1 : a._date < b._date ? 1 : 0)
+                  }
+                  const upcomingItems = allItems.filter(i => i._date >= today).sort(byTypeDate('asc'))
+                  const pastItems    = allItems.filter(i => i._date <  today).sort(byTypeDate('desc'))
+                  const items = memberModalTab === 'upcoming' ? upcomingItems : pastItems
+
+                  const upcomingCoaching = mCoaching.filter(s => s.date >= today)
+                  const allUpcomingSelected = upcomingCoaching.length > 0 && upcomingCoaching.every(s => memberModalSelected.has(s.id))
+
+                  return (
+                    <>
+                      {/* Tab bar */}
+                      <div className="flex gap-1 border-b border-court-light -mx-6 px-6 mb-4">
+                        {[['upcoming', 'Upcoming', upcomingItems.length], ['past', 'Past', pastItems.length]].map(([id, label, count]) => (
+                          <button key={id} onClick={() => { setMemberModalTab(id); setMemberModalEditId(null); setMemberModalSelected(new Set()) }}
+                            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                              memberModalTab === id ? 'border-brand-500 text-brand-400' : 'border-transparent text-slate-500 hover:text-slate-300'
+                            }`}>
+                            {label}
+                            {count > 0 && <span className="ml-1.5 text-xs opacity-60">{count}</span>}
+                          </button>
+                        ))}
+                        {memberModalTab === 'upcoming' && upcomingCoaching.length > 1 && memberModalSelected.size === 0 && (
+                          <button className="ml-auto text-xs text-slate-400 hover:text-white pb-2"
+                            onClick={() => setMemberModalSelected(allUpcomingSelected ? new Set() : new Set(upcomingCoaching.map(s => s.id)))}>
+                            {allUpcomingSelected ? 'Deselect all' : 'Select all coaching'}
+                          </button>
+                        )}
+                      </div>
+
+                      {items.length === 0 ? (
+                        <p className="text-slate-500 text-sm">No sessions.</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {items.map(item => {
+                            if (item._type === 'booking') return (
+                              <div key={item._key} className="flex items-center justify-between rounded-lg px-4 py-2.5 bg-court">
+                                <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                                  <span className="text-[10px] bg-brand-500/15 text-brand-400 px-1.5 py-0.5 rounded shrink-0">Booking</span>
+                                  <span className="text-sm font-medium text-white">{fmtDate(item.date)}</span>
+                                  <span className="text-slate-400 text-sm">{fmtTime(item.start_time)}–{fmtTime(item.end_time)}</span>
+                                </div>
+                                {memberModalTab === 'upcoming' && (
+                                  <button className="text-xs text-red-400 hover:text-red-300 ml-4 shrink-0"
+                                    onClick={async () => {
+                                      if (!window.confirm('Cancel this booking?')) return
+                                      try {
+                                        await bookingsAPI.cancelGroup(item.booking_group_id)
+                                        setMemberModal(prev => ({ ...prev, bookings: prev.bookings.filter(x => x.booking_group_id !== item.booking_group_id) }))
+                                      } catch { alert('Could not cancel booking.') }
+                                    }}>Cancel</button>
+                                )}
+                              </div>
+                            )
+
+                            if (item._type === 'teaching') return (
+                              <div key={item._key} className="rounded-lg bg-court px-4 py-2.5 space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded shrink-0">Teaching</span>
+                                  <span className="text-sm font-medium text-white">{fmtDate(item.date)}</span>
+                                  <span className="text-slate-400 text-sm">{fmtTime(item.start_time)}–{fmtTime(item.end_time)}</span>
+                                  {item.notes && <span className="text-slate-500 text-xs">· {item.notes}</span>}
+                                </div>
+                                <div className="flex flex-wrap gap-2 pl-1">
+                                  {item.students.map(st => (
+                                    <div key={st.id} className="flex items-center gap-1.5 bg-court-light/40 rounded px-2.5 py-1">
+                                      <span className="text-xs text-slate-200">{st.name}</span>
+                                      {st.checked_in
+                                        ? <span className="text-[10px] text-emerald-400 font-medium">✓</span>
+                                        : <span className="text-[10px] text-slate-500">—</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )
+
+                            if (item._type === 'coaching') {
+                              const isEditing  = memberModalEditId === item.id
+                              const isSelected = memberModalSelected.has(item.id)
+                              const seriesCount = item.recurrence_id
+                                ? mCoaching.filter(x => x.recurrence_id === item.recurrence_id && x.date >= today).length
+                                : 0
+                              return (
+                                <div key={item._key} className={`rounded-lg border ${isSelected ? 'border-sky-500/50 bg-sky-900/20' : 'border-transparent bg-court'}`}>
+                                  <div className="flex items-center gap-3 px-4 py-2.5">
+                                    {memberModalTab === 'upcoming' && (
+                                      <input type="checkbox" className="shrink-0 accent-sky-500" checked={isSelected}
+                                        onChange={e => setMemberModalSelected(prev => { const n = new Set(prev); e.target.checked ? n.add(item.id) : n.delete(item.id); return n })} />
+                                    )}
+                                    <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                                      <span className="text-[10px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded shrink-0">Coaching</span>
+                                      <span className="text-sm font-medium text-white">{fmtDate(item.date)}</span>
+                                      <span className="text-slate-400 text-sm">{item.coach_name} · {fmtTime(item.start_time)}–{fmtTime(item.end_time)}</span>
+                                      {(item.checked_in || adminCheckedIn.has(item.id))
+                                        ? <span className="text-emerald-400 text-xs font-medium">✓ Checked in</span>
+                                        : memberModalTab === 'past' && <span className="text-slate-600 text-xs">Not checked in</span>}
+                                      {item.notes && <span className="text-slate-500 text-xs w-full">{item.notes}</span>}
+                                    </div>
+                                    {memberModalTab === 'upcoming' && memberModalSelected.size === 0 && (
+                                      <div className="flex gap-3 shrink-0">
+                                        <button className={`text-xs ${isEditing ? 'text-slate-400 hover:text-white' : 'text-sky-400 hover:text-sky-300'}`}
+                                          onClick={() => {
+                                            if (isEditing) { setMemberModalEditId(null) } else {
+                                              setMemberModalEditId(item.id)
+                                              setMemberModalEditForm({ date: item.date.slice(0,10), start_time: item.start_time.slice(0,5), end_time: item.end_time.slice(0,5) })
+                                            }
+                                          }}>
+                                          {isEditing ? 'Close' : 'Edit'}
+                                        </button>
+                                        <button className="text-xs text-red-400 hover:text-red-300"
+                                          onClick={async () => {
+                                            if (!window.confirm('Cancel this coaching session?')) return
+                                            try {
+                                              await coachingAPI.cancelSession(item.id)
+                                              setMemberModal(prev => ({ ...prev, coaching: prev.coaching.filter(x => x.id !== item.id) }))
+                                              if (memberModalEditId === item.id) setMemberModalEditId(null)
+                                              await offerMakeupSession(item, mCoaching)
+                                            } catch { alert('Could not cancel session.') }
+                                          }}>Cancel</button>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {/* Inline edit form */}
+                                  {isEditing && memberModalSelected.size === 0 && (
+                                    <div className="px-4 pb-3 border-t border-court-light/40 space-y-2 pt-2">
+                                      <div className="flex gap-2 flex-wrap">
+                                        <div>
+                                          <label className="block text-xs text-slate-400 mb-1">New date</label>
+                                          <input type="date" className="input text-xs py-1" value={memberModalEditForm.date}
+                                            onChange={e => setMemberModalEditForm(f => ({ ...f, date: e.target.value }))} />
+                                        </div>
+                                        <div>
+                                          <label className="block text-xs text-slate-400 mb-1">Start time</label>
+                                          <select className="input text-xs py-1" value={memberModalEditForm.start_time}
+                                            onChange={e => setMemberModalEditForm(f => ({ ...f, start_time: e.target.value, end_time: '' }))}>
+                                            <option value="">Keep same</option>
+                                            {ALL_SLOTS.map(sl => <option key={sl} value={sl}>{fmtTime(sl)}</option>)}
+                                          </select>
+                                        </div>
+                                        <div>
+                                          <label className="block text-xs text-slate-400 mb-1">End time</label>
+                                          <select className="input text-xs py-1" value={memberModalEditForm.end_time}
+                                            onChange={e => setMemberModalEditForm(f => ({ ...f, end_time: e.target.value }))}
+                                            disabled={!memberModalEditForm.start_time}>
+                                            <option value="">Keep same</option>
+                                            {ALL_SLOTS.filter(sl => sl > memberModalEditForm.start_time).map(sl => <option key={sl} value={sl}>{fmtTime(sl)}</option>)}
+                                          </select>
+                                        </div>
+                                      </div>
+                                      <div className="flex gap-2 flex-wrap">
+                                        <button disabled={memberModalEditSaving || !memberModalEditForm.date}
+                                          className="btn-primary text-xs py-1 px-3 disabled:opacity-50"
+                                          onClick={async () => {
+                                            setMemberModalEditSaving(true)
+                                            try {
+                                              const { date, start_time, end_time } = memberModalEditForm
+                                              await coachingAPI.rescheduleSession(item.id, date, start_time || undefined, end_time || undefined)
+                                              setMemberModal(prev => ({ ...prev, coaching: prev.coaching.map(x => x.id === item.id ? { ...x, date, ...(start_time ? { start_time: start_time+':00' } : {}), ...(end_time ? { end_time: end_time+':00' } : {}) } : x) }))
+                                              setMemberModalEditId(null)
+                                            } catch (err) { alert(err.response?.data?.message ?? 'Could not reschedule.') }
+                                            finally { setMemberModalEditSaving(false) }
+                                          }}>Save this session</button>
+                                        {seriesCount > 1 && (
+                                          <button disabled={memberModalEditSaving || !memberModalEditForm.date}
+                                            className="btn-secondary text-xs py-1 px-3 disabled:opacity-50"
+                                            onClick={async () => {
+                                              setMemberModalEditSaving(true)
+                                              try {
+                                                const { date: newDate, start_time, end_time } = memberModalEditForm
+                                                const futureSeries = mCoaching.filter(x => x.recurrence_id === item.recurrence_id && x.date >= today).sort((a,b) => a.date < b.date ? -1 : 1)
+                                                const deltaDays = Math.round((new Date(newDate+'T12:00:00Z') - new Date(item.date.slice(0,10)+'T12:00:00Z')) / 86400000)
+                                                const idx = futureSeries.findIndex(x => x.id === item.id)
+                                                const updates = futureSeries.slice(idx).map(x => {
+                                                  const d = new Date(x.date.slice(0,10)+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+deltaDays)
+                                                  const u = { id: x.id, date: d.toISOString().slice(0,10) }
+                                                  if (start_time && end_time) { u.start_time = start_time; u.end_time = end_time }
+                                                  return u
+                                                })
+                                                await coachingAPI.rescheduleBulk(updates)
+                                                const updMap = Object.fromEntries(updates.map(u => [u.id, u]))
+                                                setMemberModal(prev => ({ ...prev, coaching: prev.coaching.map(x => updMap[x.id] ? { ...x, date: updMap[x.id].date, ...(updMap[x.id].start_time ? { start_time: updMap[x.id].start_time+':00' } : {}), ...(updMap[x.id].end_time ? { end_time: updMap[x.id].end_time+':00' } : {}) } : x) }))
+                                                setMemberModalEditId(null)
+                                              } catch (err) { alert(err.response?.data?.message ?? 'Could not reschedule.') }
+                                              finally { setMemberModalEditSaving(false) }
+                                            }}>Save from here ({seriesCount} sessions)</button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            }
+
+                            if (item._type === 'social') return (
+                              <div key={item._key} className="flex items-center justify-between rounded-lg px-4 py-2.5 bg-court">
+                                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                  <span className="text-[10px] bg-sky-500/15 text-sky-400 px-1.5 py-0.5 rounded shrink-0">Social</span>
+                                  <span className="text-sm font-medium text-white">{fmtDate(item.date)}</span>
+                                  <span className="text-slate-400 text-sm">{fmtTime(item.start_time)}–{fmtTime(item.end_time)}</span>
+                                  {item.title && item.title !== 'Social Play' && <span className="text-slate-500 text-xs">· {item.title}</span>}
+                                </div>
+                                {memberModalTab === 'upcoming' && (
+                                  <button className="text-xs text-red-400 hover:text-red-300 ml-4 shrink-0"
+                                    onClick={async () => {
+                                      if (!window.confirm('Remove this member from the social play session?')) return
+                                      try {
+                                        await socialAPI.adminRemoveMember(item.id, member.id)
+                                        setMemberModal(prev => ({ ...prev, social: prev.social.filter(x => x.id !== item.id) }))
+                                      } catch { alert('Could not remove from session.') }
+                                    }}>Remove</button>
+                                )}
+                              </div>
+                            )
+
+                            return null
+                          })}
+                        </div>
+                      )}
+
+                      {/* Bulk edit bar (upcoming coaching only) */}
+                      {memberModalTab === 'upcoming' && memberModalSelected.size > 0 && (
+                        <div className="mt-3 bg-sky-900/30 border border-sky-500/30 rounded-lg px-4 py-3 space-y-3">
+                          <p className="text-sky-300 text-sm font-medium">{memberModalSelected.size} session{memberModalSelected.size > 1 ? 's' : ''} selected</p>
+                          <div className="flex gap-2 flex-wrap items-end">
+                            <div>
+                              <label className="block text-xs text-slate-400 mb-1">Shift by days</label>
+                              <input type="number" className="input text-xs py-1 w-24" placeholder="0"
+                                value={memberModalBulkForm.offsetDays}
+                                onChange={e => setMemberModalBulkForm(f => ({ ...f, offsetDays: e.target.value }))} />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-slate-400 mb-1">New start time</label>
+                              <select className="input text-xs py-1" value={memberModalBulkForm.start_time}
+                                onChange={e => setMemberModalBulkForm(f => ({ ...f, start_time: e.target.value, end_time: '' }))}>
+                                <option value="">Keep same</option>
+                                {ALL_SLOTS.map(sl => <option key={sl} value={sl}>{fmtTime(sl)}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs text-slate-400 mb-1">New end time</label>
+                              <select className="input text-xs py-1" value={memberModalBulkForm.end_time}
+                                onChange={e => setMemberModalBulkForm(f => ({ ...f, end_time: e.target.value }))}
+                                disabled={!memberModalBulkForm.start_time}>
+                                <option value="">Keep same</option>
+                                {ALL_SLOTS.filter(sl => sl > memberModalBulkForm.start_time).map(sl => <option key={sl} value={sl}>{fmtTime(sl)}</option>)}
+                              </select>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button disabled={memberModalEditSaving} className="btn-primary text-xs py-1 px-3 disabled:opacity-50"
+                              onClick={async () => {
+                                const offset = parseInt(memberModalBulkForm.offsetDays, 10) || 0
+                                const { start_time, end_time } = memberModalBulkForm
+                                const selectedSessions = mCoaching.filter(s => memberModalSelected.has(s.id))
+                                const updates = selectedSessions.map(s => {
+                                  const d = new Date(s.date.slice(0,10)+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+offset)
+                                  const u = { id: s.id, date: d.toISOString().slice(0,10) }
+                                  if (start_time && end_time) { u.start_time = start_time; u.end_time = end_time }
+                                  return u
+                                })
+                                setMemberModalEditSaving(true)
+                                try {
+                                  await coachingAPI.rescheduleBulk(updates)
+                                  const updMap = Object.fromEntries(updates.map(u => [u.id, u]))
+                                  setMemberModal(prev => ({ ...prev, coaching: prev.coaching.map(x => updMap[x.id] ? { ...x, date: updMap[x.id].date, ...(updMap[x.id].start_time ? { start_time: updMap[x.id].start_time+':00' } : {}), ...(updMap[x.id].end_time ? { end_time: updMap[x.id].end_time+':00' } : {}) } : x) }))
+                                  setMemberModalSelected(new Set())
+                                  setMemberModalBulkForm({ offsetDays: '0', start_time: '', end_time: '' })
+                                } catch (err) { alert(err.response?.data?.message ?? 'Could not reschedule.') }
+                                finally { setMemberModalEditSaving(false) }
+                              }}>
+                              {memberModalEditSaving ? 'Saving…' : `Apply to ${memberModalSelected.size} session${memberModalSelected.size > 1 ? 's' : ''}`}
+                            </button>
+                            <button disabled={memberModalEditSaving}
+                              className="text-xs text-red-400 hover:text-red-300 py-1 px-3 border border-red-500/30 rounded disabled:opacity-50"
+                              onClick={async () => {
+                                if (!window.confirm(`Cancel ${memberModalSelected.size} session${memberModalSelected.size > 1 ? 's' : ''}? This cannot be undone.`)) return
+                                setMemberModalEditSaving(true)
+                                try {
+                                  await Promise.all([...memberModalSelected].map(id => coachingAPI.cancelSession(id)))
+                                  setMemberModal(prev => ({ ...prev, coaching: prev.coaching.filter(x => !memberModalSelected.has(x.id)) }))
+                                  setMemberModalSelected(new Set())
+                                  setMemberModalBulkForm({ offsetDays: '0', start_time: '', end_time: '' })
+                                } catch (err) { alert(err.response?.data?.message ?? 'Could not cancel sessions.') }
+                                finally { setMemberModalEditSaving(false) }
+                              }}>
+                              Cancel {memberModalSelected.size} session{memberModalSelected.size > 1 ? 's' : ''}
+                            </button>
+                            <button className="btn-secondary text-xs py-1 px-3"
+                              onClick={() => { setMemberModalSelected(new Set()); setMemberModalBulkForm({ offsetDays: '0', start_time: '', end_time: '' }) }}>
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Make Coach Modal ──────────────────────────────────────────────── */}
       {coachModal && (() => {
