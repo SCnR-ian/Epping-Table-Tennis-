@@ -81,7 +81,8 @@ router.post('/coaching/:sessionId', requireAuth, async (req, res) => {
       [req.params.sessionId, uid]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Coaching session not found.' })
-    if (rows[0].date > TODAY())
+    // Members cannot check in for future sessions; admins can check in at any time
+    if (rows[0].date > TODAY() && req.user.role !== 'admin')
       return res.status(409).json({ message: 'Cannot check in for a future session.' })
 
     await client.query('BEGIN')
