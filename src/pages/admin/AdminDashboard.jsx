@@ -917,11 +917,22 @@ const [sessionForm,      setSessionForm]      = useState({
     }
   }
 
+  const refreshCoachingSessions = async () => {
+    try {
+      const [{ data: sd }, { data: ad }] = await Promise.all([
+        coachingAPI.getSessions({ date: coachingDate }),
+        coachingAPI.getSessions({}),
+      ])
+      setCoachingSessions(sd.sessions)
+      setAdminCheckedIn(new Set(sd.sessions.filter(s => s.checked_in).map(s => s.id)))
+      setAllCoachingSessions(ad.sessions)
+    } catch {}
+  }
+
   const handleAdminCheckInCoaching = async (sessionId, studentId) => {
     try {
       await checkinAPI.adminCheckInCoaching(sessionId, studentId)
-      setAdminCheckedIn(prev => new Set([...prev, sessionId]))
-      setCoachingSessions(prev => prev.map(s => s.id === sessionId ? { ...s, checked_in: true } : s))
+      await refreshCoachingSessions()
       setAdminCheckIns(prev => {
         if (prev.some(ci => ci.type === 'coaching' && ci.reference_id === String(sessionId) && ci.user_id === studentId)) return prev
         return [...prev, { type: 'coaching', reference_id: String(sessionId), user_id: studentId }]
@@ -934,8 +945,7 @@ const [sessionForm,      setSessionForm]      = useState({
   const handleAdminUndoCheckInCoaching = async (sessionId, studentId) => {
     try {
       await checkinAPI.cancelCheckIn('coaching', String(sessionId), studentId)
-      setAdminCheckedIn(prev => { const n = new Set(prev); n.delete(sessionId); return n })
-      setCoachingSessions(prev => prev.map(s => s.id === sessionId ? { ...s, checked_in: false } : s))
+      await refreshCoachingSessions()
       setAdminCheckIns(prev => prev.filter(ci => !(ci.type === 'coaching' && ci.reference_id === String(sessionId) && ci.user_id === studentId)))
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not undo check-in.')
