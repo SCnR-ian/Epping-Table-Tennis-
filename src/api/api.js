@@ -161,6 +161,7 @@ export const socialAPI = {
   leave:            (id)       => api.delete(`/social/${id}/join`),
   adminAddMember:         (id, userId)       => api.post(`/social/${id}/participants`, { user_id: userId }),
   adminRemoveMember:      (id, userId)       => api.delete(`/social/${id}/participants/${userId}`),
+  adminAddWalkin:         (id)               => api.post(`/social/${id}/walkin`),
   cancelRecurringSessions:(recurrenceId)     => api.delete(`/social/recurrence/${recurrenceId}`),
 }
 

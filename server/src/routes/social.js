@@ -89,7 +89,7 @@ router.get('/admin', requireAuth, async (req, res) => {
     let participantRows = []
     if (ids.length) {
       const { rows } = await pool.query(
-        `SELECT p.session_id, u.id AS user_id, u.name
+        `SELECT p.session_id, u.id AS user_id, u.name, u.is_walkin
          FROM social_play_participants p
          JOIN users u ON u.id = p.user_id
          WHERE p.session_id = ANY($1)
@@ -103,7 +103,7 @@ router.get('/admin', requireAuth, async (req, res) => {
       ...s,
       participants: participantRows
         .filter(p => p.session_id === s.id)
-        .map(p => ({ id: p.user_id, name: p.name })),
+        .map(p => ({ id: p.user_id, name: p.name, is_walkin: p.is_walkin })),
     }))
 
     res.json({ sessions: result })
@@ -440,6 +440,34 @@ router.post('/:id/participants', requireAuth, requireAdmin, async (req, res) => 
     if (err.code === '23505') return res.status(409).json({ message: 'Member is already in this session.' })
     res.status(500).json({ message: 'Server error.' })
   } finally { client.release() }
+})
+
+// POST /api/social/:id/walkin  (admin) — add next available walk-in slot to session
+router.post('/:id/walkin', requireAuth, requireAdmin, async (req, res) => {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const { rows: session } = await client.query(
+      `SELECT id, max_players,
+         (SELECT COUNT(*)::int FROM social_play_participants WHERE session_id=$1) AS count
+       FROM social_play_sessions WHERE id=$1 FOR UPDATE`,
+      [req.params.id]
+    )
+    if (!session[0]) { await client.query('ROLLBACK'); return res.status(404).json({ message: 'Session not found.' }) }
+    if (session[0].count >= session[0].max_players) { await client.query('ROLLBACK'); return res.status(409).json({ message: 'Session is full.' }) }
+    const { rows: available } = await client.query(
+      `SELECT id, name FROM users
+       WHERE is_walkin = true
+         AND id NOT IN (SELECT user_id FROM social_play_participants WHERE session_id=$1)
+       ORDER BY name LIMIT 1`,
+      [req.params.id]
+    )
+    if (!available[0]) { await client.query('ROLLBACK'); return res.status(409).json({ message: 'All walk-in slots are already in this session.' }) }
+    await client.query('INSERT INTO social_play_participants (session_id, user_id) VALUES ($1,$2)', [req.params.id, available[0].id])
+    await client.query('COMMIT')
+    res.status(201).json({ message: 'Walk-in added.', user: { id: available[0].id, name: available[0].name } })
+  } catch { await client.query('ROLLBACK'); res.status(500).json({ message: 'Server error.' }) }
+  finally { client.release() }
 })
 
 // DELETE /api/social/:id/participants/:userId  (admin) — remove a member from a session

@@ -639,6 +639,16 @@ const [sessionForm,      setSessionForm]      = useState({
     }
   }
 
+  const handleSocialAddWalkin = async (sessionId) => {
+    try {
+      await socialAPI.adminAddWalkin(sessionId)
+      const { data } = await socialAPI.getAdminSessions({})
+      setSocialSessions(data.sessions)
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not add walk-in.')
+    }
+  }
+
   const handleSocialAddMember = async (sessionId, userId) => {
     if (!userId) return
     try {
@@ -2894,8 +2904,8 @@ const [sessionForm,      setSessionForm]      = useState({
                       {s.participants.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-1">
                           {s.participants.map(p => (
-                            <span key={p.id} className="inline-flex items-center gap-1 text-xs bg-court-light text-slate-100 rounded-full pl-2.5 pr-1.5 py-0.5 font-medium">
-                              {p.name}
+                            <span key={p.id} className={`inline-flex items-center gap-1 text-xs rounded-full pl-2.5 pr-1.5 py-0.5 font-medium ${p.is_walkin ? 'bg-amber-500/15 text-amber-300' : 'bg-court-light text-slate-100'}`}>
+                              {p.name}{p.is_walkin && <span className="text-[9px] opacity-60">walk-in</span>}
                               <button
                                 onClick={() => handleSocialRemoveMember(s.id, p.id)}
                                 className="text-slate-400 hover:text-red-400 leading-none transition-colors"
@@ -2910,7 +2920,7 @@ const [sessionForm,      setSessionForm]      = useState({
                         const existingIds = new Set(s.participants.map(p => p.id))
                         const picker = addingMember[s.id] ?? { query: '', userId: '' }
                         const suggestions = picker.query.length > 0
-                          ? members.filter(m => !existingIds.has(m.id) && m.name.toLowerCase().includes(picker.query.toLowerCase())).slice(0, 6)
+                          ? members.filter(m => !existingIds.has(m.id) && !m.is_walkin && m.name.toLowerCase().includes(picker.query.toLowerCase())).slice(0, 6)
                           : []
                         return (
                           <div className="mt-2 relative">
@@ -2928,6 +2938,10 @@ const [sessionForm,      setSessionForm]      = useState({
                                   className="text-xs text-emerald-400 hover:text-emerald-300 font-medium whitespace-nowrap"
                                 >Add</button>
                               )}
+                              <button
+                                onClick={() => handleSocialAddWalkin(s.id)}
+                                className="text-xs text-slate-400 hover:text-white font-medium whitespace-nowrap border border-slate-600 hover:border-slate-400 rounded px-2 py-1 transition-colors"
+                              >+ Walk-in</button>
                             </div>
                             {suggestions.length > 0 && (
                               <div className="absolute z-10 left-0 right-0 mt-1 bg-court-dark border border-court-light rounded-lg shadow-lg overflow-hidden">

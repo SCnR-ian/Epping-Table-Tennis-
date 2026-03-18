@@ -57,7 +57,7 @@ router.post('/members', async (req, res) => {
 // GET /api/admin/members
 router.get('/members', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM users ORDER BY created_at DESC')
+    const { rows } = await pool.query('SELECT * FROM users WHERE is_walkin IS NOT TRUE ORDER BY created_at DESC')
     res.json({ members: rows.map(safeUser) })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
