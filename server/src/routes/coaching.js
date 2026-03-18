@@ -94,7 +94,13 @@ router.get('/sessions', requireAuth, requireAdmin, async (req, res) => {
          c.name  AS coach_name,
          u.name  AS student_name,
          u.email AS student_email,
-         ct.name AS court_name
+         ct.name AS court_name,
+         EXISTS(
+           SELECT 1 FROM check_ins ci
+           WHERE ci.type='coaching'
+             AND ci.reference_id = cs.id::text
+             AND ci.user_id = cs.student_id
+         ) AS checked_in
        FROM coaching_sessions cs
        JOIN coaches c  ON c.id  = cs.coach_id
        JOIN users   u  ON u.id  = cs.student_id

@@ -219,7 +219,7 @@ const [members,      setMembers]      = useState([])
   const [coachingEditSaving, setCoachingEditSaving] = useState(false)
 const [sessionForm,      setSessionForm]      = useState({
     coach_id: '', student_id: '',
-    date: '', selectedDays: [], start_time: '', end_time: '', notes: '', weeks: 10,
+    date: '', selectedDays: [], start_time: '', end_time: '', dayTimes: {}, notes: '', weeks: 10,
   })
   const [studentSearch,    setStudentSearch]    = useState('')
   const [coachingSearch,   setCoachingSearch]   = useState('')
@@ -229,7 +229,7 @@ const [sessionForm,      setSessionForm]      = useState({
   const [showGroupForm,    setShowGroupForm]    = useState(false)
   const [groupStudentSearch, setGroupStudentSearch] = useState('')
   const [groupForm,        setGroupForm]        = useState({
-    coach_id: '', student_ids: [], date: '', selectedDays: [], start_time: '', end_time: '', notes: '', weeks: 10,
+    coach_id: '', student_ids: [], date: '', selectedDays: [], start_time: '', end_time: '', dayTimes: {}, notes: '', weeks: 10,
   })
   const [rescheduleGroupId,   setRescheduleGroupId]   = useState(null)
   const [rescheduleGroupForm, setRescheduleGroupForm] = useState({ date: '', start_time: '', end_time: '' })
@@ -491,7 +491,11 @@ const [sessionForm,      setSessionForm]      = useState({
       .then(([cr, sr, ar, mr, gr]) => {
         if (!cancelled) {
           if (cr.status === 'fulfilled') setCoaches(cr.value.data.coaches)
-          if (sr.status === 'fulfilled') setCoachingSessions(sr.value.data.sessions)
+          if (sr.status === 'fulfilled') {
+            const sessions = sr.value.data.sessions
+            setCoachingSessions(sessions)
+            setAdminCheckedIn(new Set(sessions.filter(s => s.checked_in).map(s => s.id)))
+          }
           if (ar.status === 'fulfilled') setAllCoachingSessions(ar.value.data.sessions)
           if (mr.status === 'fulfilled' && members.length === 0) setMembers(mr.value.data.members)
           if (gr.status === 'fulfilled') setGroupSessions(gr.value.data.groups)
@@ -661,9 +665,15 @@ const [sessionForm,      setSessionForm]      = useState({
   }
 
   const handleCreateSession = async () => {
-    const { student_id, coach_id, date, selectedDays, start_time, end_time, notes, weeks } = sessionForm
+    const { student_id, coach_id, date, selectedDays, start_time, end_time, dayTimes, notes, weeks } = sessionForm
     const days = selectedDays.length ? selectedDays : (date ? [new Date(date + 'T12:00:00').getDay()] : [])
-    if (!coach_id || !student_id || !date || !days.length || !start_time || !end_time) {
+    const hasSat = days.includes(6), hasWkd = days.some(d => d !== 6)
+    const mixed = days.length > 1
+    // In multi-day mode each day needs its own times; otherwise use the shared start/end
+    const timesOk = mixed
+      ? days.every(dow => dayTimes[dow]?.start_time && dayTimes[dow]?.end_time)
+      : (start_time && end_time)
+    if (!coach_id || !student_id || !date || !days.length || !timesOk) {
       alert('Please fill in all required fields.')
       return
     }
@@ -671,20 +681,23 @@ const [sessionForm,      setSessionForm]      = useState({
       // Create one recurring series per selected day
       for (const dow of days) {
         const startDate = nextOccurrence(date, dow)
-        await coachingAPI.createSession({ ...sessionForm, date: startDate })
+        const times = mixed ? { start_time: dayTimes[dow].start_time, end_time: dayTimes[dow].end_time } : { start_time, end_time }
+        await coachingAPI.createSession({ ...sessionForm, ...times, date: startDate })
       }
       // Auto-credit total hours: duration × weeks × number of days
-      const hrsPerSession = (toMins(end_time) - toMins(start_time)) / 60
-      const totalHrs = hrsPerSession * weeks * days.length
+      const totalHrs = days.reduce((sum, dow) => {
+        const t = mixed ? dayTimes[dow] : { start_time, end_time }
+        return sum + (toMins(t.end_time) - toMins(t.start_time)) / 60 * weeks
+      }, 0)
       await coachingAPI.addHours(student_id, {
         delta: totalHrs,
         note: `Coaching hours — ${days.length > 1 ? `${days.length} days/week, ` : ''}${weeks} week${weeks > 1 ? 's' : ''}`,
       })
-      setSessionForm(f => ({ ...f, date: '', selectedDays: [], start_time: '', end_time: '' }))
+      setSessionForm(f => ({ ...f, date: '', selectedDays: [], start_time: '', end_time: '', dayTimes: {} }))
       setSessionSaved(true)
       setTimeout(() => setSessionSaved(false), 4000)
       const { data } = await coachingAPI.getSessions({ date: coachingDate })
-      setCoachingSessions(data.sessions)
+      setCoachingSessions(data.sessions); setAdminCheckedIn(new Set(data.sessions.filter(s => s.checked_in).map(s => s.id)))
       try {
         const { data: hd } = await coachingAPI.getHoursBalance(student_id)
         setSessionStudentBalance(hd.balance)
@@ -709,7 +722,7 @@ const [sessionForm,      setSessionForm]      = useState({
       coachingAPI.getSessions({ date: coachingDate }),
       coachingAPI.getSessions({}),
     ])
-    setCoachingSessions(cur.data.sessions)
+    setCoachingSessions(cur.data.sessions); setAdminCheckedIn(new Set(cur.data.sessions.filter(s => s.checked_in).map(s => s.id)))
     setAllCoachingSessions(all.data.sessions)
   }
 
@@ -792,7 +805,7 @@ const [sessionForm,      setSessionForm]      = useState({
         const hrs = (toMins(session.end_time.slice(0, 5)) - toMins(session.start_time.slice(0, 5))) / 60
         await coachingAPI.addHours(session.student_id, { delta: hrs, note: 'Makeup session' })
         const { data } = await coachingAPI.getSessions({ date: coachingDate })
-        setCoachingSessions(data.sessions)
+        setCoachingSessions(data.sessions); setAdminCheckedIn(new Set(data.sessions.filter(s => s.checked_in).map(s => s.id)))
         if (attemptISO !== firstISO)
           alert(`Makeup session scheduled on ${fmtDate(attemptISO)} (earlier dates were unavailable).`)
         return
@@ -817,16 +830,25 @@ const [sessionForm,      setSessionForm]      = useState({
       await coachingAPI.cancelSession(id)
       setCoachingSessions(prev => prev.filter(s => s.id !== id))
       setBookingViewSessions(prev => prev.filter(s => s.id !== id))
-      if (session) await offerMakeupSession(session, allCoachingSessions)
+      if (session) {
+        const hrs = (toMins(session.end_time.slice(0, 5)) - toMins(session.start_time.slice(0, 5))) / 60
+        await coachingAPI.addHours(session.student_id, { delta: -hrs, note: 'Session cancelled' }).catch(() => {})
+        await offerMakeupSession(session, allCoachingSessions)
+      }
     } catch {
       alert('Could not cancel session.')
     }
   }
 
   const handleCreateGroupSession = async () => {
-    const { coach_id, student_ids, date, selectedDays, start_time, end_time, notes, weeks } = groupForm
+    const { coach_id, student_ids, date, selectedDays, start_time, end_time, dayTimes, notes, weeks } = groupForm
     const days = selectedDays.length ? selectedDays : (date ? [new Date(date + 'T12:00:00').getDay()] : [])
-    if (!coach_id || student_ids.length < 2 || !date || !days.length || !start_time || !end_time) {
+    const hasSat = days.includes(6), hasWkd = days.some(d => d !== 6)
+    const mixed = days.length > 1
+    const timesOk = mixed
+      ? days.every(dow => dayTimes[dow]?.start_time && dayTimes[dow]?.end_time)
+      : (start_time && end_time)
+    if (!coach_id || student_ids.length < 2 || !date || !days.length || !timesOk) {
       alert('Select a coach, at least 2 students, date and times.')
       return
     }
@@ -834,11 +856,14 @@ const [sessionForm,      setSessionForm]      = useState({
       // Create one group series per selected day
       for (const dow of days) {
         const startDate = nextOccurrence(date, dow)
-        await coachingAPI.createGroupSession({ coach_id, student_ids, date: startDate, start_time, end_time, notes, weeks })
+        const times = mixed ? { start_time: dayTimes[dow].start_time, end_time: dayTimes[dow].end_time } : { start_time, end_time }
+        await coachingAPI.createGroupSession({ coach_id, student_ids, date: startDate, ...times, notes, weeks })
       }
       // Auto-credit hours to each student: duration × weeks × days
-      const hrsPerSession = (toMins(end_time) - toMins(start_time)) / 60
-      const totalHrs = hrsPerSession * weeks * days.length
+      const totalHrs = days.reduce((sum, dow) => {
+        const t = mixed ? dayTimes[dow] : { start_time, end_time }
+        return sum + (toMins(t.end_time) - toMins(t.start_time)) / 60 * weeks
+      }, 0)
       await Promise.allSettled(student_ids.map(id =>
         coachingAPI.addHours(id, {
           delta: totalHrs,
@@ -846,7 +871,7 @@ const [sessionForm,      setSessionForm]      = useState({
         })
       ))
       // Keep students/coach/weeks — clear date/days/time so admin can add another block
-      setGroupForm(f => ({ ...f, date: '', selectedDays: [], start_time: '', end_time: '' }))
+      setGroupForm(f => ({ ...f, date: '', selectedDays: [], start_time: '', end_time: '', dayTimes: {} }))
       setGroupStudentSearch('')
       // Refresh balances
       const updatedBalances = {}
@@ -896,6 +921,7 @@ const [sessionForm,      setSessionForm]      = useState({
     try {
       await checkinAPI.adminCheckInCoaching(sessionId, studentId)
       setAdminCheckedIn(prev => new Set([...prev, sessionId]))
+      setCoachingSessions(prev => prev.map(s => s.id === sessionId ? { ...s, checked_in: true } : s))
       setAdminCheckIns(prev => {
         if (prev.some(ci => ci.type === 'coaching' && ci.reference_id === String(sessionId) && ci.user_id === studentId)) return prev
         return [...prev, { type: 'coaching', reference_id: String(sessionId), user_id: studentId }]
@@ -909,6 +935,7 @@ const [sessionForm,      setSessionForm]      = useState({
     try {
       await checkinAPI.cancelCheckIn('coaching', String(sessionId), studentId)
       setAdminCheckedIn(prev => { const n = new Set(prev); n.delete(sessionId); return n })
+      setCoachingSessions(prev => prev.map(s => s.id === sessionId ? { ...s, checked_in: false } : s))
       setAdminCheckIns(prev => prev.filter(ci => !(ci.type === 'coaching' && ci.reference_id === String(sessionId) && ci.user_id === studentId)))
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not undo check-in.')
@@ -1191,7 +1218,7 @@ const [sessionForm,      setSessionForm]      = useState({
                               <div key={s.student_id} className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
                                 <span className="text-xs text-white">{s.student_name}</span>
                                 <span className="text-[10px] text-slate-500">student</span>
-                                {s.admin_checked_in
+                                {s.checked_in
                                   ? (
                                     <span className="flex items-center gap-1">
                                       <span className="text-[10px] bg-sky-500/15 text-sky-400 px-2 py-0.5 rounded-full font-medium">Admin ✓</span>
@@ -1200,7 +1227,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                   )
                                   : <Badge in={s.student_checked_in} type="coaching" refId={s.id} userId={s.student_id} />
                                 }
-                                {!s.admin_checked_in && !s.student_checked_in && !isFuture && (
+                                {!s.checked_in && !s.student_checked_in && !isFuture && (
                                   <button
                                     onClick={() => handleCheckIn('coaching', s.id, s.student_id)}
                                     className="text-[10px] text-sky-400 hover:text-sky-300 font-medium"
@@ -1703,8 +1730,11 @@ const [sessionForm,      setSessionForm]      = useState({
             <div className="space-y-4">
               {/* Schedule session form */}
               {showSessionForm && (() => {
-                const formDow   = sessionForm.date ? new Date(sessionForm.date + 'T12:00:00').getDay() : null
-                const formSlots = formDow === 6 ? SATURDAY_SLOTS : WEEKDAY_SLOTS
+                const formDow      = sessionForm.date ? new Date(sessionForm.date + 'T12:00:00').getDay() : null
+                const effectiveDows = sessionForm.selectedDays.length ? sessionForm.selectedDays : (formDow != null ? [formDow] : [])
+                const hasSat  = effectiveDows.includes(6)
+                const hasWkd  = effectiveDows.some(d => d !== 6)
+                const formSlots = hasSat && hasWkd ? ALL_SLOTS : hasSat ? SATURDAY_SLOTS : WEEKDAY_SLOTS
                 const endSlots  = formSlots.filter(s => !sessionForm.start_time || toMins(s) > toMins(sessionForm.start_time))
                 return (
                   <div className="card mb-2 space-y-4">
@@ -1784,6 +1814,37 @@ const [sessionForm,      setSessionForm]      = useState({
                       </div>
                       <p className="mt-1 text-xs text-slate-500">Leave all unselected to use the starting-week date as-is.</p>
                     </div>
+                    {effectiveDows.length > 1 ? (
+                      <div className="space-y-2">
+                        <label className="block text-xs text-slate-200">Times per day</label>
+                        {effectiveDows.map(dow => {
+                          const dayLabel = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dow]
+                          const slots = dow === 6 ? SATURDAY_SLOTS : WEEKDAY_SLOTS
+                          const dt = sessionForm.dayTimes[dow] || { start_time: '', end_time: '' }
+                          const eSlots = slots.filter(s => !dt.start_time || toMins(s) > toMins(dt.start_time))
+                          return (
+                            <div key={dow} className="flex gap-2 items-center">
+                              <span className="text-xs text-slate-400 w-8">{dayLabel}</span>
+                              <select className="input text-xs py-1 flex-1" value={dt.start_time}
+                                onChange={e => {
+                                  const s = e.target.value
+                                  const autoEnd = slots.find(t => toMins(t) === toMins(s) + 60) ?? ''
+                                  setSessionForm(f => ({ ...f, dayTimes: { ...f.dayTimes, [dow]: { start_time: s, end_time: autoEnd } } }))
+                                }}>
+                                <option value="">Start…</option>
+                                {slots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
+                              </select>
+                              <select className="input text-xs py-1 flex-1" value={dt.end_time}
+                                onChange={e => setSessionForm(f => ({ ...f, dayTimes: { ...f.dayTimes, [dow]: { ...dt, end_time: e.target.value } } }))}
+                                disabled={!dt.start_time}>
+                                <option value="">End…</option>
+                                {eSlots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
+                              </select>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : (
                     <div className="flex gap-3">
                       <div className="flex-1">
                         <label className="block text-xs text-slate-200 mb-1">Start Time</label>
@@ -1807,6 +1868,7 @@ const [sessionForm,      setSessionForm]      = useState({
                         </select>
                       </div>
                     </div>
+                    )}
                     <div>
                       <label className="block text-xs text-slate-200 mb-1">Recurring — N weeks (1 = one-off)</label>
                       <input type="number" min={1} max={52} className="input w-32"
@@ -1872,7 +1934,7 @@ const [sessionForm,      setSessionForm]      = useState({
                         const q = coachingSearch.toLowerCase()
                         return !q || s.student_name?.toLowerCase().includes(q) || s.coach_name?.toLowerCase().includes(q)
                       }).map(s => {
-                        const checkedIn = adminCheckedIn.has(s.id)
+                        const checkedIn = s.checked_in || adminCheckedIn.has(s.id)
                         return (
                           <tr key={s.id} className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors">
                             <td className="px-5 py-3">
@@ -1896,14 +1958,19 @@ const [sessionForm,      setSessionForm]      = useState({
                             <td className="px-5 py-3 text-slate-400 text-xs max-w-[160px] truncate">{s.notes ?? '—'}</td>
                             <td className="px-5 py-3">
                               <div className="flex items-center gap-3">
-                                <button
-                                  onClick={() => checkedIn
-                                    ? handleAdminUndoCheckInCoaching(s.id, s.student_id)
-                                    : handleAdminCheckInCoaching(s.id, s.student_id)}
-                                  className={`text-xs font-medium transition-colors ${checkedIn ? 'text-emerald-400 hover:text-red-400' : 'text-slate-400 hover:text-emerald-400'}`}
-                                  title={checkedIn ? 'Click to undo check-in' : 'Check in'}>
-                                  {checkedIn ? 'Checked In ✓' : 'Check In'}
-                                </button>
+                                {checkedIn ? (
+                                  <span className="flex items-center gap-1">
+                                    <span className="text-[10px] bg-emerald-500/15 text-emerald-400 px-2 py-0.5 rounded-full font-medium">Checked in</span>
+                                    <button onClick={() => handleAdminUndoCheckInCoaching(s.id, s.student_id)}
+                                      className="text-[10px] text-slate-500 hover:text-red-400 font-medium transition-colors"
+                                      title="Undo check-in">✕</button>
+                                  </span>
+                                ) : (
+                                  <button onClick={() => handleAdminCheckInCoaching(s.id, s.student_id)}
+                                    className="text-[10px] text-sky-400 hover:text-sky-300 font-medium">
+                                    Check in
+                                  </button>
+                                )}
                                 <button onClick={() => handleCancelSession(s.id)}
                                   className="text-xs text-red-400 hover:text-red-300 font-medium">
                                   Cancel
@@ -1925,9 +1992,11 @@ const [sessionForm,      setSessionForm]      = useState({
             <div className="space-y-4">
               {/* Group session form */}
               {showGroupForm && (() => {
-                const formDow   = groupForm.date ? new Date(groupForm.date + 'T12:00:00').getDay() : null
-                const formSlots = groupForm.selectedDays.length > 1 ? ALL_SLOTS
-                  : formDow === 6 ? SATURDAY_SLOTS : WEEKDAY_SLOTS
+                const formDow      = groupForm.date ? new Date(groupForm.date + 'T12:00:00').getDay() : null
+                const effectiveDows = groupForm.selectedDays.length ? groupForm.selectedDays : (formDow != null ? [formDow] : [])
+                const hasSat  = effectiveDows.includes(6)
+                const hasWkd  = effectiveDows.some(d => d !== 6)
+                const formSlots = hasSat && hasWkd ? ALL_SLOTS : hasSat ? SATURDAY_SLOTS : WEEKDAY_SLOTS
                 const endSlots  = formSlots.filter(s => !groupForm.start_time || toMins(s) > toMins(groupForm.start_time))
                 const selectedStudents = members.filter(m => groupForm.student_ids.includes(m.id))
                 const filteredStudents = groupStudentSearch
@@ -2032,6 +2101,37 @@ const [sessionForm,      setSessionForm]      = useState({
                       <p className="mt-1 text-xs text-slate-500">Leave all unselected to use the starting-week date as-is.</p>
                     </div>
 
+                    {effectiveDows.length > 1 ? (
+                      <div className="space-y-2">
+                        <label className="block text-xs text-slate-200">Times per day</label>
+                        {effectiveDows.map(dow => {
+                          const dayLabel = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dow]
+                          const slots = dow === 6 ? SATURDAY_SLOTS : WEEKDAY_SLOTS
+                          const dt = groupForm.dayTimes[dow] || { start_time: '', end_time: '' }
+                          const eSlots = slots.filter(s => !dt.start_time || toMins(s) > toMins(dt.start_time))
+                          return (
+                            <div key={dow} className="flex gap-2 items-center">
+                              <span className="text-xs text-slate-400 w-8">{dayLabel}</span>
+                              <select className="input text-xs py-1 flex-1" value={dt.start_time}
+                                onChange={e => {
+                                  const s = e.target.value
+                                  const autoEnd = slots.find(t => toMins(t) === toMins(s) + 60) ?? ''
+                                  setGroupForm(f => ({ ...f, dayTimes: { ...f.dayTimes, [dow]: { start_time: s, end_time: autoEnd } } }))
+                                }}>
+                                <option value="">Start…</option>
+                                {slots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
+                              </select>
+                              <select className="input text-xs py-1 flex-1" value={dt.end_time}
+                                onChange={e => setGroupForm(f => ({ ...f, dayTimes: { ...f.dayTimes, [dow]: { ...dt, end_time: e.target.value } } }))}
+                                disabled={!dt.start_time}>
+                                <option value="">End…</option>
+                                {eSlots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
+                              </select>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : (
                     <div className="flex gap-3">
                       <div className="flex-1">
                         <label className="block text-xs text-slate-200 mb-1">Start Time</label>
@@ -2057,6 +2157,7 @@ const [sessionForm,      setSessionForm]      = useState({
                         </select>
                       </div>
                     </div>
+                    )}
 
                     <div>
                       <label className="block text-xs text-slate-200 mb-1">Recurring — N weeks (1 = one-off)</label>
@@ -2072,14 +2173,21 @@ const [sessionForm,      setSessionForm]      = useState({
                         onChange={e => setGroupForm(f => ({ ...f, notes: e.target.value }))} />
                     </div>
 
-                    {groupForm.start_time && groupForm.end_time && (() => {
-                      const numDays = groupForm.selectedDays.length || 1
-                      const hrsPerSession = (toMins(groupForm.end_time) - toMins(groupForm.start_time)) / 60
-                      const total = hrsPerSession * groupForm.weeks * numDays
+                    {(() => {
+                      const mixed2 = effectiveDows.length > 1
+                      const allTimesSet = mixed2
+                        ? effectiveDows.every(d => groupForm.dayTimes[d]?.start_time && groupForm.dayTimes[d]?.end_time)
+                        : (groupForm.start_time && groupForm.end_time)
+                      if (!allTimesSet) return null
+                      const numDays = effectiveDows.length || 1
+                      const total = effectiveDows.reduce((sum, d) => {
+                        const t = mixed2 ? groupForm.dayTimes[d] : { start_time: groupForm.start_time, end_time: groupForm.end_time }
+                        return sum + (toMins(t.end_time) - toMins(t.start_time)) / 60 * groupForm.weeks
+                      }, 0)
                       return (
                         <p className="text-xs text-slate-400">
                           Will credit <span className="font-medium text-white">{total.toFixed(1)} hrs</span> to each student
-                          {' '}({hrsPerSession.toFixed(1)} hr × {groupForm.weeks} week{groupForm.weeks > 1 ? 's' : ''}{numDays > 1 ? ` × ${numDays} days` : ''}).
+                          {numDays > 1 ? ` (${numDays} days/week × ${groupForm.weeks} week${groupForm.weeks > 1 ? 's' : ''})` : ` (${groupForm.weeks} week${groupForm.weeks > 1 ? 's' : ''})`}.
                           Deducted each time they attend.
                         </p>
                       )
@@ -2457,7 +2565,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                     {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
                                   </td>
                                   <td className="px-3 py-2.5 text-xs whitespace-nowrap">
-                                    {s.admin_checked_in ? (
+                                    {s.checked_in ? (
                                       <span className="text-sky-400">Admin ✓</span>
                                     ) : (
                                       <span className="space-x-2">
@@ -3267,9 +3375,15 @@ const [sessionForm,      setSessionForm]      = useState({
                                         <button disabled={memberModalEditSaving || !memberModalEditForm.date}
                                           className="btn-primary text-xs py-1 px-3 disabled:opacity-50"
                                           onClick={async () => {
+                                            const { date, start_time, end_time } = memberModalEditForm
+                                            const OPEN_DOW = new Set([1, 2, 3, 6])
+                                            if (!OPEN_DOW.has(new Date(date+'T12:00:00Z').getUTCDay())) {
+                                              const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+                                              alert(`${date} is a ${dayNames[new Date(date+'T12:00:00Z').getUTCDay()]} — club is closed. Open days are Mon, Tue, Wed, Sat.`)
+                                              return
+                                            }
                                             setMemberModalEditSaving(true)
                                             try {
-                                              const { date, start_time, end_time } = memberModalEditForm
                                               await coachingAPI.rescheduleSession(item.id, date, start_time || undefined, end_time || undefined)
                                               setMemberModal(prev => ({ ...prev, coaching: prev.coaching.map(x => x.id === item.id ? { ...x, date, ...(start_time ? { start_time: start_time+':00' } : {}), ...(end_time ? { end_time: end_time+':00' } : {}) } : x) }))
                                               setMemberModalEditId(null)
@@ -3280,18 +3394,26 @@ const [sessionForm,      setSessionForm]      = useState({
                                           <button disabled={memberModalEditSaving || !memberModalEditForm.date}
                                             className="btn-secondary text-xs py-1 px-3 disabled:opacity-50"
                                             onClick={async () => {
+                                              const OPEN_DOW = new Set([1, 2, 3, 6])
+                                              const { date: newDate, start_time, end_time } = memberModalEditForm
+                                              const futureSeries = mCoaching.filter(x => x.recurrence_id === item.recurrence_id && x.date >= today).sort((a,b) => a.date < b.date ? -1 : 1)
+                                              const deltaDays = Math.round((new Date(newDate+'T12:00:00Z') - new Date(item.date.slice(0,10)+'T12:00:00Z')) / 86400000)
+                                              const idx = futureSeries.findIndex(x => x.id === item.id)
+                                              const updates = futureSeries.slice(idx).map(x => {
+                                                const d = new Date(x.date.slice(0,10)+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+deltaDays)
+                                                const u = { id: x.id, date: d.toISOString().slice(0,10) }
+                                                if (start_time && end_time) { u.start_time = start_time; u.end_time = end_time }
+                                                return u
+                                              })
+                                              const closed = updates.filter(u => !OPEN_DOW.has(new Date(u.date+'T12:00:00Z').getUTCDay()))
+                                              if (closed.length > 0) {
+                                                const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+                                                const badDates = closed.map(u => `${u.date} (${dayNames[new Date(u.date+'T12:00:00Z').getUTCDay()]})`).join(', ')
+                                                alert(`Cannot shift to closed day${closed.length > 1 ? 's' : ''}: ${badDates}.\nOpen days are Mon, Tue, Wed, Sat.`)
+                                                return
+                                              }
                                               setMemberModalEditSaving(true)
                                               try {
-                                                const { date: newDate, start_time, end_time } = memberModalEditForm
-                                                const futureSeries = mCoaching.filter(x => x.recurrence_id === item.recurrence_id && x.date >= today).sort((a,b) => a.date < b.date ? -1 : 1)
-                                                const deltaDays = Math.round((new Date(newDate+'T12:00:00Z') - new Date(item.date.slice(0,10)+'T12:00:00Z')) / 86400000)
-                                                const idx = futureSeries.findIndex(x => x.id === item.id)
-                                                const updates = futureSeries.slice(idx).map(x => {
-                                                  const d = new Date(x.date.slice(0,10)+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+deltaDays)
-                                                  const u = { id: x.id, date: d.toISOString().slice(0,10) }
-                                                  if (start_time && end_time) { u.start_time = start_time; u.end_time = end_time }
-                                                  return u
-                                                })
                                                 await coachingAPI.rescheduleBulk(updates)
                                                 const updMap = Object.fromEntries(updates.map(u => [u.id, u]))
                                                 setMemberModal(prev => ({ ...prev, coaching: prev.coaching.map(x => updMap[x.id] ? { ...x, date: updMap[x.id].date, ...(updMap[x.id].start_time ? { start_time: updMap[x.id].start_time+':00' } : {}), ...(updMap[x.id].end_time ? { end_time: updMap[x.id].end_time+':00' } : {}) } : x) }))
@@ -3365,6 +3487,7 @@ const [sessionForm,      setSessionForm]      = useState({
                           <div className="flex gap-2">
                             <button disabled={memberModalEditSaving} className="btn-primary text-xs py-1 px-3 disabled:opacity-50"
                               onClick={async () => {
+                                const OPEN_DOW = new Set([1, 2, 3, 6])
                                 const offset = parseInt(memberModalBulkForm.offsetDays, 10) || 0
                                 const { start_time, end_time } = memberModalBulkForm
                                 const selectedSessions = mCoaching.filter(s => memberModalSelected.has(s.id))
@@ -3374,6 +3497,13 @@ const [sessionForm,      setSessionForm]      = useState({
                                   if (start_time && end_time) { u.start_time = start_time; u.end_time = end_time }
                                   return u
                                 })
+                                const closed = updates.filter(u => !OPEN_DOW.has(new Date(u.date+'T12:00:00Z').getUTCDay()))
+                                if (closed.length > 0) {
+                                  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+                                  const badDates = closed.map(u => `${u.date} (${dayNames[new Date(u.date+'T12:00:00Z').getUTCDay()]})`).join(', ')
+                                  alert(`Cannot shift to closed day${closed.length > 1 ? 's' : ''}: ${badDates}.\nOpen days are Mon, Tue, Wed, Sat.`)
+                                  return
+                                }
                                 setMemberModalEditSaving(true)
                                 try {
                                   await coachingAPI.rescheduleBulk(updates)
@@ -3392,7 +3522,13 @@ const [sessionForm,      setSessionForm]      = useState({
                                 if (!window.confirm(`Cancel ${memberModalSelected.size} session${memberModalSelected.size > 1 ? 's' : ''}? This cannot be undone.`)) return
                                 setMemberModalEditSaving(true)
                                 try {
+                                  const selectedSessions = mCoaching.filter(s => memberModalSelected.has(s.id))
                                   await Promise.all([...memberModalSelected].map(id => coachingAPI.cancelSession(id)))
+                                  const totalHrs = selectedSessions.reduce((sum, s) => {
+                                    return sum + (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60
+                                  }, 0)
+                                  if (totalHrs > 0)
+                                    await coachingAPI.addHours(member.id, { delta: -totalHrs, note: `${selectedSessions.length} session${selectedSessions.length > 1 ? 's' : ''} cancelled` }).catch(() => {})
                                   setMemberModal(prev => ({ ...prev, coaching: prev.coaching.filter(x => !memberModalSelected.has(x.id)) }))
                                   setMemberModalSelected(new Set())
                                   setMemberModalBulkForm({ offsetDays: '0', start_time: '', end_time: '' })
