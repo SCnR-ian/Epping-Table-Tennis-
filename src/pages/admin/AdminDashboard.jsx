@@ -1968,19 +1968,13 @@ const [sessionForm,      setSessionForm]      = useState({
                             <td className="px-5 py-3 text-slate-400 text-xs max-w-[160px] truncate">{s.notes ?? '—'}</td>
                             <td className="px-5 py-3">
                               <div className="flex items-center gap-3">
-                                {checkedIn ? (
-                                  <span className="flex items-center gap-1">
-                                    <span className="text-[10px] bg-emerald-500/15 text-emerald-400 px-2 py-0.5 rounded-full font-medium">Checked in</span>
-                                    <button onClick={() => handleAdminUndoCheckInCoaching(s.id, s.student_id)}
-                                      className="text-[10px] text-slate-500 hover:text-red-400 font-medium transition-colors"
-                                      title="Undo check-in">✕</button>
-                                  </span>
-                                ) : (
-                                  <button onClick={() => handleAdminCheckInCoaching(s.id, s.student_id)}
-                                    className="text-[10px] text-sky-400 hover:text-sky-300 font-medium">
-                                    Check in
-                                  </button>
-                                )}
+                                <button
+                                  onClick={() => checkedIn
+                                    ? handleAdminUndoCheckInCoaching(s.id, s.student_id)
+                                    : handleAdminCheckInCoaching(s.id, s.student_id)}
+                                  className={`text-[10px] font-medium transition-colors px-2 py-0.5 rounded-full ${checkedIn ? 'bg-emerald-500/15 text-emerald-400 hover:bg-red-500/15 hover:text-red-400' : 'text-sky-400 hover:text-sky-300'}`}>
+                                  {checkedIn ? 'Checked in' : 'Check in'}
+                                </button>
                                 <button onClick={() => handleCancelSession(s.id)}
                                   className="text-xs text-red-400 hover:text-red-300 font-medium">
                                   Cancel
