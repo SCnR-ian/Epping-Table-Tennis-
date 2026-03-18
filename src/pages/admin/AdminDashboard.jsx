@@ -1972,7 +1972,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                   onClick={() => checkedIn
                                     ? handleAdminUndoCheckInCoaching(s.id, s.student_id)
                                     : handleAdminCheckInCoaching(s.id, s.student_id)}
-                                  className={`text-[10px] font-medium transition-colors px-2 py-0.5 rounded-full ${checkedIn ? 'bg-emerald-500/15 text-emerald-400 hover:bg-red-500/15 hover:text-red-400' : 'text-sky-400 hover:text-sky-300'}`}>
+                                  className={`text-xs font-medium transition-colors ${checkedIn ? 'text-emerald-400 hover:text-red-400' : 'text-emerald-400 hover:text-emerald-300'}`}>
                                   {checkedIn ? 'Checked in' : 'Check in'}
                                 </button>
                                 <button onClick={() => handleCancelSession(s.id)}
