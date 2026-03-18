@@ -3259,6 +3259,13 @@ const [sessionForm,      setSessionForm]      = useState({
                       {items.length === 0 ? (
                         <p className="text-slate-500 text-sm">No sessions.</p>
                       ) : (
+                        <>
+                        <div className="grid grid-cols-[80px_1fr_1fr_auto] gap-x-3 px-4 pb-1 border-b border-court-light">
+                          <span className="text-[10px] text-slate-500 uppercase tracking-wider">Type</span>
+                          <span className="text-[10px] text-slate-500 uppercase tracking-wider">Date</span>
+                          <span className="text-[10px] text-slate-500 uppercase tracking-wider">Time</span>
+                          <span className="text-[10px] text-slate-500 uppercase tracking-wider">Action</span>
+                        </div>
                         <div className="space-y-1.5">
                           {items.map(item => {
                             if (item._type === 'booking') return (
@@ -3457,6 +3464,7 @@ const [sessionForm,      setSessionForm]      = useState({
                             return null
                           })}
                         </div>
+                        </>
                       )}
 
                       {/* Bulk edit bar (upcoming coaching only) */}
