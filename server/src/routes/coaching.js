@@ -565,22 +565,10 @@ router.post('/sessions/group/:groupId/add-student', requireAuth, requireAdmin, a
       return res.status(409).json({ message: 'Student is already in this group.' })
     }
 
-    // Use the same court/coach/time as the existing sessions
-    const ref = sessions[0]
     const recurrenceId = sessions.length > 1 ? randomUUID() : null
 
     const inserted = []
     for (const s of sessions) {
-      // Check student conflicts on each date
-      const { rows: conflict } = await client.query(
-        `SELECT 1 FROM coaching_sessions
-         WHERE student_id=$1 AND date=$2 AND status='confirmed'
-           AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
-        [student_id, s.date, ref.start_time, ref.end_time]
-      )
-      if (conflict.length)
-        throw Object.assign(new Error('student_conflict'), { date: s.date })
-
       const { rows } = await client.query(
         `INSERT INTO coaching_sessions
            (coach_id, student_id, court_id, date, start_time, end_time, notes, recurrence_id, group_id)
@@ -596,8 +584,8 @@ router.post('/sessions/group/:groupId/add-student', requireAuth, requireAdmin, a
     res.status(201).json({ sessions: inserted, count: inserted.length })
   } catch (err) {
     await client.query('ROLLBACK')
-    if (err.message === 'student_conflict')
-      return res.status(409).json({ message: `Student already has a session on ${err.date} at that time.` })
+    if (err.code === '23505')
+      return res.status(409).json({ message: 'Student already has a coaching session at that time on one of these dates.' })
     res.status(500).json({ message: 'Server error.' })
   } finally { client.release() }
 })
