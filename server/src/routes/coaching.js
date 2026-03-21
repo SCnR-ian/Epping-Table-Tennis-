@@ -541,10 +541,11 @@ router.post('/sessions/group/:groupId/add-student', requireAuth, requireAdmin, a
   try {
     await client.query('BEGIN')
 
-    // Fetch all remaining (today or future) confirmed sessions in this group
+    // Fetch one representative row per remaining date in this group
     const today = new Date().toISOString().slice(0, 10)
     const { rows: sessions } = await client.query(
-      `SELECT * FROM coaching_sessions
+      `SELECT DISTINCT ON (date) *
+       FROM coaching_sessions
        WHERE group_id=$1 AND status='confirmed' AND date >= $2
        ORDER BY date ASC`,
       [req.params.groupId, today]
