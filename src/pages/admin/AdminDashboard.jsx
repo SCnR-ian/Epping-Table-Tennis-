@@ -2268,13 +2268,10 @@ const [sessionForm,      setSessionForm]      = useState({
                                 {g.student_names.map((name, i) => {
                                   const sid = g.student_ids?.[i]
                                   const bal = sid !== undefined ? sessionBalances[sid] : undefined
-                                  const studentSession = sid !== undefined
-                                    ? allCoachingSessions.find(s => s.student_id === sid && s.group_id === g.group_id)
-                                    : null
                                   return (
                                     <button
                                       key={i}
-                                      onClick={() => studentSession && handleOpenReschedule(studentSession)}
+                                      onClick={() => sid !== undefined && handleOpenMemberModal(sid)}
                                       className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full transition-opacity hover:opacity-70 ${
                                         bal !== undefined && bal < 0
                                           ? 'bg-red-500/15 text-red-300'
