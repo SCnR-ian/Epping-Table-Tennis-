@@ -210,10 +210,11 @@ const [members,      setMembers]      = useState([])
   })
   const [showSessionForm,  setShowSessionForm]  = useState(false)
   const [sessionSaved,     setSessionSaved]     = useState(false)
-  const [rescheduleModal,  setRescheduleModal]  = useState(null) // { studentName, sessions }
-  const [rescheduleDates,  setRescheduleDates]  = useState({})  // { [id]: 'YYYY-MM-DD' }
-  const [rescheduleTime,   setRescheduleTime]   = useState({ start_time: '', end_time: '' })
-  const [rescheduleSaving, setRescheduleSaving] = useState(false)
+  const [rescheduleModal,    setRescheduleModal]    = useState(null) // { studentName, sessions }
+  const [rescheduleDates,    setRescheduleDates]    = useState({})  // { [id]: 'YYYY-MM-DD' }
+  const [rescheduleTime,     setRescheduleTime]     = useState({ start_time: '', end_time: '' })
+  const [rescheduleSaving,   setRescheduleSaving]   = useState(false)
+  const [rescheduleSelected, setRescheduleSelected] = useState(new Set()) // session ids checked for bulk move
   const [coachingEditId,   setCoachingEditId]   = useState(null)
   const [coachingEditForm, setCoachingEditForm] = useState({ date: '', start_time: '', end_time: '' })
   const [coachingEditSaving, setCoachingEditSaving] = useState(false)
@@ -725,6 +726,7 @@ const [sessionForm,      setSessionForm]      = useState({
     setRescheduleModal({ studentName: session.student_name, sessions: sorted })
     setRescheduleDates({})
     setRescheduleTime({ start_time: '', end_time: '' })
+    setRescheduleSelected(new Set())
   }
 
   const refreshAfterReschedule = async () => {
@@ -781,6 +783,34 @@ const [sessionForm,      setSessionForm]      = useState({
       await coachingAPI.rescheduleBulk(updates)
       await refreshAfterReschedule()
       setRescheduleModal(null)
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not reschedule.')
+    } finally { setRescheduleSaving(false) }
+  }
+
+  const handleMoveSelected = async () => {
+    const sessions = rescheduleModal?.sessions ?? []
+    const updates = sessions
+      .filter(s => rescheduleSelected.has(s.id) && rescheduleDates[s.id])
+      .map(s => {
+        const u = { id: s.id, date: rescheduleDates[s.id] }
+        const { start_time: newStart, end_time: newEnd } = rescheduleTime
+        if (newStart && newEnd) { u.start_time = newStart; u.end_time = newEnd }
+        return u
+      })
+    if (updates.length === 0) return alert('Pick a new date for each selected session.')
+    const OPEN_DOW = new Set([1, 2, 3, 6])
+    const closed = updates.filter(u => !OPEN_DOW.has(new Date(u.date + 'T12:00:00Z').getUTCDay()))
+    if (closed.length > 0) {
+      alert(`Cannot shift to closed day(s): ${closed.map(u => u.date).join(', ')}.\nOpen days are Mon, Tue, Wed, Sat.`)
+      return
+    }
+    setRescheduleSaving(true)
+    try {
+      await coachingAPI.rescheduleBulk(updates)
+      await refreshAfterReschedule()
+      setRescheduleSelected(new Set())
+      setRescheduleDates({})
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not reschedule.')
     } finally { setRescheduleSaving(false) }
@@ -2268,71 +2298,31 @@ const [sessionForm,      setSessionForm]      = useState({
                             <td className="px-5 py-3 text-slate-400 text-xs">{g.court_name}</td>
                             <td className="px-5 py-3 text-slate-400 text-xs max-w-[140px] truncate">{g.notes ?? '—'}</td>
                             <td className="px-5 py-3">
-                              <div className="flex items-center gap-3">
-                                <button
-                                  onClick={() => {
-                                    if (rescheduleGroupId === g.group_id) {
-                                      setRescheduleGroupId(null)
-                                    } else {
-                                      setRescheduleGroupId(g.group_id)
-                                      setRescheduleGroupForm({ date: '', start_time: '', end_time: '' })
-                                    }
-                                  }}
-                                  className="text-xs text-sky-400 hover:text-sky-300 font-medium">
-                                  {rescheduleGroupId === g.group_id ? 'Close' : 'Reschedule'}
-                                </button>
+                              <div className="flex flex-col gap-1.5">
+                                {g.student_names.map((name, i) => {
+                                  const sid       = g.student_ids?.[i]
+                                  const sessionId = g.session_ids?.[i]
+                                  const checkedIn = sessionId !== undefined && adminCheckedIn.has(sessionId)
+                                  return (
+                                    <div key={i} className="flex items-center gap-2">
+                                      <span className="text-xs text-slate-400 min-w-[60px] truncate">{name}</span>
+                                      <button
+                                        onClick={() => checkedIn
+                                          ? handleAdminUndoCheckInCoaching(sessionId, sid)
+                                          : handleAdminCheckInCoaching(sessionId, sid)}
+                                        className={`text-xs font-medium transition-colors whitespace-nowrap ${checkedIn ? 'text-emerald-400 hover:text-red-400' : 'text-emerald-400 hover:text-emerald-300'}`}>
+                                        {checkedIn ? 'Checked in' : 'Check in'}
+                                      </button>
+                                    </div>
+                                  )
+                                })}
                                 <button onClick={() => handleCancelGroupSession(g.group_id)}
-                                  className="text-xs text-red-400 hover:text-red-300 font-medium">
+                                  className="text-xs text-red-400 hover:text-red-300 font-medium mt-0.5 text-left">
                                   Cancel
                                 </button>
                               </div>
                             </td>
                           </tr>
-                          {rescheduleGroupId === g.group_id && (
-                            <tr className="border-b border-court-light/50 bg-court-light/10">
-                              <td colSpan={6} className="px-5 py-4">
-                                {(() => {
-                                  const rDow = rescheduleGroupForm.date ? new Date(rescheduleGroupForm.date + 'T12:00:00').getDay() : null
-                                  const rSlots = rDow === 6 ? SATURDAY_SLOTS : WEEKDAY_SLOTS
-                                  return (
-                                <div className="flex flex-wrap items-end gap-3">
-                                  <div>
-                                    <label className="block text-xs text-slate-400 mb-1">New Date</label>
-                                    <input type="date" className="input text-sm"
-                                      value={rescheduleGroupForm.date}
-                                      onChange={e => setRescheduleGroupForm(f => ({ ...f, date: e.target.value, start_time: '', end_time: '' }))} />
-                                  </div>
-                                  <div>
-                                    <label className="block text-xs text-slate-400 mb-1">Start Time</label>
-                                    <select className="input text-sm" value={rescheduleGroupForm.start_time}
-                                      onChange={e => setRescheduleGroupForm(f => ({ ...f, start_time: e.target.value, end_time: '' }))}>
-                                      <option value="">Keep current</option>
-                                      {rSlots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
-                                    </select>
-                                  </div>
-                                  <div>
-                                    <label className="block text-xs text-slate-400 mb-1">End Time</label>
-                                    <select className="input text-sm" value={rescheduleGroupForm.end_time}
-                                      onChange={e => setRescheduleGroupForm(f => ({ ...f, end_time: e.target.value }))}
-                                      disabled={!rescheduleGroupForm.start_time}>
-                                      <option value="">Keep current</option>
-                                      {(rescheduleGroupForm.start_time
-                                        ? rSlots.filter(s => s > rescheduleGroupForm.start_time)
-                                        : rSlots
-                                      ).map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
-                                    </select>
-                                  </div>
-                                  <button onClick={handleRescheduleGroupSession}
-                                    disabled={!rescheduleGroupForm.date}
-                                    className="btn-primary text-sm disabled:opacity-50">
-                                    Confirm
-                                  </button>
-                                </div>
-                                  )
-                                })()}
-                              </td>
-                            </tr>
-                          )}
                         </React.Fragment>
                       ))}
                     </tbody>
@@ -3717,7 +3707,7 @@ const [sessionForm,      setSessionForm]      = useState({
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-court-light">
-                      {['#', 'Current Date', 'Time', 'New Date', 'Actions'].map(h => (
+                      {['', '#', 'Current Date', 'Time', 'New Date', 'Actions'].map(h => (
                         <th key={h} className="text-left px-3 py-2 text-xs text-slate-400 uppercase tracking-wider">{h}</th>
                       ))}
                     </tr>
@@ -3726,8 +3716,19 @@ const [sessionForm,      setSessionForm]      = useState({
                     {rescheduleModal.sessions.map((s, i) => {
                       const isPast    = s.date?.slice(0, 10) < todayISO
                       const newDate   = rescheduleDates[s.id] ?? ''
+                      const isChecked = rescheduleSelected.has(s.id)
                       return (
-                        <tr key={s.id} className={`border-b border-court-light/40 last:border-0 ${isPast ? 'opacity-40' : ''}`}>
+                        <tr key={s.id} className={`border-b border-court-light/40 last:border-0 ${isPast ? 'opacity-40' : ''} ${isChecked ? 'bg-brand-500/5' : ''}`}>
+                          <td className="pl-3 py-2.5">
+                            {!isPast && (
+                              <input type="checkbox" checked={isChecked}
+                                onChange={() => setRescheduleSelected(prev => {
+                                  const n = new Set(prev)
+                                  n.has(s.id) ? n.delete(s.id) : n.add(s.id)
+                                  return n
+                                })} />
+                            )}
+                          </td>
                           <td className="px-3 py-2.5 text-slate-500 text-xs">{i + 1}</td>
                           <td className="px-3 py-2.5">
                             <p className="text-white text-xs font-medium">
@@ -3772,7 +3773,29 @@ const [sessionForm,      setSessionForm]      = useState({
                 </table>
               </div>
 
-              <div className="flex justify-end pt-1 border-t border-court-light">
+              <div className="flex items-center justify-between pt-1 border-t border-court-light">
+                <div className="flex items-center gap-3">
+                  {rescheduleSelected.size > 0 && (
+                    <button
+                      disabled={rescheduleSaving}
+                      onClick={handleMoveSelected}
+                      className="btn-primary text-xs py-1 px-3 disabled:opacity-50">
+                      {rescheduleSaving ? 'Saving…' : `Move ${rescheduleSelected.size} selected`}
+                    </button>
+                  )}
+                  <button
+                    className="text-xs text-slate-500 hover:text-slate-300"
+                    onClick={() => {
+                      const upcomingIds = rescheduleModal.sessions
+                        .filter(s => s.date?.slice(0, 10) >= todayISO)
+                        .map(s => s.id)
+                      setRescheduleSelected(prev =>
+                        prev.size === upcomingIds.length ? new Set() : new Set(upcomingIds)
+                      )
+                    }}>
+                    {rescheduleSelected.size > 0 ? 'Deselect all' : 'Select all'}
+                  </button>
+                </div>
                 <button onClick={() => setRescheduleModal(null)} className="btn-secondary text-sm">Close</button>
               </div>
             </div>

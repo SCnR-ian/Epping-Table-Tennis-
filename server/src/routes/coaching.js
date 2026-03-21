@@ -323,7 +323,15 @@ router.get('/sessions/groups', requireAuth, requireAdmin, async (req, res) => {
          array_agg(u.id ORDER BY u.name)     AS student_ids,
          array_agg(u.name ORDER BY u.name)   AS student_names,
          array_agg(u.email ORDER BY u.name)  AS student_emails,
-         array_agg(cs.id ORDER BY u.name)    AS session_ids
+         array_agg(cs.id ORDER BY u.name)    AS session_ids,
+         array_agg(
+           EXISTS(
+             SELECT 1 FROM check_ins ci
+             WHERE ci.type='coaching'
+               AND ci.reference_id = cs.id::text
+               AND ci.user_id = cs.student_id
+           ) ORDER BY u.name
+         ) AS checked_ins
        FROM coaching_sessions cs
        JOIN coaches co ON co.id  = cs.coach_id
        JOIN users   u  ON u.id   = cs.student_id
