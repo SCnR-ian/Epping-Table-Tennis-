@@ -2295,7 +2295,7 @@ const [sessionForm,      setSessionForm]      = useState({
               ) : groupSessions.length === 0 ? (
                 <p className="text-slate-300 text-sm">No group coaching sessions on this date.</p>
               ) : (
-                <div className="card p-0 overflow-hidden">
+                <div className="card p-0" style={{ overflow: addStudentGroupId ? 'visible' : 'hidden' }}>
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-court-light">
