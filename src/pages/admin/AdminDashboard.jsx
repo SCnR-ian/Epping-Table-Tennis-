@@ -215,7 +215,7 @@ const [members,      setMembers]      = useState([])
   const [rescheduleTime,   setRescheduleTime]   = useState({ start_time: '', end_time: '' })
   const [rescheduleSaving, setRescheduleSaving] = useState(false)
   const [coachingEditId,   setCoachingEditId]   = useState(null)
-  const [coachingEditForm, setCoachingEditForm] = useState({ date: '', start_time: '', end_time: '' })
+  const [coachingEditForm, setCoachingEditForm] = useState({ date: '', start_time: '', end_time: '', coach_id: '', notes: '' })
   const [coachingEditSaving, setCoachingEditSaving] = useState(false)
 const [sessionForm,      setSessionForm]      = useState({
     coach_id: '', student_id: '',
@@ -734,6 +734,36 @@ const [sessionForm,      setSessionForm]      = useState({
     ])
     setCoachingSessions(cur.data.sessions); setAdminCheckedIn(new Set(cur.data.sessions.filter(s => s.checked_in).map(s => s.id)))
     setAllCoachingSessions(all.data.sessions)
+  }
+
+  const handleCoachingEditOpen = (s) => {
+    setCoachingEditId(s.id)
+    setCoachingEditForm({
+      date:       s.date?.slice(0, 10) ?? '',
+      start_time: s.start_time?.slice(0, 5) ?? '',
+      end_time:   s.end_time?.slice(0, 5) ?? '',
+      coach_id:   String(s.coach_id ?? ''),
+      notes:      s.notes ?? '',
+    })
+  }
+
+  const handleCoachingEditSave = async () => {
+    if (!coachingEditId) return
+    setCoachingEditSaving(true)
+    try {
+      const { date, start_time, end_time, coach_id, notes } = coachingEditForm
+      await coachingAPI.editSession(coachingEditId, {
+        ...(date       ? { date }       : {}),
+        ...(start_time ? { start_time } : {}),
+        ...(end_time   ? { end_time }   : {}),
+        ...(coach_id   ? { coach_id: Number(coach_id) } : {}),
+        notes,
+      })
+      setCoachingEditId(null)
+      await refreshAfterReschedule()
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not save changes.')
+    } finally { setCoachingEditSaving(false) }
   }
 
   const handleMoveSingle = async (sessionId) => {
@@ -1955,8 +1985,10 @@ const [sessionForm,      setSessionForm]      = useState({
                         return !q || s.student_name?.toLowerCase().includes(q) || s.coach_name?.toLowerCase().includes(q)
                       }).map(s => {
                         const checkedIn = s.checked_in || adminCheckedIn.has(s.id)
+                        const isEditing = coachingEditId === s.id
                         return (
-                          <tr key={s.id} className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors">
+                          <React.Fragment key={s.id}>
+                          <tr className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors">
                             <td className="px-5 py-3">
                               <button onClick={() => handleOpenMemberModal(s.student_id)}
                                 className="font-medium text-white hover:text-brand-400 transition-colors text-left">
@@ -1985,6 +2017,11 @@ const [sessionForm,      setSessionForm]      = useState({
                                   className={`text-xs font-medium transition-colors ${checkedIn ? 'text-emerald-400 hover:text-red-400' : 'text-emerald-400 hover:text-emerald-300'}`}>
                                   {checkedIn ? 'Checked in' : 'Check in'}
                                 </button>
+                                <button
+                                  onClick={() => isEditing ? setCoachingEditId(null) : handleCoachingEditOpen(s)}
+                                  className={`text-xs font-medium transition-colors ${isEditing ? 'text-slate-400 hover:text-white' : 'text-sky-400 hover:text-sky-300'}`}>
+                                  {isEditing ? 'Close' : 'Edit'}
+                                </button>
                                 <button onClick={() => handleCancelSession(s.id)}
                                   className="text-xs text-red-400 hover:text-red-300 font-medium">
                                   Cancel
@@ -1992,6 +2029,67 @@ const [sessionForm,      setSessionForm]      = useState({
                               </div>
                             </td>
                           </tr>
+                          {isEditing && (() => {
+                            const eDow = coachingEditForm.date ? new Date(coachingEditForm.date + 'T12:00:00').getDay() : null
+                            const eSlots = eDow === 6 ? SATURDAY_SLOTS : WEEKDAY_SLOTS
+                            return (
+                              <tr className="border-b border-court-light/50 bg-court-light/10">
+                                <td colSpan={6} className="px-5 py-4">
+                                  <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                                    <div>
+                                      <label className="text-xs text-slate-400 block mb-1">Date</label>
+                                      <input type="date" className="input text-sm w-full"
+                                        value={coachingEditForm.date}
+                                        onChange={e => setCoachingEditForm(f => ({ ...f, date: e.target.value, start_time: '', end_time: '' }))} />
+                                    </div>
+                                    <div>
+                                      <label className="text-xs text-slate-400 block mb-1">Start time</label>
+                                      <select className="input text-sm w-full" value={coachingEditForm.start_time}
+                                        onChange={e => setCoachingEditForm(f => ({ ...f, start_time: e.target.value, end_time: '' }))}>
+                                        <option value="">— keep current —</option>
+                                        {eSlots.map(sl => <option key={sl} value={sl}>{fmtTime(sl)}</option>)}
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="text-xs text-slate-400 block mb-1">End time</label>
+                                      <select className="input text-sm w-full" value={coachingEditForm.end_time}
+                                        disabled={!coachingEditForm.start_time}
+                                        onChange={e => setCoachingEditForm(f => ({ ...f, end_time: e.target.value }))}>
+                                        <option value="">— keep current —</option>
+                                        {eSlots.filter(sl => sl > coachingEditForm.start_time).map(sl => <option key={sl} value={sl}>{fmtTime(sl)}</option>)}
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="text-xs text-slate-400 block mb-1">Coach</label>
+                                      <select className="input text-sm w-full" value={coachingEditForm.coach_id}
+                                        onChange={e => setCoachingEditForm(f => ({ ...f, coach_id: e.target.value }))}>
+                                        <option value="">— keep current —</option>
+                                        {coaches.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                      </select>
+                                    </div>
+                                    <div className="md:col-span-2">
+                                      <label className="text-xs text-slate-400 block mb-1">Notes</label>
+                                      <input type="text" className="input text-sm w-full"
+                                        value={coachingEditForm.notes}
+                                        onChange={e => setCoachingEditForm(f => ({ ...f, notes: e.target.value }))}
+                                        placeholder="Optional notes" />
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-2 mt-3">
+                                    <button onClick={handleCoachingEditSave} disabled={coachingEditSaving}
+                                      className="btn-primary text-xs py-1 px-3 disabled:opacity-50">
+                                      {coachingEditSaving ? 'Saving…' : 'Save'}
+                                    </button>
+                                    <button onClick={() => setCoachingEditId(null)} disabled={coachingEditSaving}
+                                      className="btn-secondary text-xs py-1 px-3">
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })()}
+                          </React.Fragment>
                         )
                       })}
                     </tbody>
