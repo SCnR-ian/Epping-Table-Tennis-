@@ -234,6 +234,9 @@ const [sessionForm,      setSessionForm]      = useState({
   })
   const [rescheduleGroupId,   setRescheduleGroupId]   = useState(null)
   const [rescheduleGroupForm, setRescheduleGroupForm] = useState({ date: '', start_time: '', end_time: '' })
+  const [addStudentGroupId,   setAddStudentGroupId]   = useState(null)
+  const [addStudentSearch,    setAddStudentSearch]    = useState('')
+  const [addStudentSaving,    setAddStudentSaving]    = useState(false)
   // Coaching hours
   const [hoursStudentSearch, setHoursStudentSearch] = useState('')
   const [hoursTarget,        setHoursTarget]        = useState(null)  // { user_id, name, balance, ledger }
@@ -960,6 +963,29 @@ const [sessionForm,      setSessionForm]      = useState({
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not cancel group session.')
     }
+  }
+
+  const handleAddStudentToGroup = async (groupId, studentId) => {
+    setAddStudentSaving(true)
+    try {
+      const { data } = await coachingAPI.addStudentToGroup(groupId, studentId)
+      // Credit hours to the student: duration × sessions added
+      if (data.sessions?.length) {
+        const s = data.sessions[0]
+        const hrs = (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60
+        await coachingAPI.addHours(studentId, {
+          delta: hrs * data.sessions.length,
+          note: `Added to group coaching (${data.sessions.length} session${data.sessions.length > 1 ? 's' : ''})`,
+        }).catch(() => {})
+      }
+      const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
+      setGroupSessions(gd.groups)
+      await refreshAfterReschedule()
+      setAddStudentGroupId(null)
+      setAddStudentSearch('')
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not add student.')
+    } finally { setAddStudentSaving(false) }
   }
 
   const handleRescheduleGroupSession = async () => {
@@ -2332,13 +2358,62 @@ const [sessionForm,      setSessionForm]      = useState({
                                     </div>
                                   )
                                 })}
-                                <button onClick={() => handleCancelGroupSession(g.group_id)}
-                                  className="text-xs text-red-400 hover:text-red-300 font-medium mt-0.5 text-left">
-                                  Cancel
-                                </button>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <button
+                                    onClick={() => {
+                                      setAddStudentGroupId(addStudentGroupId === g.group_id ? null : g.group_id)
+                                      setAddStudentSearch('')
+                                    }}
+                                    className="text-xs text-sky-400 hover:text-sky-300 font-medium">
+                                    {addStudentGroupId === g.group_id ? 'Close' : '+ Student'}
+                                  </button>
+                                  <button onClick={() => handleCancelGroupSession(g.group_id)}
+                                    className="text-xs text-red-400 hover:text-red-300 font-medium">
+                                    Cancel
+                                  </button>
+                                </div>
                               </div>
                             </td>
                           </tr>
+                          {addStudentGroupId === g.group_id && (
+                            <tr className="border-b border-court-light/50 bg-court-light/10">
+                              <td colSpan={6} className="px-5 py-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-xs text-slate-400">Add student:</span>
+                                  <div className="relative">
+                                    <input
+                                      className="input text-sm py-1 w-52"
+                                      placeholder="Search by name…"
+                                      value={addStudentSearch}
+                                      onChange={e => setAddStudentSearch(e.target.value)}
+                                      autoFocus
+                                    />
+                                    {addStudentSearch && (() => {
+                                      const filtered = members.filter(m =>
+                                        !g.student_ids?.includes(m.id) &&
+                                        m.name.toLowerCase().includes(addStudentSearch.toLowerCase())
+                                      ).slice(0, 6)
+                                      return filtered.length > 0 ? (
+                                        <ul className="absolute z-20 top-full left-0 mt-1 w-52 bg-court-mid border border-court-light rounded-lg overflow-hidden shadow-lg">
+                                          {filtered.map(m => (
+                                            <li key={m.id}>
+                                              <button
+                                                disabled={addStudentSaving}
+                                                onClick={() => handleAddStudentToGroup(g.group_id, m.id)}
+                                                className="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-court-light transition-colors disabled:opacity-50">
+                                                {m.name}
+                                              </button>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      ) : null
+                                    })()}
+                                  </div>
+                                  {addStudentSaving && <span className="text-xs text-slate-400">Adding…</span>}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
                         </React.Fragment>
                       ))}
                     </tbody>

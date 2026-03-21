@@ -531,6 +531,77 @@ router.post('/sessions/group', requireAuth, requireAdmin, async (req, res) => {
   }
 })
 
+// POST /api/coaching/sessions/group/:groupId/add-student  (admin)
+// body: { student_id }  — adds the student to all remaining confirmed sessions in this group
+router.post('/sessions/group/:groupId/add-student', requireAuth, requireAdmin, async (req, res) => {
+  const { student_id } = req.body
+  if (!student_id) return res.status(400).json({ message: 'student_id is required.' })
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // Fetch all remaining (today or future) confirmed sessions in this group
+    const today = new Date().toISOString().slice(0, 10)
+    const { rows: sessions } = await client.query(
+      `SELECT * FROM coaching_sessions
+       WHERE group_id=$1 AND status='confirmed' AND date >= $2
+       ORDER BY date ASC`,
+      [req.params.groupId, today]
+    )
+    if (sessions.length === 0) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: 'No remaining sessions found for this group.' })
+    }
+
+    // Check student isn't already in this group
+    const { rows: existing } = await client.query(
+      `SELECT 1 FROM coaching_sessions
+       WHERE group_id=$1 AND student_id=$2 AND status='confirmed' LIMIT 1`,
+      [req.params.groupId, student_id]
+    )
+    if (existing.length) {
+      await client.query('ROLLBACK')
+      return res.status(409).json({ message: 'Student is already in this group.' })
+    }
+
+    // Use the same court/coach/time as the existing sessions
+    const ref = sessions[0]
+    const recurrenceId = sessions.length > 1 ? randomUUID() : null
+
+    const inserted = []
+    for (const s of sessions) {
+      // Check student conflicts on each date
+      const { rows: conflict } = await client.query(
+        `SELECT 1 FROM coaching_sessions
+         WHERE student_id=$1 AND date=$2 AND status='confirmed'
+           AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
+        [student_id, s.date, ref.start_time, ref.end_time]
+      )
+      if (conflict.length)
+        throw Object.assign(new Error('student_conflict'), { date: s.date })
+
+      const { rows } = await client.query(
+        `INSERT INTO coaching_sessions
+           (coach_id, student_id, court_id, date, start_time, end_time, notes, recurrence_id, group_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         RETURNING *`,
+        [s.coach_id, student_id, s.court_id, s.date, s.start_time, s.end_time,
+         s.notes, recurrenceId, s.group_id]
+      )
+      inserted.push(rows[0])
+    }
+
+    await client.query('COMMIT')
+    res.status(201).json({ sessions: inserted, count: inserted.length })
+  } catch (err) {
+    await client.query('ROLLBACK')
+    if (err.message === 'student_conflict')
+      return res.status(409).json({ message: `Student already has a session on ${err.date} at that time.` })
+    res.status(500).json({ message: 'Server error.' })
+  } finally { client.release() }
+})
+
 // DELETE /api/coaching/sessions/group/:groupId  (admin) — cancel all confirmed sessions in a group
 router.delete('/sessions/group/:groupId', requireAuth, requireAdmin, async (req, res) => {
   const client = await pool.connect()
