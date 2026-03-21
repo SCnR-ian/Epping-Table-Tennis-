@@ -1009,45 +1009,6 @@ router.put('/sessions/group/:groupId/reschedule', requireAuth, requireAdmin, asy
   } finally { client.release() }
 })
 
-// PATCH /api/coaching/sessions/:id  (admin) — edit any fields of a single session
-// body: { coach_id?, notes?, date?, start_time?, end_time? }
-router.patch('/sessions/:id', requireAuth, requireAdmin, async (req, res) => {
-  const { coach_id, notes, date, start_time, end_time } = req.body
-  const client = await pool.connect()
-  try {
-    await client.query('BEGIN')
-    const { rows: [session] } = await client.query(
-      'SELECT * FROM coaching_sessions WHERE id=$1', [req.params.id]
-    )
-    if (!session) {
-      await client.query('ROLLBACK')
-      return res.status(404).json({ message: 'Session not found.' })
-    }
-    const newDate  = date       || session.date
-    const newStart = start_time || session.start_time
-    const newEnd   = end_time   || session.end_time
-    const newCoach = coach_id   !== undefined ? Number(coach_id) : session.coach_id
-    const newNotes = notes      !== undefined ? notes            : session.notes
-
-    let courtId = session.court_id
-    if (date || start_time || end_time) {
-      courtId = await checkAndAssignCourt(client, session, newDate, newStart, newEnd)
-    }
-
-    const { rows } = await client.query(
-      `UPDATE coaching_sessions
-       SET date=$1, start_time=$2, end_time=$3, court_id=$4, coach_id=$5, notes=$6
-       WHERE id=$7 RETURNING *`,
-      [newDate, newStart, newEnd, courtId, newCoach, newNotes, session.id]
-    )
-    await client.query('COMMIT')
-    res.json({ session: rows[0] })
-  } catch (err) {
-    await client.query('ROLLBACK')
-    return rescheduleConflictResponse(err, res)
-  } finally { client.release() }
-})
-
 // PUT /api/coaching/sessions/:id/reschedule  (admin) — move a single session to a new date/time
 // body: { date: 'YYYY-MM-DD', start_time?, end_time? }
 router.put('/sessions/:id/reschedule', requireAuth, requireAdmin, async (req, res) => {

@@ -135,7 +135,6 @@ export const coachingAPI = {
   // Admin pay period report
   getPaymentReport:    (from, to) => api.get('/coaching/payment-report', { params: { from, to } }),
   // Reschedule a single session to a new date (admin)
-  editSession:         (id, data) => api.patch(`/coaching/sessions/${id}`, data),
   rescheduleSession:   (id, date, start_time, end_time) => api.put(`/coaching/sessions/${id}/reschedule`, { date, ...(start_time && end_time ? { start_time, end_time } : {}) }),
   rescheduleBulk:      (updates)    => api.put('/coaching/sessions/reschedule-bulk', { updates }),
   // Group coaching (admin)
