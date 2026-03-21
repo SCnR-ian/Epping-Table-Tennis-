@@ -816,6 +816,7 @@ const [sessionForm,      setSessionForm]      = useState({
     } finally { setRescheduleSaving(false) }
   }
 
+  // Returns true if a makeup session was successfully created (so hours should NOT be deducted)
   const offerMakeupSession = async (session, allSessions) => {
     // Find the last session in this series (or just the session itself for one-offs)
     const series = session.recurrence_id
@@ -825,7 +826,7 @@ const [sessionForm,      setSessionForm]      = useState({
     const firstCandidate = new Date(lastDate + 'T12:00:00Z')
     firstCandidate.setUTCDate(firstCandidate.getUTCDate() + 7)
     const firstISO = firstCandidate.toISOString().slice(0, 10)
-    if (!window.confirm(`Schedule a makeup session after ${fmtDate(lastDate)} (same time)?`)) return
+    if (!window.confirm(`Schedule a makeup session after ${fmtDate(lastDate)} (same time)?`)) return false
 
     const payload = {
       coach_id:   session.coach_id,
@@ -842,13 +843,11 @@ const [sessionForm,      setSessionForm]      = useState({
     for (let attempt = 0; attempt < 4; attempt++) {
       try {
         await coachingAPI.createSession({ ...payload, date: attemptISO })
-        const hrs = (toMins(session.end_time.slice(0, 5)) - toMins(session.start_time.slice(0, 5))) / 60
-        await coachingAPI.addHours(session.student_id, { delta: hrs, note: 'Makeup session' })
         const { data } = await coachingAPI.getSessions({ date: coachingDate })
         setCoachingSessions(data.sessions); setAdminCheckedIn(new Set(data.sessions.filter(s => s.checked_in).map(s => s.id)))
         if (attemptISO !== firstISO)
           alert(`Makeup session scheduled on ${fmtDate(attemptISO)} (earlier dates were unavailable).`)
-        return
+        return true
       } catch (err) {
         if (err.response?.status === 409) {
           const d = new Date(attemptISO + 'T12:00:00Z')
@@ -856,11 +855,12 @@ const [sessionForm,      setSessionForm]      = useState({
           attemptISO = d.toISOString().slice(0, 10)
         } else {
           alert(err.response?.data?.message ?? 'Could not schedule makeup.')
-          return
+          return false
         }
       }
     }
     alert('Could not find an available slot for the makeup session within 4 weeks — please schedule it manually.')
+    return false
   }
 
   const handleCancelSession = async (id) => {
@@ -871,9 +871,11 @@ const [sessionForm,      setSessionForm]      = useState({
       setCoachingSessions(prev => prev.filter(s => s.id !== id))
       setBookingViewSessions(prev => prev.filter(s => s.id !== id))
       if (session) {
-        const hrs = (toMins(session.end_time.slice(0, 5)) - toMins(session.start_time.slice(0, 5))) / 60
-        await coachingAPI.addHours(session.student_id, { delta: -hrs, note: 'Session cancelled' }).catch(() => {})
-        await offerMakeupSession(session, allCoachingSessions)
+        const hasMakeup = await offerMakeupSession(session, allCoachingSessions)
+        if (!hasMakeup) {
+          const hrs = (toMins(session.end_time.slice(0, 5)) - toMins(session.start_time.slice(0, 5))) / 60
+          await coachingAPI.addHours(session.student_id, { delta: -hrs, note: 'Session cancelled' }).catch(() => {})
+        }
       }
     } catch {
       alert('Could not cancel session.')
@@ -934,10 +936,27 @@ const [sessionForm,      setSessionForm]      = useState({
   }
 
   const handleCancelGroupSession = async (groupId) => {
-    if (!window.confirm('Cancel all sessions in this group?')) return
+    if (!window.confirm('Cancel all sessions in this group? Hours will be deducted from each student.')) return
     try {
+      // Tally remaining (today or future) hours per student before cancelling
+      const today = new Date().toISOString().slice(0, 10)
+      const remaining = allCoachingSessions.filter(
+        s => s.group_id === groupId && s.date?.slice(0, 10) >= today
+      )
+      const studentHours = {}
+      for (const s of remaining) {
+        const hrs = (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60
+        studentHours[s.student_id] = (studentHours[s.student_id] ?? 0) + hrs
+      }
+
       await coachingAPI.cancelGroupSession(groupId)
       setGroupSessions(prev => prev.filter(g => g.group_id !== groupId))
+
+      await Promise.allSettled(
+        Object.entries(studentHours).map(([sid, hrs]) =>
+          coachingAPI.addHours(Number(sid), { delta: -hrs, note: 'Group session series cancelled' })
+        )
+      )
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not cancel group session.')
     }
@@ -3349,7 +3368,11 @@ const [sessionForm,      setSessionForm]      = useState({
                                               await coachingAPI.cancelSession(item.id)
                                               setMemberModal(prev => ({ ...prev, coaching: prev.coaching.filter(x => x.id !== item.id) }))
                                               if (memberModalEditId === item.id) setMemberModalEditId(null)
-                                              await offerMakeupSession(item, mCoaching)
+                                              const hasMakeup = await offerMakeupSession(item, mCoaching)
+                                              if (!hasMakeup) {
+                                                const hrs = (toMins(item.end_time.slice(0, 5)) - toMins(item.start_time.slice(0, 5))) / 60
+                                                await coachingAPI.addHours(member.id, { delta: -hrs, note: 'Session cancelled' }).catch(() => {})
+                                              }
                                             } catch { alert('Could not cancel session.') }
                                           }}>Cancel</button>
                                       </div>
