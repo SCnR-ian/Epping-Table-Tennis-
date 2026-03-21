@@ -707,9 +707,8 @@ const [sessionForm,      setSessionForm]      = useState({
         delta: totalHrs,
         note: `Coaching hours — ${days.length > 1 ? `${days.length} days/week, ` : ''}${weeks} week${weeks > 1 ? 's' : ''}`,
       })
-      setSessionForm(f => ({ ...f, date: '', selectedDays: [], start_time: '', end_time: '', dayTimes: {} }))
-      setSessionSaved(true)
-      setTimeout(() => setSessionSaved(false), 4000)
+      setShowSessionForm(false)
+      setSessionSaved(false)
       const { data } = await coachingAPI.getSessions({ date: coachingDate })
       setCoachingSessions(data.sessions); setAdminCheckedIn(new Set(data.sessions.filter(s => s.checked_in).map(s => s.id)))
       try {
@@ -933,6 +932,7 @@ const [sessionForm,      setSessionForm]      = useState({
       ])
       setCoachingSessions(sd.sessions)
       setGroupSessions(gd.groups)
+      setShowGroupForm(false)
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not schedule group session.')
     }
