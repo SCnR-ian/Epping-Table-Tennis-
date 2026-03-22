@@ -127,6 +127,7 @@ export const coachingAPI = {
   getSessions:      (params) => api.get('/coaching/sessions', { params }),
   createSession:    (data)   => api.post('/coaching/sessions', data),
   cancelSession:    (id)     => api.delete(`/coaching/sessions/${id}`),
+  recordLeave:      (id)     => api.post(`/coaching/sessions/${id}/leave`),
   cancelRecurrence: (recId)  => api.delete(`/coaching/sessions/recurrence/${recId}`),
   // Student-facing
   getMySessions:       ()         => api.get('/coaching/my'),
@@ -142,6 +143,7 @@ export const coachingAPI = {
   getGroupSessions:    (params)     => api.get('/coaching/sessions/groups', { params }),
   cancelGroupSession:       (groupId)                           => api.delete(`/coaching/sessions/group/${groupId}`),
   addStudentToGroup:        (groupId, student_id)               => api.post(`/coaching/sessions/group/${groupId}/add-student`, { student_id }),
+  removeStudentFromGroup:   (groupId, studentId)                => api.delete(`/coaching/sessions/group/${groupId}/remove-student/${studentId}`),
   rescheduleGroupSession:   (groupId, date, start_time, end_time) =>
     api.put(`/coaching/sessions/group/${groupId}/reschedule`, { date, ...(start_time && end_time ? { start_time, end_time } : {}) }),
   // Coaching hours
