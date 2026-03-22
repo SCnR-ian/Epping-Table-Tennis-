@@ -4227,7 +4227,7 @@ const [sessionForm,      setSessionForm]      = useState({
                   <div className="flex flex-wrap gap-2">
                     {g.student_names.map((name, i) => {
                       const sid = g.student_ids?.[i]
-                      const leaveCount = (g.leave_used ?? [])[i] ?? 0
+                      const leaveCount = (g.group_leave_map ?? {})[String(sid)] ?? 0
                       const leaveExhausted = leaveCount >= 2
                       return (
                         <span key={i} className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${leaveExhausted ? 'bg-red-500/15 text-red-300' : leaveCount > 0 ? 'bg-amber-500/15 text-amber-300' : 'bg-brand-500/15 text-brand-300'}`}>
@@ -4305,8 +4305,7 @@ const [sessionForm,      setSessionForm]      = useState({
                           {!isEditing && (
                             <div className="px-4 pb-2 space-y-1 border-t border-court-light/30 pt-2">
                               {dateMap[date].map(s => {
-                                const idx = (g.student_ids ?? []).indexOf(s.student_id)
-                                const leaveCount = idx >= 0 ? ((g.leave_used ?? [])[idx] ?? 0) : 0
+                                const leaveCount = (g.group_leave_map ?? {})[String(s.student_id)] ?? 0
                                 const leaveUsed = leaveCount >= 2
                                 const sStart = s.start_time?.slice(0, 5)
                                 const sEnd = s.end_time?.slice(0, 5)

@@ -336,7 +336,15 @@ router.get('/sessions/groups', requireAuth, requireAdmin, async (req, res) => {
            (SELECT COUNT(*)::int FROM group_session_leaves gl
             WHERE gl.group_id = cs.group_id AND gl.student_id = cs.student_id)
            ORDER BY u.name
-         ) AS leave_used
+         ) AS leave_used,
+         (SELECT COALESCE(json_object_agg(gsl.student_id::text, gsl.cnt), '{}')
+          FROM (
+            SELECT student_id, COUNT(*)::int AS cnt
+            FROM group_session_leaves
+            WHERE group_id = cs.group_id
+            GROUP BY student_id
+          ) gsl
+         ) AS group_leave_map
        FROM coaching_sessions cs
        JOIN coaches co ON co.id  = cs.coach_id
        JOIN users   u  ON u.id   = cs.student_id
