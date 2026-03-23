@@ -26,7 +26,12 @@ async function ledgerEntry(client, userId, delta, note, sessionId, createdBy) {
 // GET /api/coaching/coaches
 router.get('/coaches', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM coaches WHERE user_id IS NOT NULL ORDER BY name ASC')
+    const { rows } = await pool.query(
+      `SELECT co.* FROM coaches co
+       JOIN users u ON u.id = co.user_id
+       WHERE co.user_id IS NOT NULL AND u.role = 'coach'
+       ORDER BY co.name ASC`
+    )
     res.json({ coaches: rows })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
