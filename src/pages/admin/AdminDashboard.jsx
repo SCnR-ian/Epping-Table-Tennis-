@@ -895,8 +895,12 @@ const [sessionForm,      setSessionForm]      = useState({
     for (let attempt = 0; attempt < 4; attempt++) {
       try {
         await coachingAPI.createSession({ ...payload, date: attemptISO })
-        const { data } = await coachingAPI.getSessions({ date: coachingDate })
+        const [{ data }, { data: allData }] = await Promise.all([
+          coachingAPI.getSessions({ date: coachingDate }),
+          coachingAPI.getSessions({}),
+        ])
         setCoachingSessions(data.sessions); setAdminCheckedIn(new Set(data.sessions.filter(s => s.checked_in).map(s => s.id)))
+        setAllCoachingSessions(allData.sessions)
         if (attemptISO !== firstISO)
           alert(`Makeup session scheduled on ${fmtDate(attemptISO)} (earlier dates were unavailable).`)
         return true
@@ -4019,6 +4023,10 @@ const [sessionForm,      setSessionForm]      = useState({
                                                 if (!hasMakeup) {
                                                   const hrs = (toMins(item.end_time.slice(0, 5)) - toMins(item.start_time.slice(0, 5))) / 60
                                                   await coachingAPI.addHours(member.id, { delta: -hrs, note: 'Session cancelled', session_type: item.group_id ? 'group' : 'solo' }).catch(() => {})
+                                                } else {
+                                                  // Refresh member modal to show new makeup session
+                                                  const { data: fresh } = await adminAPI.getMemberActivities(member.id).catch(() => ({ data: null }))
+                                                  if (fresh) setMemberModal(prev => ({ ...prev, coaching: fresh.coaching }))
                                                 }
                                               }
                                             } catch { alert('Could not cancel session.') }
