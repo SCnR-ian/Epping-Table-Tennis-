@@ -4046,7 +4046,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                         <div>
                                           <label className="block text-xs text-slate-400 mb-1">Start time</label>
                                           <select className="input text-xs py-1" value={memberModalEditForm.start_time}
-                                            onChange={e => setMemberModalEditForm(f => ({ ...f, start_time: e.target.value, end_time: '' }))}>
+                                            onChange={e => { const st = e.target.value; const et = st ? (ALL_SLOTS.find(sl => toMins(sl) === toMins(st) + 60) ?? '') : ''; setMemberModalEditForm(f => ({ ...f, start_time: st, end_time: et })) }}>
                                             <option value="">Keep same</option>
                                             {ALL_SLOTS.map(sl => <option key={sl} value={sl}>{fmtTime(sl)}</option>)}
                                           </select>
@@ -4185,7 +4185,7 @@ const [sessionForm,      setSessionForm]      = useState({
                             <div>
                               <label className="block text-xs text-slate-400 mb-1">New start time</label>
                               <select className="input text-xs py-1" value={memberModalBulkForm.start_time}
-                                onChange={e => setMemberModalBulkForm(f => ({ ...f, start_time: e.target.value, end_time: '' }))}>
+                                onChange={e => { const st = e.target.value; const et = st ? (ALL_SLOTS.find(sl => toMins(sl) === toMins(st) + 60) ?? '') : ''; setMemberModalBulkForm(f => ({ ...f, start_time: st, end_time: et })) }}>
                                 <option value="">Keep same</option>
                                 {ALL_SLOTS.map(sl => <option key={sl} value={sl}>{fmtTime(sl)}</option>)}
                               </select>
@@ -4857,7 +4857,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                 <div>
                                   <label className="block text-xs text-slate-400 mb-1">Start time</label>
                                   <select className="input text-xs py-1" value={groupEditForm.start_time}
-                                    onChange={e => setGroupEditForm(f => ({ ...f, start_time: e.target.value, end_time: '' }))}>
+                                    onChange={e => { const st = e.target.value; const et = st ? (ALL_SLOTS.find(sl => toMins(sl) === toMins(st) + 60) ?? '') : ''; setGroupEditForm(f => ({ ...f, start_time: st, end_time: et })) }}>
                                     <option value="">Keep same</option>
                                     {ALL_SLOTS.map(sl => <option key={sl} value={sl}>{fmtTime(sl)}</option>)}
                                   </select>
