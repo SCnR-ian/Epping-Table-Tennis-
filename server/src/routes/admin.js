@@ -69,13 +69,24 @@ router.put('/members/:id/role', async (req, res) => {
     return res.status(400).json({ message: 'Invalid role.' })
   const client = await pool.connect()
   try {
+    // Block demotion if the coach has future confirmed sessions
+    if (role !== 'coach') {
+      const { rows: futureSessions } = await client.query(
+        `SELECT COUNT(*)::int AS count FROM coaching_sessions cs
+         JOIN coaches co ON co.id = cs.coach_id
+         WHERE co.user_id = $1 AND cs.status = 'confirmed' AND cs.date >= CURRENT_DATE`,
+        [req.params.id]
+      )
+      if (futureSessions[0].count > 0)
+        return res.status(409).json({
+          message: `Cannot demote: this coach has ${futureSessions[0].count} upcoming session${futureSessions[0].count > 1 ? 's' : ''}. Cancel or reassign them first.`
+        })
+    }
     const { rows } = await client.query(
       'UPDATE users SET role=$1, updated_at=NOW() WHERE id=$2 RETURNING *',
       [role, req.params.id]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Member not found.' })
-    // If demoting from coach, try to remove the coaches record outside any transaction
-    // so an FK failure (active sessions) never rolls back the role update
     if (role !== 'coach') {
       try { await client.query('DELETE FROM coaches WHERE user_id=$1', [req.params.id]) } catch {}
     }
