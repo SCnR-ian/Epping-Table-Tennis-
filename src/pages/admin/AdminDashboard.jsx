@@ -392,8 +392,8 @@ const [sessionForm,      setSessionForm]      = useState({
         try { await coachingAPI.deleteCoachByUserId(id) } catch {}
         coachingAPI.getCoaches().then(({ data }) => setCoaches(data.coaches ?? [])).catch(() => {})
       }
-    } catch {
-      alert('Could not update role. Please try again.')
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not update role. Please try again.')
     }
   }
 
@@ -444,8 +444,8 @@ const [sessionForm,      setSessionForm]      = useState({
       if (role === 'coach') {
         coachingAPI.getCoaches().then(({ data }) => setCoaches(data.coaches ?? [])).catch(() => {})
       }
-    } catch {
-      alert('Could not remove member. Please try again.')
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not remove member. Please try again.')
     }
   }
 

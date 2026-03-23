@@ -75,13 +75,13 @@ router.put('/members/:id/role', async (req, res) => {
       [role, req.params.id]
     )
     if (!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ message: 'Member not found.' }) }
-    // If demoting from coach, remove the coaches record
+    // If demoting from coach, try to remove the coaches record — ignore FK failures (active sessions)
     if (role !== 'coach') {
-      await client.query('DELETE FROM coaches WHERE user_id=$1', [req.params.id])
+      try { await client.query('DELETE FROM coaches WHERE user_id=$1', [req.params.id]) } catch {}
     }
     await client.query('COMMIT')
     res.json({ member: safeUser(rows[0]) })
-  } catch { await client.query('ROLLBACK'); res.status(500).json({ message: 'Server error.' }) }
+  } catch (err) { await client.query('ROLLBACK'); res.status(500).json({ message: err.message ?? 'Server error.' }) }
   finally { client.release() }
 })
 
