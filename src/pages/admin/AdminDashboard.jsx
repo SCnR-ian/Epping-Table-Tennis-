@@ -1015,11 +1015,13 @@ const [sessionForm,      setSessionForm]      = useState({
         } catch {}
       }))
       setGroupStudentBalances(updatedBalances)
-      const [{ data: sd }, { data: gd }] = await Promise.all([
+      const [{ data: sd }, { data: ad }, { data: gd }] = await Promise.all([
         coachingAPI.getSessions({ date: coachingDate }),
+        coachingAPI.getSessions({}),
         coachingAPI.getGroupSessions({ date: coachingDate }),
       ])
       setCoachingSessions(sd.sessions)
+      setAllCoachingSessions(ad.sessions)
       setGroupSessions(gd.groups)
       setShowGroupForm(false)
     } catch (err) {
