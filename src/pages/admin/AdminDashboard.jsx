@@ -738,11 +738,16 @@ const [sessionForm,      setSessionForm]      = useState({
       })
       setShowSessionForm(false)
       setSessionSaved(false)
-      const { data } = await coachingAPI.getSessions({ date: coachingDate })
-      setCoachingSessions(data.sessions); setAdminCheckedIn(new Set(data.sessions.filter(s => s.checked_in).map(s => s.id)))
+      const [{ data }, { data: allData }] = await Promise.all([
+        coachingAPI.getSessions({ date: coachingDate }),
+        coachingAPI.getSessions({}),
+      ])
+      setCoachingSessions(data.sessions)
+      setAdminCheckedIn(new Set(data.sessions.filter(s => s.checked_in).map(s => s.id)))
+      setAllCoachingSessions(allData.sessions)
       try {
         const { data: hd } = await coachingAPI.getHoursBalance(student_id)
-        setSessionStudentBalance(hd.balance)
+        setSessionStudentBalance(hd.soloBalance)
       } catch {}
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not schedule session.')
