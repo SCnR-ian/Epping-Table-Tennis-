@@ -924,7 +924,7 @@ const [sessionForm,      setSessionForm]      = useState({
         await coachingAPI.cancelSession(id)
         if (session) {
           const hrs = (toMins(session.end_time.slice(0, 5)) - toMins(session.start_time.slice(0, 5))) / 60
-          if (hrs > 0) await coachingAPI.addHours(session.student_id, { delta: hrs, note: 'Session cancelled — hours refunded', session_type: 'solo' }).catch(() => {})
+          if (hrs > 0) await coachingAPI.addHours(session.student_id, { delta: -hrs, note: 'Session cancelled', session_type: 'solo' }).catch(() => {})
         }
       }
       setSoloEditSelected(new Set())
@@ -951,7 +951,7 @@ const [sessionForm,      setSessionForm]      = useState({
         const hasMakeup = await offerMakeupSession(session, allCoachingSessions)
         if (!hasMakeup) {
           const hrs = (toMins(session.end_time.slice(0, 5)) - toMins(session.start_time.slice(0, 5))) / 60
-          await coachingAPI.addHours(session.student_id, { delta: hrs, note: 'Session cancelled — hours refunded', session_type: 'solo' }).catch(() => {})
+          await coachingAPI.addHours(session.student_id, { delta: -hrs, note: 'Session cancelled', session_type: 'solo' }).catch(() => {})
         }
       }
     } catch {
@@ -1056,7 +1056,7 @@ const [sessionForm,      setSessionForm]      = useState({
       for (const s of sessions) {
         await coachingAPI.cancelSession(s.id)
         const hrs = (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60
-        if (hrs > 0) await coachingAPI.addHours(s.student_id, { delta: hrs, note: 'Group session cancelled — hours refunded', session_type: 'group' }).catch(() => {})
+        if (hrs > 0) await coachingAPI.addHours(s.student_id, { delta: -hrs, note: 'Group session cancelled', session_type: 'group' }).catch(() => {})
       }
       await Promise.all([refreshAfterReschedule(), refreshBookingView()])
     } catch (err) { alert(err.response?.data?.message ?? 'Could not cancel sessions.') }
@@ -1081,7 +1081,7 @@ const [sessionForm,      setSessionForm]      = useState({
 
       await Promise.allSettled(
         Object.entries(studentHours).map(([sid, hrs]) =>
-          coachingAPI.addHours(Number(sid), { delta: hrs, note: 'Group session series cancelled — hours refunded', session_type: 'group' })
+          coachingAPI.addHours(Number(sid), { delta: -hrs, note: 'Group session series cancelled', session_type: 'group' })
         )
       )
     } catch (err) {
@@ -1149,7 +1149,7 @@ const [sessionForm,      setSessionForm]      = useState({
       const hrs = toDeduct.reduce((sum, s) =>
         sum + (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60, 0)
       await coachingAPI.removeStudentFromGroup(groupEditModal.group_id, studentId)
-      if (hrs > 0) await coachingAPI.addHours(studentId, { delta: hrs, note: 'Removed from group coaching — hours refunded', session_type: 'group' }).catch(() => {})
+      if (hrs > 0) await coachingAPI.addHours(studentId, { delta: -hrs, note: 'Removed from group coaching', session_type: 'group' }).catch(() => {})
       await refreshAfterReschedule()
       const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
       setGroupSessions(gd.groups)
@@ -1194,7 +1194,7 @@ const [sessionForm,      setSessionForm]      = useState({
       if (data.sessions?.length) {
         const hrs = data.sessions.reduce((sum, s) =>
           sum + (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60, 0)
-        if (hrs > 0) await coachingAPI.addHours(studentId, { delta: hrs, note: `Removed from group coaching from ${fromDate} — hours refunded`, session_type: 'group' }).catch(() => {})
+        if (hrs > 0) await coachingAPI.addHours(studentId, { delta: -hrs, note: `Removed from group coaching from ${fromDate}`, session_type: 'group' }).catch(() => {})
       }
       await refreshAfterReschedule()
       const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
@@ -1298,7 +1298,7 @@ const [sessionForm,      setSessionForm]      = useState({
       for (const s of sessionsOnDate) {
         await coachingAPI.cancelSession(s.id)
         const hrs = (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60
-        if (hrs > 0) await coachingAPI.addHours(s.student_id, { delta: hrs, note: `Group session cancelled on ${date} — hours refunded`, session_type: 'group' }).catch(() => {})
+        if (hrs > 0) await coachingAPI.addHours(s.student_id, { delta: -hrs, note: `Group session cancelled on ${date}`, session_type: 'group' }).catch(() => {})
       }
       await refreshGroup()
     } catch (err) { alert(err.response?.data?.message ?? 'Could not cancel session.') }
@@ -1315,7 +1315,7 @@ const [sessionForm,      setSessionForm]      = useState({
         for (const s of sessionsOnDate) {
           await coachingAPI.cancelSession(s.id)
           const hrs = (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60
-          if (hrs > 0) await coachingAPI.addHours(s.student_id, { delta: hrs, note: `Group session cancelled on ${date} — hours refunded`, session_type: 'group' }).catch(() => {})
+          if (hrs > 0) await coachingAPI.addHours(s.student_id, { delta: -hrs, note: `Group session cancelled on ${date}`, session_type: 'group' }).catch(() => {})
         }
       }
       setGroupEditSelected(new Set())
@@ -1424,7 +1424,7 @@ const [sessionForm,      setSessionForm]      = useState({
     try {
       await coachingAPI.cancelSession(session.id)
       const hrs = (toMins(session.end_time.slice(0, 5)) - toMins(session.start_time.slice(0, 5))) / 60
-      if (hrs > 0) await coachingAPI.addHours(session.student_id, { delta: hrs, note: 'Group session cancelled — hours refunded', session_type: 'group' }).catch(() => {})
+      if (hrs > 0) await coachingAPI.addHours(session.student_id, { delta: -hrs, note: 'Group session cancelled', session_type: 'group' }).catch(() => {})
       await refreshGroup()
     } catch (err) { alert(err.response?.data?.message ?? 'Could not cancel session.') }
   }
@@ -4011,7 +4011,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                               const hasMakeup = await offerMakeupSession(item, mCoaching)
                                               if (!hasMakeup) {
                                                 const hrs = (toMins(item.end_time.slice(0, 5)) - toMins(item.start_time.slice(0, 5))) / 60
-                                                await coachingAPI.addHours(member.id, { delta: hrs, note: 'Session cancelled — hours refunded', session_type: item.group_id ? 'group' : 'solo' }).catch(() => {})
+                                                await coachingAPI.addHours(member.id, { delta: -hrs, note: 'Session cancelled', session_type: item.group_id ? 'group' : 'solo' }).catch(() => {})
                                               }
                                             } catch { alert('Could not cancel session.') }
                                           }}>Cancel</button>
