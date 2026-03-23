@@ -105,7 +105,13 @@ router.get('/sessions', requireAuth, requireAdmin, async (req, res) => {
            WHERE ci.type='coaching'
              AND ci.reference_id = cs.id::text
              AND ci.user_id = cs.student_id
-         ) AS checked_in
+         ) AS checked_in,
+         EXISTS(
+           SELECT 1 FROM check_ins ci
+           WHERE ci.type='coaching'
+             AND ci.reference_id = cs.id::text
+             AND ci.checked_in_by IS NOT NULL
+         ) AS admin_checked_in
        FROM coaching_sessions cs
        JOIN coaches c  ON c.id  = cs.coach_id
        JOIN users   u  ON u.id  = cs.student_id
@@ -337,6 +343,14 @@ router.get('/sessions/groups', requireAuth, requireAdmin, async (req, res) => {
                AND ci.user_id = cs.student_id
            ) ORDER BY u.name
          ) AS checked_ins,
+         array_agg(
+           EXISTS(
+             SELECT 1 FROM check_ins ci
+             WHERE ci.type='coaching'
+               AND ci.reference_id = cs.id::text
+               AND ci.checked_in_by IS NOT NULL
+           ) ORDER BY u.name
+         ) AS admin_checked_ins,
          array_agg(
            (SELECT COUNT(*)::int FROM group_session_leaves gl
             WHERE gl.group_id = cs.group_id AND gl.student_id = cs.student_id)

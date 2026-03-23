@@ -2586,7 +2586,7 @@ const [sessionForm,      setSessionForm]      = useState({
                         const q = coachingSearch.toLowerCase()
                         return !q || s.student_name?.toLowerCase().includes(q) || s.coach_name?.toLowerCase().includes(q)
                       }).map(s => {
-                        const checkedIn = s.checked_in || adminCheckedIn.has(s.id)
+                        const adminCI = s.admin_checked_in || adminCheckedIn.has(s.id)
                         return (
                           <tr key={s.id} className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors">
                             <td className="px-5 py-3">
@@ -2615,13 +2615,19 @@ const [sessionForm,      setSessionForm]      = useState({
                             <td className="px-5 py-3 text-slate-400 text-xs max-w-[160px] truncate">{s.notes ?? '—'}</td>
                             <td className="px-5 py-3">
                               <div className="flex items-center gap-3">
-                                <button
-                                  onClick={() => checkedIn
-                                    ? handleAdminUndoCheckInCoaching(s.id, s.student_id)
-                                    : handleAdminCheckInCoaching(s.id, s.student_id)}
-                                  className={`text-xs font-medium transition-colors ${checkedIn ? 'text-emerald-400 hover:text-red-400' : 'text-emerald-400 hover:text-emerald-300'}`}>
-                                  {checkedIn ? 'Checked in' : 'Check in'}
-                                </button>
+                                {adminCI ? (
+                                  <button onClick={() => handleAdminUndoCheckInCoaching(s.id, s.student_id)}
+                                    className="text-xs font-medium text-sky-400 hover:text-red-400 transition-colors">
+                                    Admin ✓
+                                  </button>
+                                ) : s.checked_in ? (
+                                  <span className="text-xs text-emerald-400">Student ✓</span>
+                                ) : (
+                                  <button onClick={() => handleAdminCheckInCoaching(s.id, s.student_id)}
+                                    className="text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors">
+                                    Check in
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => { setSoloEditModal(s); setSoloEditSelected(new Set()) }}
                                   className="text-xs text-sky-400 hover:text-sky-300 font-medium">
@@ -2916,17 +2922,24 @@ const [sessionForm,      setSessionForm]      = useState({
                                 {g.student_names.map((name, i) => {
                                   const sid       = g.student_ids?.[i]
                                   const sessionId = g.session_ids?.[i]
-                                  const checkedIn = g.checked_ins?.[i] === true || (sessionId !== undefined && adminCheckedIn.has(sessionId))
+                                  const adminCI = g.admin_checked_ins?.[i] === true || (sessionId !== undefined && adminCheckedIn.has(sessionId))
+                                  const studentCI = g.checked_ins?.[i] === true
                                   return (
                                     <div key={i} className="flex items-center gap-2">
                                       <span className="text-xs text-slate-400 w-[120px] truncate">{name}</span>
-                                      <button
-                                        onClick={() => checkedIn
-                                          ? handleAdminUndoCheckInCoaching(sessionId, sid)
-                                          : handleAdminCheckInCoaching(sessionId, sid)}
-                                        className={`text-xs font-medium transition-colors whitespace-nowrap ${checkedIn ? 'text-emerald-400 hover:text-red-400' : 'text-emerald-400 hover:text-emerald-300'}`}>
-                                        {checkedIn ? 'Checked in' : 'Check in'}
-                                      </button>
+                                      {adminCI ? (
+                                        <button onClick={() => handleAdminUndoCheckInCoaching(sessionId, sid)}
+                                          className="text-xs font-medium text-sky-400 hover:text-red-400 transition-colors whitespace-nowrap">
+                                          Admin ✓
+                                        </button>
+                                      ) : studentCI ? (
+                                        <span className="text-xs text-emerald-400 whitespace-nowrap">Student ✓</span>
+                                      ) : (
+                                        <button onClick={() => handleAdminCheckInCoaching(sessionId, sid)}
+                                          className="text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors whitespace-nowrap">
+                                          Check in
+                                        </button>
+                                      )}
                                     </div>
                                   )
                                 })}
