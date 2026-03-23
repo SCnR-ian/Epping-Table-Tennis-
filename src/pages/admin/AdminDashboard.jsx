@@ -3130,8 +3130,7 @@ const [sessionForm,      setSessionForm]      = useState({
       {activeTab === 'Pay Report' && (
         <div className="animate-fade-in space-y-6">
           <p className="text-xs text-slate-300">
-            1-on-1: counts when <span className="text-white">admin checks in</span>, or when <span className="text-white">both the student and coach</span> have self-checked in.
-            {' '}Group: counts when <span className="text-white">admin or coach checks in</span> (student check-ins not required).
+            Sessions count only when <span className="text-white">an admin checks in</span> the student. Self check-ins by students or coaches do not count toward pay.
           </p>
 
           {/* Date range picker */}

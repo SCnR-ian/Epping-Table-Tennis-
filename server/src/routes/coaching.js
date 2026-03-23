@@ -840,18 +840,16 @@ router.get('/payment-report', requireAuth, requireAdmin, async (req, res) => {
           entry.student_names.push(row.student_name)
           entry.student_name = entry.student_names.join(', ')
           if (row.student_checked_in) entry.student_checked_in = true
-          // Coach may have checked into any student's session — update counted if not yet counted
-          const nowCounted = row.admin_checked_in === true || row.coach_checked_in === true
-          if (!entry.counted && nowCounted) {
+          // Counted if admin checked in any student in the group
+          if (!entry.counted && row.admin_checked_in === true) {
             entry.counted = true
-            entry.coach_checked_in = row.coach_checked_in
-            entry.admin_checked_in = row.admin_checked_in
+            entry.admin_checked_in = true
             byCoach[row.coach_id].counted++
           }
           continue
         }
         // First row for this group — create entry and track it
-        const counted = row.admin_checked_in === true || row.coach_checked_in === true
+        const counted = row.admin_checked_in === true
         const entry = {
           session_id:          row.session_id,
           group_id:            row.group_id,
@@ -873,8 +871,7 @@ router.get('/payment-report', requireAuth, requireAdmin, async (req, res) => {
         byCoach[row.coach_id].total++
         if (counted) byCoach[row.coach_id].counted++
       } else {
-        const counted = row.admin_checked_in === true ||
-                        (row.student_checked_in === true && row.coach_checked_in === true)
+        const counted = row.admin_checked_in === true
         byCoach[row.coach_id].sessions.push({
           session_id:          row.session_id,
           date:                row.date,
