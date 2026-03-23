@@ -4052,6 +4052,10 @@ const [sessionForm,      setSessionForm]      = useState({
                                                   if (fresh) setMemberModal(prev => ({ ...prev, coaching: fresh.coaching }))
                                                 }
                                               }
+                                              // Refresh balance
+                                              coachingAPI.getHoursBalance(member.id).then(({ data: hd }) =>
+                                                setMemberModal(prev => ({ ...prev, soloBalance: hd.soloBalance, groupBalance: hd.groupBalance }))
+                                              ).catch(() => {})
                                             } catch { alert('Could not cancel session.') }
                                           }}>Cancel</button>
                                       </div>
@@ -4277,6 +4281,10 @@ const [sessionForm,      setSessionForm]      = useState({
                                   setMemberModal(prev => ({ ...prev, coaching: prev.coaching.filter(x => !memberModalSelected.has(x.id)) }))
                                   setMemberModalSelected(new Set())
                                   setMemberModalBulkForm({ offsetDays: '0', start_time: '', end_time: '' })
+                                  // Refresh balance
+                                  coachingAPI.getHoursBalance(member.id).then(({ data: hd }) =>
+                                    setMemberModal(prev => ({ ...prev, soloBalance: hd.soloBalance, groupBalance: hd.groupBalance }))
+                                  ).catch(() => {})
                                 } catch (err) { alert(err.response?.data?.message ?? 'Could not cancel sessions.') }
                                 finally { setMemberModalEditSaving(false) }
                               }}>
