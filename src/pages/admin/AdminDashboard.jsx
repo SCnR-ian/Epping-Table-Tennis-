@@ -239,21 +239,27 @@ const [sessionForm,      setSessionForm]      = useState({
   const [addStudentGroupId,   setAddStudentGroupId]   = useState(null)
   const [addStudentSearch,    setAddStudentSearch]    = useState('')
   const [addStudentSaving,    setAddStudentSaving]    = useState(false)
+  const [soloEditModal,       setSoloEditModal]       = useState(null) // representative solo session
+  const [soloEditSelected,    setSoloEditSelected]    = useState(new Set()) // selected session IDs for bulk cancel
   const [groupEditModal,      setGroupEditModal]      = useState(null) // group object
   const [groupEditAddSearch,  setGroupEditAddSearch]  = useState('')
   const [groupEditAddSaving,  setGroupEditAddSaving]  = useState(false)
+  const [dateAddSearch,       setDateAddSearch]       = useState({}) // { date → search string }
+  const [dateAddSaving,       setDateAddSaving]       = useState(false)
   const [groupEditSessionDate, setGroupEditSessionDate] = useState(null) // date string being inline-edited
+  const [groupEditSelected,   setGroupEditSelected]   = useState(new Set()) // selected date strings for bulk cancel
   const [groupEditForm,       setGroupEditForm]       = useState({ date: '', start_time: '', end_time: '' })
   const [groupEditSaving,     setGroupEditSaving]     = useState(false)
   const [coachViewModal,        setCoachViewModal]        = useState(null) // { coach_id, coach_name }
-  const [coachViewExpanded,     setCoachViewExpanded]     = useState(new Set()) // Set of student_ids
+  const [coachViewExpanded,     setCoachViewExpanded]     = useState(new Set()) // Set of group_ids / student_ids
+  const [coachViewSelectedDate, setCoachViewSelectedDate] = useState({})        // groupId → selected date string
   const [expandedCoachMemberId, setExpandedCoachMemberId] = useState(null) // member id of expanded coach row
   const [coachRowExpanded,      setCoachRowExpanded]      = useState(new Set()) // student_ids expanded inside inline coach row
   // Coaching hours
   const [hoursStudentSearch, setHoursStudentSearch] = useState('')
   const [hoursTarget,        setHoursTarget]        = useState(null)  // { user_id, name, balance, ledger }
   const [hoursLoading,       setHoursLoading]       = useState(false)
-  const [hoursForm,          setHoursForm]          = useState({ delta: '', note: '' })
+  const [hoursForm,          setHoursForm]          = useState({ delta: '', note: '', session_type: 'solo' })
   // Hours balance shown inline when scheduling sessions
   const [sessionStudentBalance, setSessionStudentBalance] = useState(null)   // number | null
   const [groupStudentBalances,  setGroupStudentBalances]  = useState({})     // { [userId]: number }
@@ -444,7 +450,7 @@ const [sessionForm,      setSessionForm]      = useState({
   }
 
   const handleOpenMemberModal = async (memberId) => {
-    setMemberModal({ member: members.find(m => m.id === memberId) ?? { id: memberId }, bookings: [], coaching: [], social: [], coachSessions: [], hoursBalance: 0, error: null })
+    setMemberModal({ member: members.find(m => m.id === memberId) ?? { id: memberId }, bookings: [], coaching: [], social: [], coachSessions: [], soloBalance: 0, groupBalance: 0, error: null })
     setMemberModalTab('upcoming')
     setMemberModalSelected(new Set())
     setMemberModalEditId(null)
@@ -539,11 +545,11 @@ const [sessionForm,      setSessionForm]      = useState({
     ])].filter(Boolean)
     if (!ids.length) return
     let cancelled = false
-    Promise.allSettled(ids.map(id => coachingAPI.getHoursBalance(id).then(r => ({ id, balance: r.data.balance }))))
+    Promise.allSettled(ids.map(id => coachingAPI.getHoursBalance(id).then(r => ({ id, solo: r.data.soloBalance, group: r.data.groupBalance }))))
       .then(results => {
         if (cancelled) return
         const map = {}
-        results.forEach(r => { if (r.status === 'fulfilled') map[r.value.id] = r.value.balance })
+        results.forEach(r => { if (r.status === 'fulfilled') map[r.value.id] = { solo: r.value.solo, group: r.value.group } })
         setSessionBalances(map)
       })
     return () => { cancelled = true }
@@ -728,6 +734,7 @@ const [sessionForm,      setSessionForm]      = useState({
       await coachingAPI.addHours(student_id, {
         delta: totalHrs,
         note: `Coaching hours — ${days.length > 1 ? `${days.length} days/week, ` : ''}${weeks} week${weeks > 1 ? 's' : ''}`,
+        session_type: 'solo',
       })
       setShowSessionForm(false)
       setSessionSaved(false)
@@ -762,6 +769,20 @@ const [sessionForm,      setSessionForm]      = useState({
     setCoachingSessions(cur.data.sessions); setAdminCheckedIn(new Set(cur.data.sessions.filter(s => s.checked_in).map(s => s.id)))
     setAllCoachingSessions(all.data.sessions)
     setGroupSessions(grp.data.groups)
+  }
+
+  const refreshBookingView = async () => {
+    if (!selectedDate) return
+    const [{ data: bd }, { data: cd }, { data: sd }, { data: kid }] = await Promise.all([
+      adminAPI.getAllBookings({ date: selectedDate }),
+      coachingAPI.getSessions({ date: selectedDate }),
+      socialAPI.getAdminSessions({ date: selectedDate }),
+      checkinAPI.getByDate(selectedDate),
+    ])
+    setBookings(bd.bookings)
+    setBookingViewSessions(cd.sessions)
+    setBookingViewSocialSessions(sd.sessions)
+    setAdminCheckIns(kid.checkIns)
   }
 
   const handleMoveSingle = async (sessionId) => {
@@ -889,6 +910,31 @@ const [sessionForm,      setSessionForm]      = useState({
     return false
   }
 
+  const handleSoloBulkCancel = async (sessionIds) => {
+    if (sessionIds.length === 0) return
+    if (!window.confirm(`Cancel ${sessionIds.length} session${sessionIds.length > 1 ? 's' : ''}?`)) return
+    try {
+      for (const id of sessionIds) {
+        const session = allCoachingSessions.find(s => s.id === id)
+        await coachingAPI.cancelSession(id)
+        if (session) {
+          const hrs = (toMins(session.end_time.slice(0, 5)) - toMins(session.start_time.slice(0, 5))) / 60
+          if (hrs > 0) await coachingAPI.addHours(session.student_id, { delta: -hrs, note: 'Session cancelled', session_type: 'solo' }).catch(() => {})
+        }
+      }
+      setSoloEditSelected(new Set())
+      const { data: ad } = await coachingAPI.getSessions({})
+      setAllCoachingSessions(ad.sessions)
+      const { data: sd } = await coachingAPI.getSessions({ date: coachingDate })
+      setCoachingSessions(sd.sessions)
+      // Close modal only if no sessions remain for this student+coach
+      const remaining = ad.sessions.filter(s =>
+        s.student_id === soloEditModal.student_id && s.coach_id === soloEditModal.coach_id && !s.group_id
+      )
+      if (remaining.length === 0) setSoloEditModal(null)
+    } catch (err) { alert(err.response?.data?.message ?? 'Could not cancel sessions.') }
+  }
+
   const handleCancelSession = async (id) => {
     if (!window.confirm('Cancel this coaching session?')) return
     try {
@@ -900,7 +946,7 @@ const [sessionForm,      setSessionForm]      = useState({
         const hasMakeup = await offerMakeupSession(session, allCoachingSessions)
         if (!hasMakeup) {
           const hrs = (toMins(session.end_time.slice(0, 5)) - toMins(session.start_time.slice(0, 5))) / 60
-          await coachingAPI.addHours(session.student_id, { delta: -hrs, note: 'Session cancelled' }).catch(() => {})
+          await coachingAPI.addHours(session.student_id, { delta: -hrs, note: 'Session cancelled', session_type: 'solo' }).catch(() => {})
         }
       }
     } catch {
@@ -936,6 +982,7 @@ const [sessionForm,      setSessionForm]      = useState({
         coachingAPI.addHours(id, {
           delta: totalHrs,
           note: `Group coaching hours — ${days.length > 1 ? `${days.length} days/week, ` : ''}${weeks} week${weeks > 1 ? 's' : ''}`,
+          session_type: 'group',
         })
       ))
       // Keep students/coach/weeks — clear date/days/time so admin can add another block
@@ -962,6 +1009,54 @@ const [sessionForm,      setSessionForm]      = useState({
     }
   }
 
+  // Cancel just today's session for all students in a group, with optional move-to-end
+  const handleCancelTodayGroupSession = async (ev) => {
+    if (!window.confirm(`Cancel this group session for all ${ev.student_names.length} students?`)) return
+
+    // Fetch all confirmed sessions for this group to find the last date
+    let lastDate = selectedDate
+    try {
+      const { data } = await coachingAPI.getSessions({})
+      const groupDates = [...new Set(
+        data.sessions
+          .filter(s => s.group_id === ev.group_id && s.date?.slice(0, 10) >= selectedDate && s.status === 'confirmed')
+          .map(s => s.date?.slice(0, 10))
+      )].sort()
+      if (groupDates.length) lastDate = groupDates.at(-1)
+    } catch {}
+
+    const moveToDate = new Date(lastDate + 'T12:00:00Z')
+    moveToDate.setUTCDate(moveToDate.getUTCDate() + 7)
+    const moveToISO = moveToDate.toISOString().slice(0, 10)
+
+    // ev.session_ids and ev.student_ids are the sessions for this group on selectedDate
+    const sessions = ev.session_ids.map((id, i) => ({
+      id,
+      student_id: ev.student_ids[i],
+      start_time: ev.start_time,
+      end_time:   ev.end_time,
+    }))
+
+    if (window.confirm(`Move to end of series (${fmtDate(moveToISO)}) instead of cancelling?`)) {
+      try {
+        for (const s of sessions) await coachingAPI.recordLeave(s.id).catch(() => {})
+        await coachingAPI.rescheduleBulk(sessions.map(s => ({ id: s.id, date: moveToISO })))
+        await Promise.all([refreshAfterReschedule(), refreshBookingView()])
+      } catch (err) { alert(err.response?.data?.message ?? 'Could not move sessions.') }
+      return
+    }
+
+    // Full cancel + deduct hours
+    try {
+      for (const s of sessions) {
+        await coachingAPI.cancelSession(s.id)
+        const hrs = (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60
+        if (hrs > 0) await coachingAPI.addHours(s.student_id, { delta: -hrs, note: 'Group session cancelled', session_type: 'group' }).catch(() => {})
+      }
+      await Promise.all([refreshAfterReschedule(), refreshBookingView()])
+    } catch (err) { alert(err.response?.data?.message ?? 'Could not cancel sessions.') }
+  }
+
   const handleCancelGroupSession = async (groupId) => {
     if (!window.confirm('Cancel all sessions in this group? Hours will be deducted from each student.')) return
     try {
@@ -981,7 +1076,7 @@ const [sessionForm,      setSessionForm]      = useState({
 
       await Promise.allSettled(
         Object.entries(studentHours).map(([sid, hrs]) =>
-          coachingAPI.addHours(Number(sid), { delta: -hrs, note: 'Group session series cancelled' })
+          coachingAPI.addHours(Number(sid), { delta: -hrs, note: 'Group session series cancelled', session_type: 'group' })
         )
       )
     } catch (err) {
@@ -1000,6 +1095,7 @@ const [sessionForm,      setSessionForm]      = useState({
         await coachingAPI.addHours(studentId, {
           delta: hrs * data.sessions.length,
           note: `Added to group coaching (${data.sessions.length} session${data.sessions.length > 1 ? 's' : ''})`,
+          session_type: 'group',
         }).catch(() => {})
       }
       const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
@@ -1023,6 +1119,7 @@ const [sessionForm,      setSessionForm]      = useState({
         await coachingAPI.addHours(studentId, {
           delta: hrs * data.sessions.length,
           note: `Added to group coaching (${data.sessions.length} session${data.sessions.length > 1 ? 's' : ''})`,
+          session_type: 'group',
         }).catch(() => {})
       }
       await refreshAfterReschedule()
@@ -1047,7 +1144,53 @@ const [sessionForm,      setSessionForm]      = useState({
       const hrs = toDeduct.reduce((sum, s) =>
         sum + (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60, 0)
       await coachingAPI.removeStudentFromGroup(groupEditModal.group_id, studentId)
-      if (hrs > 0) await coachingAPI.addHours(studentId, { delta: -hrs, note: 'Removed from group coaching' }).catch(() => {})
+      if (hrs > 0) await coachingAPI.addHours(studentId, { delta: -hrs, note: 'Removed from group coaching', session_type: 'group' }).catch(() => {})
+      await refreshAfterReschedule()
+      const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
+      setGroupSessions(gd.groups)
+      const updated = gd.groups.find(g => g.group_id === groupEditModal.group_id)
+      if (updated) setGroupEditModal(updated)
+      else setGroupEditModal(null)
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not remove student.')
+    }
+  }
+
+  const handleGroupEditAddStudentFromDate = async (fromDate, studentId) => {
+    if (!groupEditModal) return
+    setDateAddSaving(true)
+    try {
+      const { data } = await coachingAPI.addStudentToGroup(groupEditModal.group_id, studentId, fromDate)
+      if (data.sessions?.length) {
+        const s = data.sessions[0]
+        const hrs = (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60
+        await coachingAPI.addHours(studentId, {
+          delta: hrs * data.sessions.length,
+          note: `Added to group coaching from ${fromDate} (${data.sessions.length} session${data.sessions.length > 1 ? 's' : ''})`,
+          session_type: 'group',
+        }).catch(() => {})
+      }
+      setDateAddSearch(prev => { const n = { ...prev }; delete n[fromDate]; return n })
+      await refreshAfterReschedule()
+      const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
+      setGroupSessions(gd.groups)
+      const updated = gd.groups.find(g => g.group_id === groupEditModal.group_id)
+      if (updated) setGroupEditModal(updated)
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not add student.')
+    } finally { setDateAddSaving(false) }
+  }
+
+  const handleGroupEditRemoveStudentFromDate = async (fromDate, studentId, studentName) => {
+    if (!groupEditModal) return
+    if (!window.confirm(`Remove ${studentName} from all sessions from ${fmtDate(fromDate)} onwards?`)) return
+    try {
+      const { data } = await coachingAPI.removeStudentFromGroup(groupEditModal.group_id, studentId, fromDate)
+      if (data.sessions?.length) {
+        const hrs = data.sessions.reduce((sum, s) =>
+          sum + (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60, 0)
+        if (hrs > 0) await coachingAPI.addHours(studentId, { delta: -hrs, note: `Removed from group coaching from ${fromDate}`, session_type: 'group' }).catch(() => {})
+      }
       await refreshAfterReschedule()
       const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
       setGroupSessions(gd.groups)
@@ -1116,6 +1259,67 @@ const [sessionForm,      setSessionForm]      = useState({
       map[d].push(s)
     }
     return map
+  }
+
+  const handleCancelEntireSessionDate = async (date, sessionsOnDate) => {
+    if (!window.confirm(`Cancel the entire group session on ${fmtDate(date)} for all ${sessionsOnDate.length} students?`)) return
+
+    const map = buildGroupDateMap()
+    const allDates = Object.keys(map).sort()
+    const lastDate = allDates.filter(d => map[d].length > 1).at(-1) ?? allDates.at(-1)
+    const moveToDate = new Date((lastDate ?? date) + 'T12:00:00Z')
+    moveToDate.setUTCDate(moveToDate.getUTCDate() + 7)
+    const moveToISO = moveToDate.toISOString().slice(0, 10)
+
+    const refreshGroup = async () => {
+      await refreshAfterReschedule()
+      const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
+      setGroupSessions(gd.groups)
+      const updated = gd.groups.find(g => g.group_id === groupEditModal.group_id)
+      if (updated) setGroupEditModal(updated)
+      else setGroupEditModal(null)
+    }
+
+    if (window.confirm(`Move to end of series (${fmtDate(moveToISO)}) instead of cancelling?`)) {
+      try {
+        await coachingAPI.rescheduleBulk(sessionsOnDate.map(s => ({ id: s.id, date: moveToISO })))
+        await refreshGroup()
+      } catch (err) { alert(err.response?.data?.message ?? 'Could not move sessions.') }
+      return
+    }
+
+    // Full cancel — deduct hours for each student
+    try {
+      for (const s of sessionsOnDate) {
+        await coachingAPI.cancelSession(s.id)
+        const hrs = (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60
+        if (hrs > 0) await coachingAPI.addHours(s.student_id, { delta: -hrs, note: `Group session cancelled on ${date}`, session_type: 'group' }).catch(() => {})
+      }
+      await refreshGroup()
+    } catch (err) { alert(err.response?.data?.message ?? 'Could not cancel session.') }
+  }
+
+  const handleBulkCancelSelectedDates = async (dateMap) => {
+    const dates = [...groupEditSelected].sort()
+    if (dates.length === 0) return
+    const totalSessions = dates.reduce((sum, d) => sum + (dateMap[d]?.length ?? 0), 0)
+    if (!window.confirm(`Cancel ${dates.length} session${dates.length > 1 ? 's' : ''} (${totalSessions} student session${totalSessions > 1 ? 's' : ''} total)?`)) return
+    try {
+      for (const date of dates) {
+        const sessionsOnDate = dateMap[date] ?? []
+        for (const s of sessionsOnDate) {
+          await coachingAPI.cancelSession(s.id)
+          const hrs = (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60
+          if (hrs > 0) await coachingAPI.addHours(s.student_id, { delta: -hrs, note: `Group session cancelled on ${date}`, session_type: 'group' }).catch(() => {})
+        }
+      }
+      setGroupEditSelected(new Set())
+      const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
+      setGroupSessions(gd.groups)
+      const updated = gd.groups.find(g => g.group_id === groupEditModal.group_id)
+      if (updated) setGroupEditModal(updated)
+      else setGroupEditModal(null)
+    } catch (err) { alert(err.response?.data?.message ?? 'Could not cancel sessions.') }
   }
 
   const handleGroupDateSaveOne = async (fromDate) => {
@@ -1195,7 +1399,8 @@ const [sessionForm,      setSessionForm]      = useState({
 
     const map = buildGroupDateMap()
     const allDates = Object.keys(map).sort()
-    const lastDate = allDates.at(-1)
+    // Use last regular session date (>1 student) so all makeups land on the same week
+    const lastDate = allDates.filter(d => map[d].length > 1).at(-1) ?? allDates.at(-1)
     const moveToDate = new Date((lastDate ?? session.date?.slice(0, 10)) + 'T12:00:00Z')
     moveToDate.setUTCDate(moveToDate.getUTCDate() + 7)
     const moveToISO = moveToDate.toISOString().slice(0, 10)
@@ -1235,13 +1440,15 @@ const [sessionForm,      setSessionForm]      = useState({
 
   const refreshCoachingSessions = async () => {
     try {
-      const [{ data: sd }, { data: ad }] = await Promise.all([
+      const [{ data: sd }, { data: ad }, { data: gd }] = await Promise.all([
         coachingAPI.getSessions({ date: coachingDate }),
         coachingAPI.getSessions({}),
+        coachingAPI.getGroupSessions({ date: coachingDate }),
       ])
       setCoachingSessions(sd.sessions)
       setAdminCheckedIn(new Set(sd.sessions.filter(s => s.checked_in).map(s => s.id)))
       setAllCoachingSessions(ad.sessions)
+      setGroupSessions(gd.groups)
     } catch {}
   }
 
@@ -1487,94 +1694,97 @@ const [sessionForm,      setSessionForm]      = useState({
                 )}
 
                 {/* ── Coaching ──────────────────────────────────────── */}
-                {coaching.length > 0 && (
-                  <div>
-                    <p className="text-xs text-slate-400 uppercase tracking-widest mb-3">Coaching Sessions</p>
-                    <div className="space-y-3">
-                      {/* Individual sessions */}
-                      {individualCoaching.map(c => (
-                        <div key={c.id} className="card py-3 px-4">
-                          <div className="flex items-center gap-3 mb-2">
-                            <span className="text-xs font-mono text-slate-300">{fmtTime(c.start_time)} – {fmtTime(c.end_time)}</span>
-                            <span className="text-xs text-slate-500">{c.court_name}</span>
-                            <span className="text-xs text-slate-400">Coach: {c.coach_name}</span>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <div className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
-                              <span className="text-xs text-white">{c.student_name}</span>
-                              <span className="text-[10px] text-slate-500">student</span>
-                              {c.admin_checked_in
-                                ? (
-                                  <span className="flex items-center gap-1">
-                                    <span className="text-[10px] bg-sky-500/15 text-sky-400 px-2 py-0.5 rounded-full font-medium">Admin ✓</span>
-                                    <button onClick={() => handleUndoCheckIn('coaching', c.id, c.student_id)} className="text-[10px] text-slate-500 hover:text-red-400 font-medium transition-colors" title="Undo">✕</button>
-                                  </span>
-                                )
-                                : <Badge in={c.student_checked_in} type="coaching" refId={c.id} userId={c.student_id} />
-                              }
-                              {!c.admin_checked_in && !c.student_checked_in && !isFuture && (
-                                <button
-                                  onClick={() => handleCheckIn('coaching', c.id, c.student_id)}
-                                  className="text-[10px] text-sky-400 hover:text-sky-300 font-medium"
-                                >Check in</button>
-                              )}
+                {coaching.length > 0 && (() => {
+                  // Group all sessions by coach
+                  const byCoach = {}
+                  for (const c of individualCoaching) {
+                    if (!byCoach[c.coach_name]) byCoach[c.coach_name] = { coach_name: c.coach_name, coach_user_id: c.coach_user_id, sessions: [] }
+                    byCoach[c.coach_name].sessions.push({ type: 'solo', data: c })
+                  }
+                  for (const g of groupCoachingSessions) {
+                    if (!byCoach[g.coach_name]) byCoach[g.coach_name] = { coach_name: g.coach_name, coach_user_id: g.coach_user_id, sessions: [] }
+                    byCoach[g.coach_name].sessions.push({ type: 'group', data: g })
+                  }
+                  const coachEntries = Object.values(byCoach).sort((a, b) => a.coach_name.localeCompare(b.coach_name))
+                  return (
+                    <div>
+                      <p className="text-xs text-slate-400 uppercase tracking-widest mb-3">Coaching Sessions</p>
+                      <div className="space-y-5">
+                        {coachEntries.map(coach => (
+                          <div key={coach.coach_name}>
+                            <p className="text-sm text-white mb-2 px-1">{coach.coach_name}</p>
+                            <div className="space-y-2">
+                              {coach.sessions.sort((a, b) => a.data.start_time < b.data.start_time ? -1 : 1).map(({ type, data: c }) => (
+                                <div key={type === 'solo' ? c.id : c.group_id} className="card py-3 px-4">
+                                  <div className="flex items-center gap-3 mb-2">
+                                    <span className="text-xs font-mono text-slate-300">{fmtTime(c.start_time)} – {fmtTime(c.end_time)}</span>
+                                    <span className="text-xs text-slate-500">{c.court_name}</span>
+                                    {type === 'group' && <span className="text-[10px] bg-teal-500/15 text-teal-400 px-2 py-0.5 rounded-full">Group</span>}
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {type === 'solo' ? (
+                                      <>
+                                        <div className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
+                                          <span className="text-xs text-white">{c.student_name}</span>
+                                          <span className="text-[10px] text-slate-500">student</span>
+                                          {c.admin_checked_in
+                                            ? <span className="flex items-center gap-1">
+                                                <span className="text-[10px] bg-sky-500/15 text-sky-400 px-2 py-0.5 rounded-full">Admin ✓</span>
+                                                <button onClick={() => handleUndoCheckIn('coaching', c.id, c.student_id)} className="text-[10px] text-slate-500 hover:text-red-400 transition-colors" title="Undo">✕</button>
+                                              </span>
+                                            : <Badge in={c.student_checked_in} type="coaching" refId={c.id} userId={c.student_id} />
+                                          }
+                                          {!c.admin_checked_in && !c.student_checked_in && !isFuture && (
+                                            <button onClick={() => handleCheckIn('coaching', c.id, c.student_id)} className="text-[10px] text-sky-400 hover:text-sky-300">Check in</button>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
+                                          <span className="text-xs text-white">{c.coach_name}</span>
+                                          <span className="text-[10px] text-slate-500">coach</span>
+                                          {c.coach_user_id
+                                            ? <Badge in={c.coach_checked_in} type="coaching" refId={c.id} userId={c.coach_user_id} />
+                                            : <span className="text-[10px] text-slate-500">no account</span>
+                                          }
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <>
+                                        {c.students.map(s => (
+                                          <div key={s.student_id} className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
+                                            <span className="text-xs text-white">{s.student_name}</span>
+                                            <span className="text-[10px] text-slate-500">student</span>
+                                            {s.checked_in
+                                              ? <span className="flex items-center gap-1">
+                                                  <span className="text-[10px] bg-sky-500/15 text-sky-400 px-2 py-0.5 rounded-full">Admin ✓</span>
+                                                  <button onClick={() => handleUndoCheckIn('coaching', s.id, s.student_id)} className="text-[10px] text-slate-500 hover:text-red-400 transition-colors" title="Undo">✕</button>
+                                                </span>
+                                              : <Badge in={s.student_checked_in} type="coaching" refId={s.id} userId={s.student_id} />
+                                            }
+                                            {!s.checked_in && !s.student_checked_in && !isFuture && (
+                                              <button onClick={() => handleCheckIn('coaching', s.id, s.student_id)} className="text-[10px] text-sky-400 hover:text-sky-300">Check in</button>
+                                            )}
+                                          </div>
+                                        ))}
+                                        <div className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
+                                          <span className="text-xs text-white">{c.coach_name}</span>
+                                          <span className="text-[10px] text-slate-500">coach</span>
+                                          {c.coach_user_id
+                                            ? <Badge in={c.students.some(s => s.coach_checked_in)} type="coaching" refId={c.students[0]?.id} userId={c.coach_user_id} />
+                                            : <span className="text-[10px] text-slate-500">no account</span>
+                                          }
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
                             </div>
-                            <div className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
-                              <span className="text-xs text-white">{c.coach_name}</span>
-                              <span className="text-[10px] text-slate-500">coach</span>
-                              {c.coach_user_id
-                                ? <Badge in={c.coach_checked_in} type="coaching" refId={c.id} userId={c.coach_user_id} />
-                                : <span className="text-[10px] text-slate-500">no account</span>
-                              }
-                            </div>
                           </div>
-                        </div>
-                      ))}
-                      {/* Group sessions */}
-                      {groupCoachingSessions.map(g => (
-                        <div key={g.group_id} className="card py-3 px-4">
-                          <div className="flex items-center gap-3 mb-2">
-                            <span className="text-xs font-mono text-slate-300">{fmtTime(g.start_time)} – {fmtTime(g.end_time)}</span>
-                            <span className="text-xs text-slate-500">{g.court_name}</span>
-                            <span className="text-xs text-slate-400">Coach: {g.coach_name}</span>
-                            <span className="text-[10px] bg-teal-500/15 text-teal-400 px-2 py-0.5 rounded-full">Group</span>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {g.students.map(s => (
-                              <div key={s.student_id} className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
-                                <span className="text-xs text-white">{s.student_name}</span>
-                                <span className="text-[10px] text-slate-500">student</span>
-                                {s.checked_in
-                                  ? (
-                                    <span className="flex items-center gap-1">
-                                      <span className="text-[10px] bg-sky-500/15 text-sky-400 px-2 py-0.5 rounded-full font-medium">Admin ✓</span>
-                                      <button onClick={() => handleUndoCheckIn('coaching', s.id, s.student_id)} className="text-[10px] text-slate-500 hover:text-red-400 font-medium transition-colors" title="Undo">✕</button>
-                                    </span>
-                                  )
-                                  : <Badge in={s.student_checked_in} type="coaching" refId={s.id} userId={s.student_id} />
-                                }
-                                {!s.checked_in && !s.student_checked_in && !isFuture && (
-                                  <button
-                                    onClick={() => handleCheckIn('coaching', s.id, s.student_id)}
-                                    className="text-[10px] text-sky-400 hover:text-sky-300 font-medium"
-                                  >Check in</button>
-                                )}
-                              </div>
-                            ))}
-                            <div className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
-                              <span className="text-xs text-white">{g.coach_name}</span>
-                              <span className="text-[10px] text-slate-500">coach</span>
-                              {g.coach_user_id
-                                ? <Badge in={g.students.some(s => s.coach_checked_in)} type="coaching" refId={g.students[0]?.id} userId={g.coach_user_id} />
-                                : <span className="text-[10px] text-slate-500">no account</span>
-                              }
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )
+                })()}
 
                 {/* ── Social play ────────────────────────────────────── */}
                 {Object.keys(socialGroups).length > 0 && (
@@ -1699,7 +1909,7 @@ const [sessionForm,      setSessionForm]      = useState({
                             <td className="px-5 py-3 font-medium w-[20%]">
                               {coachRec ? (
                                 <button
-                                  onClick={() => { setCoachViewModal({ coach_id: coachRec.id, coach_name: m.name }); setCoachViewExpanded(new Set()) }}
+                                  onClick={() => { setCoachViewModal({ coach_id: coachRec.id, coach_name: m.name }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}) }}
                                   className="text-left text-white hover:text-sky-400 transition-colors">
                                   {m.name}
                                 </button>
@@ -2029,7 +2239,7 @@ const [sessionForm,      setSessionForm]      = useState({
                             <p className="text-slate-300 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
                             <div className="mt-auto">
                               <button
-                                onClick={() => handleCancelGroupSession(ev.group_id)}
+                                onClick={() => handleCancelTodayGroupSession(ev)}
                                 className="text-xs text-red-400 hover:text-red-300 leading-none"
                               >
                                 Cancel
@@ -2193,7 +2403,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                   setStudentSearch(m.name)
                                   try {
                                     const { data } = await coachingAPI.getHoursBalance(m.id)
-                                    setSessionStudentBalance(data.balance)
+                                    setSessionStudentBalance(data.soloBalance)
                                   } catch { setSessionStudentBalance(null) }
                                 }}
                                 className={`w-full text-left px-3 py-2 text-sm hover:bg-court-light/40 transition-colors ${String(sessionForm.student_id) === String(m.id) ? 'text-brand-300 bg-court-light/20' : 'text-slate-300'}`}
@@ -2361,7 +2571,7 @@ const [sessionForm,      setSessionForm]      = useState({
                               <p className="text-slate-400 text-xs">{s.student_email}</p>
                             </td>
                             <td className="px-5 py-3">
-                              <button onClick={() => { setCoachViewModal({ coach_id: s.coach_id, coach_name: s.coach_name }); setCoachViewExpanded(new Set()) }}
+                              <button onClick={() => { setCoachViewModal({ coach_id: s.coach_id, coach_name: s.coach_name }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}) }}
                                 className="text-slate-300 hover:text-sky-400 transition-colors text-left">
                                 {s.coach_name}
                               </button>
@@ -2371,8 +2581,8 @@ const [sessionForm,      setSessionForm]      = useState({
                             </td>
                             <td className="px-5 py-3 text-xs font-mono">
                               {sessionBalances[s.student_id] !== undefined ? (
-                                <span className={sessionBalances[s.student_id] < 0 ? 'text-red-400' : sessionBalances[s.student_id] < 1 ? 'text-amber-400' : 'text-emerald-400'}>
-                                  {sessionBalances[s.student_id].toFixed(1)}h
+                                <span className={sessionBalances[s.student_id].solo < 0 ? 'text-red-400' : sessionBalances[s.student_id].solo < 1 ? 'text-amber-400' : 'text-emerald-400'}>
+                                  {sessionBalances[s.student_id].solo.toFixed(1)}h
                                 </span>
                               ) : <span className="text-slate-600">—</span>}
                             </td>
@@ -2385,6 +2595,11 @@ const [sessionForm,      setSessionForm]      = useState({
                                     : handleAdminCheckInCoaching(s.id, s.student_id)}
                                   className={`text-xs font-medium transition-colors ${checkedIn ? 'text-emerald-400 hover:text-red-400' : 'text-emerald-400 hover:text-emerald-300'}`}>
                                   {checkedIn ? 'Checked in' : 'Check in'}
+                                </button>
+                                <button
+                                  onClick={() => { setSoloEditModal(s); setSoloEditSelected(new Set()) }}
+                                  className="text-xs text-sky-400 hover:text-sky-300 font-medium">
+                                  Edit
                                 </button>
                                 <button onClick={() => handleCancelSession(s.id)}
                                   className="text-xs text-red-400 hover:text-red-300 font-medium">
@@ -2476,7 +2691,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                 setGroupStudentSearch('')
                                 try {
                                   const { data } = await coachingAPI.getHoursBalance(m.id)
-                                  setGroupStudentBalances(b => ({ ...b, [m.id]: data.balance }))
+                                  setGroupStudentBalances(b => ({ ...b, [m.id]: data.groupBalance }))
                                 } catch {}
                               }}
                               className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-court-light/40 transition-colors"
@@ -2633,17 +2848,17 @@ const [sessionForm,      setSessionForm]      = useState({
                     <tbody>
                       {groupSessions.map(g => (
                         <React.Fragment key={g.group_id}>
-                          <tr className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors">
+                          <tr className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors align-top">
                             <td className="px-5 py-3">
-                              <div className="flex flex-wrap gap-1">
+                              <div className="flex flex-col gap-1.5">
                                 {g.student_names.map((name, i) => {
                                   const sid = g.student_ids?.[i]
-                                  const bal = sid !== undefined ? sessionBalances[sid] : undefined
+                                  const bal = sid !== undefined ? sessionBalances[sid]?.group : undefined
                                   return (
                                     <button
                                       key={i}
                                       onClick={() => sid !== undefined && handleOpenMemberModal(sid)}
-                                      className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full transition-opacity hover:opacity-70 ${
+                                      className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full transition-opacity hover:opacity-70 self-start ${
                                         bal !== undefined && bal < 0
                                           ? 'bg-red-500/15 text-red-300'
                                           : bal !== undefined && bal < 1
@@ -2659,26 +2874,26 @@ const [sessionForm,      setSessionForm]      = useState({
                                 })}
                               </div>
                             </td>
-                            <td className="px-5 py-3">
-                              <button onClick={() => { setCoachViewModal({ coach_id: g.coach_id, coach_name: g.coach_name }); setCoachViewExpanded(new Set()) }}
+                            <td className="px-5 py-3 align-top">
+                              <button onClick={() => { setCoachViewModal({ coach_id: g.coach_id, coach_name: g.coach_name }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}) }}
                                 className="text-slate-300 hover:text-sky-400 transition-colors text-left">
                                 {g.coach_name}
                               </button>
                             </td>
-                            <td className="px-5 py-3 text-slate-300 text-xs font-mono whitespace-nowrap">
+                            <td className="px-5 py-3 text-slate-300 text-xs font-mono whitespace-nowrap align-top">
                               {fmtTime(g.start_time)} – {fmtTime(g.end_time)}
                             </td>
 
-                            <td className="px-5 py-3 text-slate-400 text-xs max-w-[140px] truncate">{g.notes ?? '—'}</td>
-                            <td className="px-5 py-3">
+                            <td className="px-5 py-3 text-slate-400 text-xs max-w-[140px] truncate align-top">{g.notes ?? '—'}</td>
+                            <td className="px-5 py-3 align-top">
                               <div className="flex flex-col gap-1.5">
                                 {g.student_names.map((name, i) => {
                                   const sid       = g.student_ids?.[i]
                                   const sessionId = g.session_ids?.[i]
-                                  const checkedIn = sessionId !== undefined && adminCheckedIn.has(sessionId)
+                                  const checkedIn = g.checked_ins?.[i] === true || (sessionId !== undefined && adminCheckedIn.has(sessionId))
                                   return (
                                     <div key={i} className="flex items-center gap-2">
-                                      <span className="text-xs text-slate-400 min-w-[60px] truncate">{name}</span>
+                                      <span className="text-xs text-slate-400 w-[120px] truncate">{name}</span>
                                       <button
                                         onClick={() => checkedIn
                                           ? handleAdminUndoCheckInCoaching(sessionId, sid)
@@ -2691,7 +2906,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                 })}
                                 <div className="flex items-center gap-2 mt-0.5">
                                   <button
-                                    onClick={() => { setGroupEditModal(g); setGroupEditAddSearch(''); setGroupEditSessionDate(null); setGroupEditForm({ date: '', start_time: '', end_time: '' }) }}
+                                    onClick={() => { setGroupEditModal(g); setGroupEditAddSearch(''); setGroupEditSessionDate(null); setGroupEditForm({ date: '', start_time: '', end_time: '' }); setGroupEditSelected(new Set()) }}
                                     className="text-xs text-sky-400 hover:text-sky-300 font-medium">
                                     Edit
                                   </button>
@@ -2735,8 +2950,8 @@ const [sessionForm,      setSessionForm]      = useState({
                       setHoursLoading(true)
                       try {
                         const { data } = await coachingAPI.getHoursBalance(match.id)
-                        setHoursTarget({ user_id: match.id, name: match.name, balance: data.balance, ledger: data.ledger })
-                        setHoursForm({ delta: '', note: '' })
+                        setHoursTarget({ user_id: match.id, name: match.name, soloBalance: data.soloBalance, groupBalance: data.groupBalance, ledger: data.ledger })
+                        setHoursForm({ delta: '', note: '', session_type: 'solo' })
                       } finally { setHoursLoading(false) }
                     }}
                   >
@@ -2759,8 +2974,8 @@ const [sessionForm,      setSessionForm]      = useState({
                               setHoursLoading(true)
                               try {
                                 const { data } = await coachingAPI.getHoursBalance(m.id)
-                                setHoursTarget({ user_id: m.id, name: m.name, balance: data.balance, ledger: data.ledger })
-                                setHoursForm({ delta: '', note: '' })
+                                setHoursTarget({ user_id: m.id, name: m.name, soloBalance: data.soloBalance, groupBalance: data.groupBalance, ledger: data.ledger })
+                                setHoursForm({ delta: '', note: '', session_type: 'solo' })
                               } finally { setHoursLoading(false) }
                             }}
                           >
@@ -2776,39 +2991,41 @@ const [sessionForm,      setSessionForm]      = useState({
               {hoursTarget && (
                 <div className="card space-y-4">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-white">{hoursTarget.name}</p>
-                      <p className={`text-2xl font-bold mt-1 ${hoursTarget.balance >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {hoursTarget.balance.toFixed(2)} hrs
+                    <p className="text-sm font-semibold text-white">{hoursTarget.name}</p>
+                  </div>
+                  {/* Split balance display */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-court rounded-lg p-3 text-center">
+                      <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">1-on-1</p>
+                      <p className={`text-2xl font-bold ${(hoursTarget.soloBalance ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {(hoursTarget.soloBalance ?? 0).toFixed(2)}
                       </p>
+                      <p className="text-xs text-slate-500 mt-0.5">hrs</p>
                     </div>
-                    <div className="flex gap-2">
-                      <button
-                        className="btn-secondary text-sm"
-                        onClick={async () => {
-                          setHoursLoading(true)
-                          try {
-                            const { data } = await coachingAPI.addHours(hoursTarget.user_id, { delta: 10, note: '10-hour coaching pack' })
-                            setHoursTarget(prev => ({ ...prev, balance: data.balance }))
-                            const { data: d2 } = await coachingAPI.getHoursBalance(hoursTarget.user_id)
-                            setHoursTarget(prev => ({ ...prev, balance: d2.balance, ledger: d2.ledger }))
-                          } finally { setHoursLoading(false) }
-                        }}
-                        disabled={hoursLoading}
-                      >
-                        + 10 hrs (pack)
-                      </button>
+                    <div className="bg-court rounded-lg p-3 text-center">
+                      <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">Group</p>
+                      <p className={`text-2xl font-bold ${(hoursTarget.groupBalance ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
+                        {(hoursTarget.groupBalance ?? 0).toFixed(2)}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5">hrs</p>
                     </div>
                   </div>
 
                   {/* Manual adjustment form */}
-                  <div className="border-t border-court-light pt-4">
-                    <p className="text-xs text-slate-400 mb-2">Manual adjustment</p>
+                  <div className="border-t border-court-light pt-4 space-y-2">
+                    <p className="text-xs text-slate-400">Manual adjustment</p>
                     <div className="flex gap-2">
+                      <select
+                        className="input w-28 text-sm"
+                        value={hoursForm.session_type}
+                        onChange={e => setHoursForm(f => ({ ...f, session_type: e.target.value }))}>
+                        <option value="solo">1-on-1</option>
+                        <option value="group">Group</option>
+                      </select>
                       <input
                         type="number"
                         step="0.5"
-                        className="input w-28"
+                        className="input w-24"
                         placeholder="±hours"
                         value={hoursForm.delta}
                         onChange={e => setHoursForm(f => ({ ...f, delta: e.target.value }))}
@@ -2828,10 +3045,11 @@ const [sessionForm,      setSessionForm]      = useState({
                             await coachingAPI.addHours(hoursTarget.user_id, {
                               delta: parseFloat(hoursForm.delta),
                               note: hoursForm.note || null,
+                              session_type: hoursForm.session_type,
                             })
                             const { data } = await coachingAPI.getHoursBalance(hoursTarget.user_id)
-                            setHoursTarget(prev => ({ ...prev, balance: data.balance, ledger: data.ledger }))
-                            setHoursForm({ delta: '', note: '' })
+                            setHoursTarget(prev => ({ ...prev, soloBalance: data.soloBalance, groupBalance: data.groupBalance, ledger: data.ledger }))
+                            setHoursForm({ delta: '', note: '', session_type: hoursForm.session_type })
                           } finally { setHoursLoading(false) }
                         }}
                       >
@@ -2848,6 +3066,7 @@ const [sessionForm,      setSessionForm]      = useState({
                         <thead>
                           <tr className="text-xs text-slate-400 text-left">
                             <th className="py-1 pr-4">Date</th>
+                            <th className="py-1 pr-3">Type</th>
                             <th className="py-1 pr-4">Hours</th>
                             <th className="py-1">Note</th>
                           </tr>
@@ -2857,6 +3076,11 @@ const [sessionForm,      setSessionForm]      = useState({
                             <tr key={entry.id}>
                               <td className="py-1.5 pr-4 text-slate-400 whitespace-nowrap">
                                 {new Date(entry.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+                              </td>
+                              <td className="py-1.5 pr-3">
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${entry.session_type === 'group' ? 'bg-teal-500/15 text-teal-400' : 'bg-emerald-500/15 text-emerald-400'}`}>
+                                  {entry.session_type === 'group' ? 'Group' : '1-on-1'}
+                                </span>
                               </td>
                               <td className={`py-1.5 pr-4 font-mono font-medium ${parseFloat(entry.delta) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                                 {parseFloat(entry.delta) >= 0 ? '+' : ''}{parseFloat(entry.delta).toFixed(2)}
@@ -2880,7 +3104,8 @@ const [sessionForm,      setSessionForm]      = useState({
       {activeTab === 'Pay Report' && (
         <div className="animate-fade-in space-y-6">
           <p className="text-xs text-slate-300">
-            A session counts toward pay when <span className="text-white">an admin checks in</span>, or when <span className="text-white">both the student and the coach</span> have self-checked in.
+            1-on-1: counts when <span className="text-white">admin checks in</span>, or when <span className="text-white">both the student and coach</span> have self-checked in.
+            {' '}Group: counts when <span className="text-white">admin or coach checks in</span> (student check-ins not required).
           </p>
 
           {/* Date range picker */}
@@ -3556,7 +3781,7 @@ const [sessionForm,      setSessionForm]      = useState({
 
       {/* ── Member Activity Modal ─────────────────────────────────────────── */}
       {memberModal && (() => {
-        const { member, bookings: mBookings, coaching: mCoaching, social: mSocial, coachSessions: mCoachSessions = [], hoursBalance } = memberModal
+        const { member, bookings: mBookings, coaching: mCoaching, social: mSocial, coachSessions: mCoachSessions = [], soloBalance, groupBalance } = memberModal
         return (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
                onClick={e => { if (e.target === e.currentTarget) { setMemberModal(null); setMemberModalEditId(null); setMemberModalSelected(new Set()) } }}>
@@ -3573,9 +3798,14 @@ const [sessionForm,      setSessionForm]      = useState({
                       : 'bg-court-light text-slate-400 border-court-light'}`}>
                       {member.role}
                     </span>
-                    {hoursBalance !== undefined && hoursBalance !== 0 && (
-                      <span className={`badge border text-xs ${hoursBalance > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-red-500/10 text-red-400 border-red-500/30'}`}>
-                        {hoursBalance > 0 ? `${hoursBalance.toFixed(1)} coaching hrs` : `${hoursBalance.toFixed(1)} hrs`}
+                    {soloBalance !== undefined && soloBalance !== 0 && (
+                      <span className={`badge border text-xs ${soloBalance > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-red-500/10 text-red-400 border-red-500/30'}`}>
+                        1-on-1: {soloBalance.toFixed(1)} hrs
+                      </span>
+                    )}
+                    {groupBalance !== undefined && groupBalance !== 0 && (
+                      <span className={`badge border text-xs ${groupBalance > 0 ? 'bg-teal-500/10 text-teal-400 border-teal-500/30' : 'bg-red-500/10 text-red-400 border-red-500/30'}`}>
+                        Group: {groupBalance.toFixed(1)} hrs
                       </span>
                     )}
                   </div>
@@ -4112,14 +4342,25 @@ const [sessionForm,      setSessionForm]      = useState({
       {/* ── Coach Modal ──────────────────────────────────────────────────── */}
       {coachViewModal && (() => {
         const todayISO = new Date().toISOString().slice(0, 10)
-        // Group all sessions for this coach by student
-        const byStudent = {}
+        // Separate group sessions (by group_id) from 1-on-1
+        const groupMap = {}  // group_id → { start_time, end_time, students: { student_id → { name, sessions[] } } }
+        const soloMap  = {}  // student_id → { student_name, sessions[] }
         for (const s of allCoachingSessions) {
           if (s.coach_id !== coachViewModal.coach_id) continue
-          if (!byStudent[s.student_id]) byStudent[s.student_id] = { student_id: s.student_id, student_name: s.student_name, sessions: [] }
-          byStudent[s.student_id].sessions.push(s)
+          if (s.group_id) {
+            if (!groupMap[s.group_id]) groupMap[s.group_id] = { group_id: s.group_id, start_time: s.start_time, end_time: s.end_time, students: {} }
+            if (!groupMap[s.group_id].students[s.student_id])
+              groupMap[s.group_id].students[s.student_id] = { student_id: s.student_id, student_name: s.student_name, sessions: [] }
+            groupMap[s.group_id].students[s.student_id].sessions.push(s)
+          } else {
+            if (!soloMap[s.student_id]) soloMap[s.student_id] = { student_id: s.student_id, student_name: s.student_name, sessions: [] }
+            soloMap[s.student_id].sessions.push(s)
+          }
         }
-        const students = Object.values(byStudent).sort((a, b) => a.student_name.localeCompare(b.student_name))
+        const groups = Object.values(groupMap)
+        const solos  = Object.values(soloMap).sort((a, b) => a.student_name.localeCompare(b.student_name))
+        const totalStudents = groups.reduce((sum, g) => sum + Object.keys(g.students).length, 0) + solos.length
+
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setCoachViewModal(null)}>
             <div className="bg-court-dark border border-court-light rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
@@ -4127,57 +4368,104 @@ const [sessionForm,      setSessionForm]      = useState({
               <div className="p-5 pb-4 border-b border-court-light flex items-center justify-between shrink-0">
                 <div>
                   <h2 className="text-white">{coachViewModal.coach_name}</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">{students.length} student{students.length !== 1 ? 's' : ''}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{totalStudents} student{totalStudents !== 1 ? 's' : ''}</p>
                 </div>
                 <button onClick={() => setCoachViewModal(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
               </div>
 
-              {/* Student list */}
-              <div className="overflow-y-auto flex-1 p-4 space-y-1">
-                {students.length === 0 && (
+              <div className="overflow-y-auto flex-1 p-4 space-y-3">
+                {totalStudents === 0 && (
                   <p className="text-slate-500 text-sm px-1">No sessions found for this coach.</p>
                 )}
-                {students.map(({ student_id, student_name, sessions }) => {
-                  const isExpanded = coachViewExpanded.has(student_id)
-                  const sorted = [...sessions].sort((a, b) => a.date < b.date ? -1 : 1)
-                  const upcoming = sorted.filter(s => s.date?.slice(0, 10) >= todayISO)
-                  const past = sorted.filter(s => s.date?.slice(0, 10) < todayISO)
+
+                {/* Group sessions — one card per group_id */}
+                {groups.map(group => {
+                  const isExpanded = coachViewExpanded.has(group.group_id)
+                  const studentList = Object.values(group.students).sort((a, b) => a.student_name.localeCompare(b.student_name))
+                  const allSessions = studentList.flatMap(s => s.sessions)
+                  const uniqueDates = [...new Set(allSessions.map(s => s.date?.slice(0, 10)))].sort()
+                  const upcomingCount = uniqueDates.filter(d => d >= todayISO).length
+                  const pastCount = uniqueDates.filter(d => d < todayISO).length
+                  const selectedDate = coachViewSelectedDate[group.group_id] ?? null
+                  const selectedSessions = selectedDate
+                    ? allSessions.filter(s => s.date?.slice(0, 10) === selectedDate)
+                    : []
                   return (
-                    <div key={student_id} className={`rounded-lg border transition-colors ${isExpanded ? 'border-court-light bg-court' : 'border-transparent bg-court'}`}>
+                    <div key={group.group_id} className="rounded-lg border border-court-light bg-court overflow-hidden">
                       <button
                         className="w-full flex items-center justify-between px-4 py-3 text-left"
-                        onClick={() => setCoachViewExpanded(prev => {
-                          const n = new Set(prev)
-                          isExpanded ? n.delete(student_id) : n.add(student_id)
-                          return n
-                        })}>
-                        <span className="font-medium text-white text-sm">{student_name}</span>
+                        onClick={() => {
+                          setCoachViewExpanded(prev => {
+                            const n = new Set(prev)
+                            isExpanded ? n.delete(group.group_id) : n.add(group.group_id)
+                            return n
+                          })
+                          if (isExpanded) setCoachViewSelectedDate(prev => ({ ...prev, [group.group_id]: null }))
+                        }}>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] bg-teal-500/15 text-teal-400 px-2 py-0.5 rounded font-medium uppercase tracking-wide">Group</span>
+                          <span className="text-sm font-medium text-white">{fmtTime(group.start_time)}–{fmtTime(group.end_time)}</span>
+                        </div>
                         <div className="flex items-center gap-3">
-                          <span className="text-xs text-slate-400">{upcoming.length} upcoming · {past.length} past</span>
+                          <span className="text-xs text-slate-400">{upcomingCount} upcoming · {pastCount} past</span>
                           <span className="text-slate-500 text-xs">{isExpanded ? '▲' : '▼'}</span>
                         </div>
                       </button>
-                      {isExpanded && (
-                        <div className="border-t border-court-light/40 px-4 pb-3 pt-2 space-y-1">
-                          {sorted.map(s => {
-                            const isPast = s.date?.slice(0, 10) < todayISO
-                            const checkedIn = s.checked_in || adminCheckedIn.has(s.id)
+                      {/* Student chips — coloured by check-in when a date is selected */}
+                      <div className="px-4 pb-3 flex flex-wrap gap-1.5">
+                        {studentList.map(s => {
+                          if (!selectedDate) {
                             return (
-                              <div key={s.id} className="flex items-center gap-2 py-1">
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${s.group_id ? 'bg-teal-500/15 text-teal-400' : 'bg-emerald-500/15 text-emerald-400'}`}>
-                                  {s.group_id ? 'Group' : '1-on-1'}
-                                </span>
-                                <span className={`text-sm flex-1 ${isPast ? 'text-slate-500' : 'text-white'}`}>{fmtDate(s.date)}</span>
-                                <span className="text-xs text-slate-500 font-mono">{fmtTime(s.start_time)}–{fmtTime(s.end_time)}</span>
+                              <span key={s.student_id} className="text-xs bg-court-mid border border-court-light px-2.5 py-0.5 rounded-full text-slate-300">
+                                {s.student_name}
+                              </span>
+                            )
+                          }
+                          const sessionOnDate = selectedSessions.find(x => x.student_id === s.student_id)
+                          const absent = !sessionOnDate
+                          const checkedIn = sessionOnDate && (sessionOnDate.checked_in || adminCheckedIn.has(sessionOnDate.id))
+                          return (
+                            <span key={s.student_id} className={`text-xs px-2.5 py-0.5 rounded-full border transition-colors ${
+                              absent      ? 'bg-court-mid border-court-light text-slate-600 line-through' :
+                              checkedIn   ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300' :
+                                            'bg-court-mid border-court-light text-slate-400'
+                            }`}>
+                              {checkedIn && <span className="mr-1">✓</span>}{s.student_name}
+                            </span>
+                          )
+                        })}
+                        {selectedDate && (
+                          <button
+                            className="text-[10px] text-slate-500 hover:text-slate-300 px-1"
+                            onClick={() => setCoachViewSelectedDate(prev => ({ ...prev, [group.group_id]: null }))}>
+                            ✕ clear
+                          </button>
+                        )}
+                      </div>
+                      {/* Session dates — expanded only, click a row to highlight check-in */}
+                      {isExpanded && (
+                        <div className="border-t border-court-light/40 px-4 pb-3 pt-2 space-y-0.5">
+                          {uniqueDates.map(date => {
+                            const rep = allSessions.find(s => s.date?.slice(0, 10) === date)
+                            const isPast = date < todayISO
+                            const sessionsOnDate = allSessions.filter(s => s.date?.slice(0, 10) === date)
+                            const checkedInCount = sessionsOnDate.filter(s => s.checked_in || adminCheckedIn.has(s.id)).length
+                            const isSelected = selectedDate === date
+                            return (
+                              <button
+                                key={date}
+                                className={`w-full flex items-center gap-2 py-1.5 px-2 rounded-lg text-left transition-colors ${isSelected ? 'bg-court-light/40' : 'hover:bg-court-light/20'}`}
+                                onClick={() => setCoachViewSelectedDate(prev => ({
+                                  ...prev,
+                                  [group.group_id]: isSelected ? null : date
+                                }))}>
+                                <span className={`text-sm flex-1 ${isPast ? 'text-slate-500' : 'text-white'}`}>{fmtDate(date)}</span>
+                                <span className="text-xs text-slate-500 font-mono">{fmtTime(rep?.start_time)}–{fmtTime(rep?.end_time)}</span>
                                 {isPast
-                                  ? checkedIn
-                                    ? <span className="text-emerald-400 text-xs font-medium shrink-0">✓ In</span>
-                                    : <span className="text-slate-600 text-xs shrink-0">— No show</span>
-                                  : checkedIn
-                                    ? <span className="text-emerald-400 text-xs font-medium shrink-0">✓ In</span>
-                                    : <span className="text-slate-500 text-xs shrink-0">Upcoming</span>
+                                  ? <span className="text-xs text-slate-400 shrink-0">{checkedInCount}/{sessionsOnDate.length} checked in</span>
+                                  : <span className="text-slate-500 text-xs shrink-0">Upcoming</span>
                                 }
-                              </div>
+                              </button>
                             )
                           })}
                         </div>
@@ -4185,8 +4473,159 @@ const [sessionForm,      setSessionForm]      = useState({
                     </div>
                   )
                 })}
+
+                {/* 1-on-1 sessions */}
+                {solos.length > 0 && (
+                  <div className="space-y-1">
+                    {groups.length > 0 && (
+                      <p className="text-[10px] text-slate-500 uppercase tracking-wide px-1 pt-1">1-on-1 Sessions</p>
+                    )}
+                    {solos.map(({ student_id, student_name, sessions }) => {
+                      const isExpanded = coachViewExpanded.has(student_id)
+                      const sorted = [...sessions].sort((a, b) => a.date < b.date ? -1 : 1)
+                      const upcoming = sorted.filter(s => s.date?.slice(0, 10) >= todayISO)
+                      const past = sorted.filter(s => s.date?.slice(0, 10) < todayISO)
+                      return (
+                        <div key={student_id} className={`rounded-lg border transition-colors ${isExpanded ? 'border-court-light bg-court' : 'border-transparent bg-court'}`}>
+                          <button
+                            className="w-full flex items-center justify-between px-4 py-3 text-left"
+                            onClick={() => setCoachViewExpanded(prev => {
+                              const n = new Set(prev)
+                              isExpanded ? n.delete(student_id) : n.add(student_id)
+                              return n
+                            })}>
+                            <span className="font-medium text-white text-sm">{student_name}</span>
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs text-slate-400">{upcoming.length} upcoming · {past.length} past</span>
+                              <span className="text-slate-500 text-xs">{isExpanded ? '▲' : '▼'}</span>
+                            </div>
+                          </button>
+                          {isExpanded && (
+                            <div className="border-t border-court-light/40 px-4 pb-3 pt-2 space-y-1">
+                              {sorted.map(s => {
+                                const isPast = s.date?.slice(0, 10) < todayISO
+                                const checkedIn = s.checked_in || adminCheckedIn.has(s.id)
+                                return (
+                                  <div key={s.id} className="flex items-center gap-2 py-1">
+                                    <span className={`text-sm flex-1 ${isPast ? 'text-slate-500' : 'text-white'}`}>{fmtDate(s.date)}</span>
+                                    <span className="text-xs text-slate-500 font-mono">{fmtTime(s.start_time)}–{fmtTime(s.end_time)}</span>
+                                    {isPast
+                                      ? checkedIn
+                                        ? <span className="text-emerald-400 text-xs font-medium shrink-0">✓ In</span>
+                                        : <span className="text-slate-600 text-xs shrink-0">— No show</span>
+                                      : <span className="text-slate-500 text-xs shrink-0">Upcoming</span>
+                                    }
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
 
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Solo Session Edit Modal ──────────────────────────────────────── */}
+      {soloEditModal && (() => {
+        const todayISO = new Date().toISOString().slice(0, 10)
+        const s0 = soloEditModal
+        // All upcoming confirmed 1-on-1 sessions for this student+coach (across all series/days)
+        const seriesSessions = allCoachingSessions.filter(s =>
+          s.student_id === s0.student_id && s.coach_id === s0.coach_id && !s.group_id && s.date?.slice(0, 10) >= todayISO
+        )
+        const sorted = [...seriesSessions].sort((a, b) => a.date < b.date ? -1 : 1)
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={e => { if (e.target === e.currentTarget) setSoloEditModal(null) }}>
+            <div className="bg-court-dark border border-court-light rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+              {/* Header */}
+              <div className="p-6 pb-4 border-b border-court-light flex items-center justify-between shrink-0">
+                <div>
+                  <h2 className="text-white">Edit Sessions</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {s0.student_name} · Coach: {s0.coach_name} · {sorted.length} upcoming session{sorted.length !== 1 ? 's' : ''}
+                  </p>
+                </div>
+                <button onClick={() => setSoloEditModal(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+              </div>
+
+              <div className="overflow-y-auto flex-1 p-6">
+                {sorted.length === 0 ? (
+                  <p className="text-slate-400 text-sm">No upcoming sessions in this series.</p>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <h3 className="text-sm text-slate-200">Upcoming Sessions</h3>
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="text-xs text-slate-400 hover:text-white transition-colors"
+                          onClick={() => {
+                            if (soloEditSelected.size === sorted.length) setSoloEditSelected(new Set())
+                            else setSoloEditSelected(new Set(sorted.map(s => s.id)))
+                          }}>
+                          {soloEditSelected.size === sorted.length ? 'Deselect all' : 'Select all'}
+                        </button>
+                        {soloEditSelected.size > 0 && (
+                          <button
+                            className="text-xs bg-red-500/15 text-red-400 hover:bg-red-500/25 hover:text-red-300 px-3 py-1 rounded-full transition-colors"
+                            onClick={() => handleSoloBulkCancel([...soloEditSelected])}>
+                            Cancel {soloEditSelected.size} selected
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {sorted.map(s => {
+                      const isSelected = soloEditSelected.has(s.id)
+                      const checkedIn = s.checked_in || adminCheckedIn.has(s.id)
+                      return (
+                        <div key={s.id} className={`rounded-lg border px-4 py-2.5 flex items-center gap-3 ${isSelected ? 'border-red-500/40 bg-red-900/10' : 'border-transparent bg-court'}`}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={e => setSoloEditSelected(prev => {
+                              const next = new Set(prev)
+                              if (e.target.checked) next.add(s.id); else next.delete(s.id)
+                              return next
+                            })}
+                            className="w-4 h-4 accent-red-500 shrink-0 cursor-pointer"
+                          />
+                          <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                            <span className="text-sm text-white">{fmtDate(s.date?.slice(0, 10))}</span>
+                            <span className="text-slate-400 text-xs font-mono">{fmtTime(s.start_time)}–{fmtTime(s.end_time)}</span>
+                            {checkedIn && <span className="text-[10px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded">Checked in</span>}
+                            {s.notes && <span className="text-[10px] text-slate-500 truncate max-w-[160px]">{s.notes}</span>}
+                          </div>
+                          {!isSelected && (
+                            <button
+                              className="text-xs text-red-400 hover:text-red-300 shrink-0"
+                              onClick={async () => {
+                                await handleCancelSession(s.id)
+                                // Close modal if no sessions remain for this student+coach
+                                const remaining = allCoachingSessions.filter(x =>
+                                  x.student_id === s0.student_id && x.coach_id === s0.coach_id && !x.group_id && x.id !== s.id
+                                )
+                                if (remaining.length === 0) setSoloEditModal(null)
+                              }}>
+                              Cancel
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 border-t border-court-light shrink-0 flex justify-end">
+                <button onClick={() => setSoloEditModal(null)} className="btn-secondary text-sm">Close</button>
+              </div>
             </div>
           </div>
         )
@@ -4221,88 +4660,76 @@ const [sessionForm,      setSessionForm]      = useState({
               </div>
 
               <div className="overflow-y-auto flex-1 p-6 space-y-6">
-                {/* Students */}
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold text-slate-200">Students</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {g.student_names.map((name, i) => {
-                      const sid = g.student_ids?.[i]
-                      const leaveCount = (g.group_leave_map ?? {})[String(sid)] ?? 0
-                      const leaveExhausted = leaveCount >= 2
-                      return (
-                        <span key={i} className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${leaveExhausted ? 'bg-red-500/15 text-red-300' : leaveCount > 0 ? 'bg-amber-500/15 text-amber-300' : 'bg-brand-500/15 text-brand-300'}`}>
-                          {name}
-                          {leaveCount > 0 && <span className="text-[10px] opacity-70">· {leaveCount}/2 leaves</span>}
-                          <button
-                            onClick={() => handleGroupEditRemoveStudent(sid, name)}
-                            className="text-slate-400 hover:text-red-400 leading-none font-bold transition-colors"
-                            title={`Remove ${name}`}>×</button>
-                        </span>
-                      )
-                    })}
-                  </div>
-                  {/* Add student search */}
-                  <div className="relative w-64">
-                    <input
-                      className="input text-sm py-1.5 w-full"
-                      placeholder="Add student by name…"
-                      value={groupEditAddSearch}
-                      onChange={e => setGroupEditAddSearch(e.target.value)}
-                      disabled={groupEditAddSaving}
-                    />
-                    {groupEditAddSearch && (() => {
-                      const filtered = members.filter(m =>
-                        !g.student_ids?.includes(m.id) &&
-                        m.name.toLowerCase().includes(groupEditAddSearch.toLowerCase())
-                      ).slice(0, 6)
-                      return filtered.length > 0 ? (
-                        <ul className="absolute z-20 top-full left-0 mt-1 w-full bg-court-mid border border-court-light rounded-lg overflow-hidden shadow-lg">
-                          {filtered.map(m => (
-                            <li key={m.id}>
-                              <button
-                                disabled={groupEditAddSaving}
-                                onClick={() => handleGroupEditAddStudent(m.id)}
-                                className="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-court-light transition-colors disabled:opacity-50">
-                                {m.name}
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null
-                    })()}
-                    {groupEditAddSaving && <span className="text-xs text-slate-400 mt-1 block">Adding…</span>}
-                  </div>
-                </div>
-
                 {/* Sessions list */}
                 {uniqueDates.length > 0 && (
                   <div className="space-y-2">
-                    <h3 className="text-sm font-semibold text-slate-200">Upcoming Sessions</h3>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm text-slate-200">Upcoming Sessions</h3>
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="text-xs text-slate-400 hover:text-white transition-colors"
+                          onClick={() => {
+                            if (groupEditSelected.size === uniqueDates.length) setGroupEditSelected(new Set())
+                            else setGroupEditSelected(new Set(uniqueDates))
+                          }}>
+                          {groupEditSelected.size === uniqueDates.length ? 'Deselect all' : 'Select all'}
+                        </button>
+                        {groupEditSelected.size > 0 && (
+                          <button
+                            className="text-xs bg-red-500/15 text-red-400 hover:bg-red-500/25 hover:text-red-300 px-3 py-1 rounded-full transition-colors"
+                            onClick={() => handleBulkCancelSelectedDates(dateMap)}>
+                            Cancel {groupEditSelected.size} selected
+                          </button>
+                        )}
+                      </div>
+                    </div>
                     {uniqueDates.map((date, idx) => {
                       const rep = dateMap[date][0]
                       const isEditing = groupEditSessionDate === date
+                      const isSelected = groupEditSelected.has(date)
                       const sessionCount = uniqueDates.length - idx
                       return (
-                        <div key={date} className={`rounded-lg border ${isEditing ? 'border-sky-500/40 bg-sky-900/10' : 'border-transparent bg-court'}`}>
+                        <div key={date} className={`rounded-lg border ${isEditing ? 'border-sky-500/40 bg-sky-900/10' : isSelected ? 'border-red-500/40 bg-red-900/10' : 'border-transparent bg-court'}`}>
                           <div className="flex items-center gap-3 px-4 py-2.5">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={e => setGroupEditSelected(prev => {
+                                const next = new Set(prev)
+                                if (e.target.checked) next.add(date); else next.delete(date)
+                                return next
+                              })}
+                              className="w-4 h-4 accent-red-500 shrink-0 cursor-pointer"
+                            />
                             <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                               <span className="text-[10px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded shrink-0">Group</span>
-                              <span className="text-sm font-medium text-white">{fmtDate(date)}</span>
+                              <span className="text-sm text-white">{fmtDate(date)}</span>
                               <span className="text-slate-400 text-sm">{g.coach_name} · {fmtTime(rep.start_time)}–{fmtTime(rep.end_time)}</span>
                             </div>
-                            <button
-                              className={`text-xs shrink-0 ${isEditing ? 'text-slate-400 hover:text-white' : 'text-sky-400 hover:text-sky-300'}`}
-                              onClick={() => {
-                                if (isEditing) { setGroupEditSessionDate(null) } else {
-                                  setGroupEditSessionDate(date)
-                                  setGroupEditForm({ date, start_time: rep.start_time.slice(0, 5), end_time: rep.end_time.slice(0, 5) })
-                                }
-                              }}>
-                              {isEditing ? 'Close' : 'Edit'}
-                            </button>
+                            <div className="flex items-center gap-3 shrink-0">
+                              {!isEditing && !isSelected && (
+                                <button
+                                  className="text-xs text-red-400 hover:text-red-300"
+                                  onClick={() => handleCancelEntireSessionDate(date, dateMap[date])}>
+                                  Cancel session
+                                </button>
+                              )}
+                              {!isSelected && (
+                                <button
+                                  className={`text-xs ${isEditing ? 'text-slate-400 hover:text-white' : 'text-sky-400 hover:text-sky-300'}`}
+                                  onClick={() => {
+                                    if (isEditing) { setGroupEditSessionDate(null) } else {
+                                      setGroupEditSessionDate(date)
+                                      setGroupEditForm({ date, start_time: rep.start_time.slice(0, 5), end_time: rep.end_time.slice(0, 5) })
+                                    }
+                                  }}>
+                                  {isEditing ? 'Close' : 'Edit'}
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          {/* Per-student cancel rows */}
-                          {!isEditing && (
+                          {/* Per-student rows */}
+                          {!isEditing && !isSelected && (
                             <div className="px-4 pb-2 space-y-1 border-t border-court-light/30 pt-2">
                               {dateMap[date].map(s => {
                                 const leaveCount = (g.group_leave_map ?? {})[String(s.student_id)] ?? 0
@@ -4325,16 +4752,76 @@ const [sessionForm,      setSessionForm]      = useState({
                                         </span>
                                       )}
                                     </div>
-                                    <button
-                                      disabled={leaveUsed}
-                                      title={leaveUsed ? 'Student has already used their leave for this series' : ''}
-                                      className={`text-xs shrink-0 ${leaveUsed ? 'text-slate-600 cursor-not-allowed' : 'text-red-400 hover:text-red-300'}`}
-                                      onClick={() => !leaveUsed && handleCancelStudentOnDate(s)}>
-                                      {leaveUsed ? 'No leaves left' : 'Cancel'}
-                                    </button>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <button
+                                        disabled={leaveUsed}
+                                        title={leaveUsed ? 'Student has already used their leave for this series' : 'Cancel this session (records a leave)'}
+                                        className={`text-xs ${leaveUsed ? 'text-slate-600 cursor-not-allowed' : 'text-amber-400 hover:text-amber-300'}`}
+                                        onClick={() => !leaveUsed && handleCancelStudentOnDate(s)}>
+                                        {leaveUsed ? 'No leaves left' : 'Leave'}
+                                      </button>
+                                      <button
+                                        title={`Remove ${s.student_name} from this and all future sessions`}
+                                        className="text-xs text-red-400 hover:text-red-300"
+                                        onClick={() => handleGroupEditRemoveStudentFromDate(date, s.student_id, s.student_name)}>
+                                        Remove ↓
+                                      </button>
+                                    </div>
                                   </div>
                                 )
                               })}
+                              {/* Per-date add student */}
+                              {(() => {
+                                const search = dateAddSearch[date] ?? ''
+                                const isAdding = date in dateAddSearch
+                                const alreadyInGroup = new Set(dateMap[date].map(s => s.student_id))
+                                return (
+                                  <div className="pt-1">
+                                    {!isAdding ? (
+                                      <button
+                                        className="text-xs text-sky-400 hover:text-sky-300"
+                                        onClick={() => setDateAddSearch(prev => ({ ...prev, [date]: '' }))}>
+                                        + Add student from here
+                                      </button>
+                                    ) : (
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <input
+                                          autoFocus
+                                          className="input text-xs py-1 w-40"
+                                          placeholder="Student name…"
+                                          value={search}
+                                          onChange={e => setDateAddSearch(prev => ({ ...prev, [date]: e.target.value }))}
+                                        />
+                                        <button
+                                          className="text-xs text-slate-400 hover:text-white"
+                                          onClick={() => setDateAddSearch(prev => { const n = { ...prev }; delete n[date]; return n })}>
+                                          ✕
+                                        </button>
+                                        {search && (
+                                          <ul className="w-full mt-1 divide-y divide-court-light max-h-32 overflow-y-auto rounded-lg border border-court-light bg-court-dark">
+                                            {members
+                                              .filter(m => m.name?.toLowerCase().includes(search.toLowerCase()) && !alreadyInGroup.has(m.id))
+                                              .slice(0, 6)
+                                              .map(m => (
+                                                <li key={m.id}>
+                                                  <button
+                                                    disabled={dateAddSaving}
+                                                    className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-court-light/40"
+                                                    onClick={() => {
+                                                      if (!window.confirm(`Add ${m.name} to all sessions from ${fmtDate(date)} onwards? Their hours balance will be updated.`)) return
+                                                      handleGroupEditAddStudentFromDate(date, m.id)
+                                                    }}>
+                                                    {m.name}
+                                                  </button>
+                                                </li>
+                                              ))}
+                                          </ul>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })()}
                             </div>
                           )}
                           {/* Inline edit form */}

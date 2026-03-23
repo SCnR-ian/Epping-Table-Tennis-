@@ -73,7 +73,7 @@ router.post('/coaching/:sessionId', requireAuth, async (req, res) => {
   const client = await pool.connect()
   try {
     const { rows } = await client.query(
-      `SELECT cs.date, cs.start_time, cs.end_time, cs.student_id
+      `SELECT cs.date, cs.start_time, cs.end_time, cs.student_id, cs.group_id
        FROM coaching_sessions cs
        LEFT JOIN coaches co ON co.id = cs.coach_id
        WHERE cs.id=$1 AND (cs.student_id=$2 OR co.user_id=$2)
@@ -96,10 +96,11 @@ router.post('/coaching/:sessionId', requireAuth, async (req, res) => {
       const [sh, sm] = rows[0].start_time.substring(0, 5).split(':').map(Number)
       const [eh, em] = rows[0].end_time.substring(0, 5).split(':').map(Number)
       const hrs = ((eh * 60 + em) - (sh * 60 + sm)) / 60
+      const sessionType = rows[0].group_id ? 'group' : 'solo'
       await client.query(
-        `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_id, created_by)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [uid, -hrs, 'Coaching session attended', req.params.sessionId, checkedInBy(req, uid)]
+        `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_type, session_id, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [uid, -hrs, 'Coaching session attended', sessionType, req.params.sessionId, checkedInBy(req, uid)]
       )
     }
     await client.query('COMMIT')
@@ -264,17 +265,23 @@ router.delete('/:type/:refId/:userId', requireAuth, async (req, res) => {
     // Refund coaching hours when undoing a student coaching check-in
     if (type === 'coaching') {
       const { rows: [session] } = await client.query(
-        'SELECT start_time, end_time, student_id FROM coaching_sessions WHERE id=$1',
+        'SELECT start_time, end_time, group_id FROM coaching_sessions WHERE id=$1',
         [refId]
       )
-      if (session && Number(userId) === session.student_id) {
+      // Only refund if a deduction entry exists for this user+session (handles both 1-on-1 and group)
+      const { rowCount: ledgerCount } = await client.query(
+        'SELECT 1 FROM coaching_hour_ledger WHERE user_id=$1 AND session_id=$2 AND delta < 0 LIMIT 1',
+        [userId, refId]
+      )
+      if (session && ledgerCount > 0) {
         const [sh, sm] = session.start_time.substring(0, 5).split(':').map(Number)
         const [eh, em] = session.end_time.substring(0, 5).split(':').map(Number)
         const hrs = ((eh * 60 + em) - (sh * 60 + sm)) / 60
+        const sessionType = session.group_id ? 'group' : 'solo'
         await client.query(
-          `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_id, created_by)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [userId, hrs, 'Check-in undone — hours refunded', refId, req.user.id]
+          `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_type, session_id, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [userId, hrs, 'Check-in undone — hours refunded', sessionType, refId, req.user.id]
         )
       }
     }

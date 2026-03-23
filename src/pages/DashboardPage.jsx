@@ -126,7 +126,7 @@ export default function DashboardPage() {
             checkinRes.value.data.checkIns.map(ci => `${ci.type}:${ci.reference_id}`)
           ))
         if (hoursRes?.status === 'fulfilled' && hoursRes.value)
-          setHoursBalance(hoursRes.value.data.balance)
+          setHoursBalance({ solo: hoursRes.value.data.soloBalance ?? 0, group: hoursRes.value.data.groupBalance ?? 0 })
       })
       .finally(() => { if (!cancelled) setLoadingData(false) })
     return () => { cancelled = true }
@@ -238,17 +238,26 @@ export default function DashboardPage() {
 
           {/* Coaching hours balance */}
           {hoursBalance !== null && (
-              <div className="card">
-                <h3 className="text-sm font-normal text-white mb-4">Coaching Hours</h3>
-                <div className="flex items-end gap-3">
-                  <p className={`font-display text-4xl tracking-wider leading-none ${(hoursBalance ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {(hoursBalance ?? 0).toFixed(1)}
+            <div className="card">
+              <h3 className="text-sm font-normal text-white mb-4">Coaching Hours</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-court-mid rounded-lg p-3 text-center">
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">1-on-1</p>
+                  <p className={`font-display text-3xl tracking-wider leading-none ${(hoursBalance.solo ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {(hoursBalance.solo ?? 0).toFixed(1)}
                   </p>
-                  <p className="text-sm text-slate-400 mb-0.5">hours remaining</p>
+                  <p className="text-xs text-slate-500 mt-1">hrs remaining</p>
+                </div>
+                <div className="bg-court-mid rounded-lg p-3 text-center">
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">Group</p>
+                  <p className={`font-display text-3xl tracking-wider leading-none ${(hoursBalance.group ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
+                    {(hoursBalance.group ?? 0).toFixed(1)}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">hrs remaining</p>
                 </div>
               </div>
-            )
-          }
+            </div>
+          )}
 
           {/* Check-In */}
           <div className="card">

@@ -142,8 +142,8 @@ export const coachingAPI = {
   createGroupSession:  (data)       => api.post('/coaching/sessions/group', data),
   getGroupSessions:    (params)     => api.get('/coaching/sessions/groups', { params }),
   cancelGroupSession:       (groupId)                           => api.delete(`/coaching/sessions/group/${groupId}`),
-  addStudentToGroup:        (groupId, student_id)               => api.post(`/coaching/sessions/group/${groupId}/add-student`, { student_id }),
-  removeStudentFromGroup:   (groupId, studentId)                => api.delete(`/coaching/sessions/group/${groupId}/remove-student/${studentId}`),
+  addStudentToGroup:        (groupId, student_id, from_date)    => api.post(`/coaching/sessions/group/${groupId}/add-student`, { student_id, from_date }),
+  removeStudentFromGroup:   (groupId, studentId, from_date)     => api.delete(`/coaching/sessions/group/${groupId}/remove-student/${studentId}`, { params: from_date ? { from_date } : {} }),
   rescheduleGroupSession:   (groupId, date, start_time, end_time) =>
     api.put(`/coaching/sessions/group/${groupId}/reschedule`, { date, ...(start_time && end_time ? { start_time, end_time } : {}) }),
   // Coaching hours

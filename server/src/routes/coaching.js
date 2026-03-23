@@ -545,9 +545,9 @@ router.post('/sessions/group', requireAuth, requireAdmin, async (req, res) => {
 })
 
 // POST /api/coaching/sessions/group/:groupId/add-student  (admin)
-// body: { student_id }  — adds the student to all remaining confirmed sessions in this group
+// body: { student_id, from_date? }  — adds student to all confirmed sessions from from_date onwards
 router.post('/sessions/group/:groupId/add-student', requireAuth, requireAdmin, async (req, res) => {
-  const { student_id } = req.body
+  const { student_id, from_date } = req.body
   if (!student_id) return res.status(400).json({ message: 'student_id is required.' })
 
   const client = await pool.connect()
@@ -555,13 +555,13 @@ router.post('/sessions/group/:groupId/add-student', requireAuth, requireAdmin, a
     await client.query('BEGIN')
 
     // Fetch one representative row per remaining date in this group
-    const today = new Date().toISOString().slice(0, 10)
+    const fromDate = from_date || new Date().toISOString().slice(0, 10)
     const { rows: sessions } = await client.query(
       `SELECT DISTINCT ON (date) *
        FROM coaching_sessions
        WHERE group_id=$1 AND status='confirmed' AND date >= $2
        ORDER BY date ASC`,
-      [req.params.groupId, today]
+      [req.params.groupId, fromDate]
     )
     if (sessions.length === 0) {
       await client.query('ROLLBACK')
@@ -577,6 +577,19 @@ router.post('/sessions/group/:groupId/add-student', requireAuth, requireAdmin, a
     if (existing.length) {
       await client.query('ROLLBACK')
       return res.status(409).json({ message: 'Student is already in this group.' })
+    }
+
+    // Check max 5 students per session — verify every affected date won't exceed 5
+    for (const s of sessions) {
+      const { rows: [cnt] } = await client.query(
+        `SELECT COUNT(DISTINCT student_id)::int AS n FROM coaching_sessions
+         WHERE group_id=$1 AND date=$2 AND status='confirmed'`,
+        [req.params.groupId, s.date]
+      )
+      if (cnt.n >= 5) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({ message: `Adding this student would exceed 5 students on ${s.date}.` })
+      }
     }
 
     const recurrenceId = sessions.length > 1 ? randomUUID() : null
@@ -605,15 +618,31 @@ router.post('/sessions/group/:groupId/add-student', requireAuth, requireAdmin, a
 })
 
 // DELETE /api/coaching/sessions/group/:groupId/remove-student/:studentId  (admin)
-// Cancels all future confirmed sessions for one student in the group
+// Cancels confirmed sessions for one student in the group from from_date onwards
+// Query param: from_date (defaults to today)
 router.delete('/sessions/group/:groupId/remove-student/:studentId', requireAuth, requireAdmin, async (req, res) => {
-  const today = new Date().toISOString().slice(0, 10)
-  const { rowCount } = await pool.query(
-    `UPDATE coaching_sessions SET status='cancelled'
-     WHERE group_id=$1 AND student_id=$2 AND status='confirmed' AND date >= $3`,
-    [req.params.groupId, req.params.studentId, today]
+  const fromDate = req.query.from_date || new Date().toISOString().slice(0, 10)
+
+  // Check min 1 student — ensure no affected date would drop to 0
+  const { rows: dateCounts } = await pool.query(
+    `SELECT date, COUNT(DISTINCT student_id)::int AS n
+     FROM coaching_sessions
+     WHERE group_id=$1 AND status='confirmed' AND date >= $2
+     GROUP BY date`,
+    [req.params.groupId, fromDate]
   )
-  res.json({ cancelled: rowCount })
+  const wouldEmpty = dateCounts.some(r => r.n <= 1)
+  if (wouldEmpty) {
+    return res.status(409).json({ message: 'Cannot remove this student — at least 1 student must remain in each session.' })
+  }
+
+  const { rows } = await pool.query(
+    `UPDATE coaching_sessions SET status='cancelled'
+     WHERE group_id=$1 AND student_id=$2 AND status='confirmed' AND date >= $3
+     RETURNING id, date, start_time, end_time, student_id`,
+    [req.params.groupId, req.params.studentId, fromDate]
+  )
+  res.json({ cancelled: rows.length, sessions: rows })
 })
 
 // DELETE /api/coaching/sessions/group/:groupId  (admin) — cancel all confirmed sessions in a group
@@ -664,8 +693,8 @@ router.delete('/sessions/:id', requireAuth, async (req, res) => {
     if (!isAdmin && !isStudent && !isCoach)
       return res.status(403).json({ message: 'Forbidden.' })
 
-    // For group sessions: max 3 leaves per student per series
-    if (session.group_id) {
+    // For group sessions: record a leave (students only — admin cancellations don't count as leaves)
+    if (session.group_id && !isAdmin) {
       const { rows: leaveRows } = await pool.query(
         'SELECT COUNT(*)::int AS cnt FROM group_session_leaves WHERE group_id=$1 AND student_id=$2',
         [session.group_id, session.student_id]
@@ -791,12 +820,19 @@ router.get('/payment-report', requireAuth, requireAdmin, async (req, res) => {
       if (row.group_id) {
         const gkey = `${row.coach_id}:${row.group_id}`
         if (groupEntries[gkey]) {
-          // Already added this group session — just append the student name
+          // Already added this group session — append student name and accumulate check-in status
           const entry = groupEntries[gkey]
           entry.student_names.push(row.student_name)
           entry.student_name = entry.student_names.join(', ')
-          // If any student checked in, mark student_checked_in true
           if (row.student_checked_in) entry.student_checked_in = true
+          // Coach may have checked into any student's session — update counted if not yet counted
+          const nowCounted = row.admin_checked_in === true || row.coach_checked_in === true
+          if (!entry.counted && nowCounted) {
+            entry.counted = true
+            entry.coach_checked_in = row.coach_checked_in
+            entry.admin_checked_in = row.admin_checked_in
+            byCoach[row.coach_id].counted++
+          }
           continue
         }
         // First row for this group — create entry and track it
@@ -886,14 +922,17 @@ router.get('/my-coach-sessions', requireAuth, async (req, res) => {
 async function checkAndAssignCourt(client, session, sessionDate, newStart, newEnd, extraExcludeIds = []) {
   const coachId   = session.coach_id
   const studentId = session.student_id
+  const groupId   = session.group_id
   const excludeIds = [...new Set([session.id, ...extraExcludeIds])]
 
   // ── coach conflicts ──────────────────────────────────────────────────────────
+  // Same-group sessions share the coach intentionally — not a conflict
   const { rows: coachBusy } = await client.query(
     `SELECT 1 FROM coaching_sessions
      WHERE coach_id=$1 AND date=$2 AND status='confirmed' AND NOT (id = ANY($5::int[]))
+       AND ($6::uuid IS NULL OR group_id IS DISTINCT FROM $6)
        AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
-    [coachId, sessionDate, newStart, newEnd, excludeIds]
+    [coachId, sessionDate, newStart, newEnd, excludeIds, groupId ?? null]
   )
   if (coachBusy.length)
     throw Object.assign(new Error('coach_conflict'), { sessionDate, reason: 'coaching' })
@@ -964,6 +1003,7 @@ async function checkAndAssignCourt(client, session, sessionDate, newStart, newEn
        WHERE c.id NOT IN (
          SELECT cs2.court_id FROM coaching_sessions cs2
          WHERE cs2.date=$1 AND cs2.status='confirmed' AND NOT (cs2.id = ANY($4::int[]))
+           AND ($5::uuid IS NULL OR cs2.group_id IS DISTINCT FROM $5)
            AND cs2.start_time < $3::time AND cs2.end_time > $2::time
        )
        AND c.id NOT IN (
@@ -974,7 +1014,7 @@ async function checkAndAssignCourt(client, session, sessionDate, newStart, newEn
      )
      SELECT fc.id FROM free_courts fc, social_count sc
      WHERE fc.rn > sc.total ORDER BY fc.rn LIMIT 1`,
-    [sessionDate, newStart, newEnd, excludeIds]
+    [sessionDate, newStart, newEnd, excludeIds, groupId ?? null]
   )
   if (!free[0])
     throw Object.assign(new Error('no_court'), { sessionDate })
@@ -1008,12 +1048,41 @@ router.put('/sessions/reschedule-bulk', requireAuth, requireAdmin, async (req, r
   const allUpdateIds = updates.map(u => u.id)
   try {
     await client.query('BEGIN')
+
+    // Pre-fetch all sessions so we can check group size constraints
+    const sessionMap = {}
     for (const u of updates) {
       const { rows: [session] } = await client.query(
         'SELECT * FROM coaching_sessions WHERE id=$1', [u.id]
       )
       if (!session) throw Object.assign(new Error('not_found'), { id: u.id })
+      sessionMap[u.id] = session
+    }
 
+    // Check group student count on each target date (1–5 per group per date)
+    const groupDateMoves = {} // `${group_id}:${date}` → count moving there
+    for (const u of updates) {
+      const session = sessionMap[u.id]
+      if (!session.group_id) continue
+      const key = `${session.group_id}:${u.date}`
+      groupDateMoves[key] = (groupDateMoves[key] ?? 0) + 1
+    }
+    for (const [key, movingCount] of Object.entries(groupDateMoves)) {
+      const [groupId, date] = key.split(':')
+      const { rows: [cnt] } = await client.query(
+        `SELECT COUNT(*)::int AS n FROM coaching_sessions
+         WHERE group_id=$1 AND date=$2 AND status='confirmed' AND NOT (id = ANY($3::int[]))`,
+        [groupId, date, allUpdateIds]
+      )
+      const total = (cnt?.n ?? 0) + movingCount
+      if (total > 5)
+        throw Object.assign(new Error('group_too_large'), { date })
+      if (total < 1)
+        throw Object.assign(new Error('group_too_small'), { date })
+    }
+
+    for (const u of updates) {
+      const session = sessionMap[u.id]
       const newStart = u.start_time || session.start_time
       const newEnd   = u.end_time   || session.end_time
       const courtId  = await checkAndAssignCourt(client, session, u.date, newStart, newEnd, allUpdateIds)
@@ -1028,6 +1097,10 @@ router.put('/sessions/reschedule-bulk', requireAuth, requireAdmin, async (req, r
     await client.query('ROLLBACK')
     if (err.message === 'not_found')
       return res.status(404).json({ message: `Session ${err.id} not found.` })
+    if (err.message === 'group_too_large')
+      return res.status(409).json({ message: `Moving sessions to ${err.date} would exceed 5 students in the group.` })
+    if (err.message === 'group_too_small')
+      return res.status(409).json({ message: `Moving sessions would leave 0 students on ${err.date}.` })
     return rescheduleConflictResponse(err, res)
   } finally { client.release() }
 })
@@ -1256,43 +1329,54 @@ router.get('/my', requireAuth, async (req, res) => {
 
 // ─── COACHING HOURS (admin + student) ─────────────────────────────────────────
 
-// GET /api/coaching/hours/:userId  — balance + recent transactions (admin or self)
+// GET /api/coaching/hours/:userId  — split balances + recent transactions (admin or self)
 router.get('/hours/:userId', requireAuth, async (req, res) => {
   const targetId = Number(req.params.userId)
   if (req.user.role !== 'admin' && req.user.id !== targetId)
     return res.status(403).json({ message: 'Forbidden.' })
   try {
     const { rows: ledger } = await pool.query(
-      `SELECT id, delta, note, session_id, created_by, created_at
+      `SELECT id, delta, note, session_type, session_id, created_by, created_at
        FROM coaching_hour_ledger
        WHERE user_id=$1
        ORDER BY created_at DESC
        LIMIT 50`,
       [targetId]
     )
-    const balance = ledger.reduce((sum, r) => sum + parseFloat(r.delta), 0)
-    res.json({ balance: Math.round(balance * 100) / 100, ledger })
+    const { rows: [bal] } = await pool.query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN session_type='solo'  THEN delta ELSE 0 END), 0)::numeric AS solo_balance,
+         COALESCE(SUM(CASE WHEN session_type='group' THEN delta ELSE 0 END), 0)::numeric AS group_balance
+       FROM coaching_hour_ledger WHERE user_id=$1`,
+      [targetId]
+    )
+    const round = v => Math.round(parseFloat(v) * 100) / 100
+    res.json({ soloBalance: round(bal.solo_balance), groupBalance: round(bal.group_balance), ledger })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
 // POST /api/coaching/hours/:userId  — admin manually credits or debits hours
-// body: { delta, note }  (positive = add, negative = deduct)
+// body: { delta, note, session_type }  (session_type: 'solo' | 'group', default 'solo')
 router.post('/hours/:userId', requireAuth, requireAdmin, async (req, res) => {
   const targetId = Number(req.params.userId)
-  const { delta, note } = req.body
+  const { delta, note, session_type = 'solo' } = req.body
   if (delta === undefined || delta === null || delta === 0)
     return res.status(400).json({ message: 'delta is required and must be non-zero.' })
   try {
     await pool.query(
-      `INSERT INTO coaching_hour_ledger (user_id, delta, note, created_by)
-       VALUES ($1, $2, $3, $4)`,
-      [targetId, delta, note ?? null, req.user.id]
+      `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_type, created_by)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [targetId, delta, note ?? null, session_type, req.user.id]
     )
-    const { rows } = await pool.query(
-      `SELECT COALESCE(SUM(delta), 0)::numeric AS balance FROM coaching_hour_ledger WHERE user_id=$1`,
+    const { rows: [bal] } = await pool.query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN session_type='solo'  THEN delta ELSE 0 END), 0)::numeric AS solo_balance,
+         COALESCE(SUM(CASE WHEN session_type='group' THEN delta ELSE 0 END), 0)::numeric AS group_balance
+       FROM coaching_hour_ledger WHERE user_id=$1`,
       [targetId]
     )
-    res.json({ message: 'Hours updated.', balance: Math.round(parseFloat(rows[0].balance) * 100) / 100 })
+    const round = v => Math.round(parseFloat(v) * 100) / 100
+    res.json({ message: 'Hours updated.', soloBalance: round(bal.solo_balance), groupBalance: round(bal.group_balance) })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
