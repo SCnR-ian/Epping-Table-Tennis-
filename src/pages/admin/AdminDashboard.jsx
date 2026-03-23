@@ -950,6 +950,7 @@ const [sessionForm,      setSessionForm]      = useState({
       const session = allCoachingSessions.find(s => s.id === id) ?? coachingSessions.find(s => s.id === id)
       await coachingAPI.cancelSession(id)
       setCoachingSessions(prev => prev.filter(s => s.id !== id))
+      setAllCoachingSessions(prev => prev.filter(s => s.id !== id))
       setBookingViewSessions(prev => prev.filter(s => s.id !== id))
       if (session && !session.checked_in) {
         const hasMakeup = await offerMakeupSession(session, allCoachingSessions)
