@@ -69,19 +69,18 @@ router.put('/members/:id/role', async (req, res) => {
     return res.status(400).json({ message: 'Invalid role.' })
   const client = await pool.connect()
   try {
-    await client.query('BEGIN')
     const { rows } = await client.query(
       'UPDATE users SET role=$1, updated_at=NOW() WHERE id=$2 RETURNING *',
       [role, req.params.id]
     )
-    if (!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ message: 'Member not found.' }) }
-    // If demoting from coach, try to remove the coaches record — ignore FK failures (active sessions)
+    if (!rows[0]) return res.status(404).json({ message: 'Member not found.' })
+    // If demoting from coach, try to remove the coaches record outside any transaction
+    // so an FK failure (active sessions) never rolls back the role update
     if (role !== 'coach') {
       try { await client.query('DELETE FROM coaches WHERE user_id=$1', [req.params.id]) } catch {}
     }
-    await client.query('COMMIT')
     res.json({ member: safeUser(rows[0]) })
-  } catch (err) { await client.query('ROLLBACK'); res.status(500).json({ message: err.message ?? 'Server error.' }) }
+  } catch (err) { res.status(500).json({ message: err.message ?? 'Server error.' }) }
   finally { client.release() }
 })
 
