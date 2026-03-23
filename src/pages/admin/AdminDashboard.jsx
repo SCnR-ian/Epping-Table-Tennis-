@@ -4172,7 +4172,13 @@ const [sessionForm,      setSessionForm]      = useState({
                       )}
 
                       {/* Bulk edit bar (upcoming coaching only) */}
-                      {memberModalTab === 'upcoming' && memberModalSelected.size > 0 && (
+                      {memberModalTab === 'upcoming' && memberModalSelected.size > 0 && (() => {
+                        const selSessions = mCoaching.filter(s => memberModalSelected.has(s.id))
+                        const bulkValidSlots = ALL_SLOTS.filter(sl => selSessions.every(s => {
+                          const dow = new Date(s.date.slice(0,10)+'T12:00:00Z').getUTCDay()
+                          return dow === 6 ? SATURDAY_SLOTS.includes(sl) : WEEKDAY_SLOTS.includes(sl)
+                        }))
+                        return (
                         <div className="mt-3 bg-sky-900/30 border border-sky-500/30 rounded-lg px-4 py-3 space-y-3">
                           <p className="text-sky-300 text-sm font-medium">{memberModalSelected.size} session{memberModalSelected.size > 1 ? 's' : ''} selected</p>
                           <div className="flex gap-2 flex-wrap items-end">
@@ -4185,9 +4191,9 @@ const [sessionForm,      setSessionForm]      = useState({
                             <div>
                               <label className="block text-xs text-slate-400 mb-1">New start time</label>
                               <select className="input text-xs py-1" value={memberModalBulkForm.start_time}
-                                onChange={e => { const st = e.target.value; const et = st ? (ALL_SLOTS.find(sl => toMins(sl) === toMins(st) + 60) ?? '') : ''; setMemberModalBulkForm(f => ({ ...f, start_time: st, end_time: et })) }}>
+                                onChange={e => { const st = e.target.value; const et = st ? (bulkValidSlots.find(sl => toMins(sl) === toMins(st) + 60) ?? '') : ''; setMemberModalBulkForm(f => ({ ...f, start_time: st, end_time: et })) }}>
                                 <option value="">Keep same</option>
-                                {ALL_SLOTS.map(sl => <option key={sl} value={sl}>{fmtTime(sl)}</option>)}
+                                {bulkValidSlots.map(sl => <option key={sl} value={sl}>{fmtTime(sl)}</option>)}
                               </select>
                             </div>
                             <div>
@@ -4196,7 +4202,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                 onChange={e => setMemberModalBulkForm(f => ({ ...f, end_time: e.target.value }))}
                                 disabled={!memberModalBulkForm.start_time}>
                                 <option value="">Keep same</option>
-                                {ALL_SLOTS.filter(sl => sl > memberModalBulkForm.start_time).map(sl => <option key={sl} value={sl}>{fmtTime(sl)}</option>)}
+                                {bulkValidSlots.filter(sl => sl > memberModalBulkForm.start_time).map(sl => <option key={sl} value={sl}>{fmtTime(sl)}</option>)}
                               </select>
                             </div>
                           </div>
@@ -4259,7 +4265,8 @@ const [sessionForm,      setSessionForm]      = useState({
                             </button>
                           </div>
                         </div>
-                      )}
+                      )
+                      })()}
                     </>
                   )
                 })()}
