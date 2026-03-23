@@ -590,6 +590,14 @@ const [sessionForm,      setSessionForm]      = useState({
 
   // Fetch analytics when Analytics tab is active
   useEffect(() => {
+    if (activeTab !== 'Pay Report' || !payReport) return
+    // Auto-refresh when admin returns to Pay Report tab so check-ins are reflected
+    coachingAPI.getPaymentReport(payFrom, payTo)
+      .then(({ data }) => setPayReport(data.coaches))
+      .catch(() => {})
+  }, [activeTab]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     if (activeTab !== 'Analytics') return
     if (analyticsData) return  // already loaded
     setAnalyticsLoading(true)
