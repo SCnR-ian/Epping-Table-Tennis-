@@ -1779,14 +1779,14 @@ const [sessionForm,      setSessionForm]      = useState({
                                           <div key={s.student_id} className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
                                             <span className="text-xs text-white">{s.student_name}</span>
                                             <span className="text-[10px] text-slate-500">student</span>
-                                            {s.checked_in
+                                            {s.admin_checked_in
                                               ? <span className="flex items-center gap-1">
                                                   <span className="text-[10px] bg-sky-500/15 text-sky-400 px-2 py-0.5 rounded-full">Admin ✓</span>
                                                   <button onClick={() => handleUndoCheckIn('coaching', s.id, s.student_id)} className="text-[10px] text-slate-500 hover:text-red-400 transition-colors" title="Undo">✕</button>
                                                 </span>
                                               : <Badge in={s.student_checked_in} type="coaching" refId={s.id} userId={s.student_id} />
                                             }
-                                            {!s.checked_in && !s.student_checked_in && !isFuture && (
+                                            {!s.admin_checked_in && !s.student_checked_in && !isFuture && (
                                               <button onClick={() => handleCheckIn('coaching', s.id, s.student_id)} className="text-[10px] text-sky-400 hover:text-sky-300">Check in</button>
                                             )}
                                           </div>
@@ -3206,7 +3206,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                     {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
                                   </td>
                                   <td className="px-3 py-2.5 text-xs whitespace-nowrap">
-                                    {s.checked_in ? (
+                                    {s.admin_checked_in ? (
                                       <span className="text-sky-400">Admin ✓</span>
                                     ) : (
                                       <span className="space-x-2">
