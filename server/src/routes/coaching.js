@@ -647,6 +647,16 @@ router.delete('/sessions/group/:groupId/remove-student/:studentId', requireAuth,
      RETURNING id, date, start_time, end_time, student_id`,
     [req.params.groupId, req.params.studentId, fromDate]
   )
+  // Mark sessions that were already checked in (hours already deducted, skip refund)
+  if (rows.length > 0) {
+    const ids = rows.map(r => r.id)
+    const { rows: checkedRows } = await pool.query(
+      `SELECT DISTINCT session_id FROM coaching_hour_ledger WHERE session_id = ANY($1) AND delta < 0`,
+      [ids]
+    )
+    const checkedSet = new Set(checkedRows.map(r => r.session_id))
+    rows.forEach(r => { r.checked_in = checkedSet.has(r.id) })
+  }
   res.json({ cancelled: rows.length, sessions: rows })
 })
 

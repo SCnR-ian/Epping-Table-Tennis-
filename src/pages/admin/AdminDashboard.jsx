@@ -922,7 +922,7 @@ const [sessionForm,      setSessionForm]      = useState({
       for (const id of sessionIds) {
         const session = allCoachingSessions.find(s => s.id === id)
         await coachingAPI.cancelSession(id)
-        if (session) {
+        if (session && !session.checked_in) {
           const hrs = (toMins(session.end_time.slice(0, 5)) - toMins(session.start_time.slice(0, 5))) / 60
           if (hrs > 0) await coachingAPI.addHours(session.student_id, { delta: -hrs, note: 'Session cancelled', session_type: 'solo' }).catch(() => {})
         }
@@ -947,7 +947,7 @@ const [sessionForm,      setSessionForm]      = useState({
       await coachingAPI.cancelSession(id)
       setCoachingSessions(prev => prev.filter(s => s.id !== id))
       setBookingViewSessions(prev => prev.filter(s => s.id !== id))
-      if (session) {
+      if (session && !session.checked_in) {
         const hasMakeup = await offerMakeupSession(session, allCoachingSessions)
         if (!hasMakeup) {
           const hrs = (toMins(session.end_time.slice(0, 5)) - toMins(session.start_time.slice(0, 5))) / 60
@@ -1051,10 +1051,11 @@ const [sessionForm,      setSessionForm]      = useState({
       return
     }
 
-    // Full cancel + deduct hours
+    // Full cancel + deduct hours (skip if student already checked in)
     try {
       for (const s of sessions) {
         await coachingAPI.cancelSession(s.id)
+        if (s.checked_in) continue
         const hrs = (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60
         if (hrs > 0) await coachingAPI.addHours(s.student_id, { delta: -hrs, note: 'Group session cancelled', session_type: 'group' }).catch(() => {})
       }
@@ -1072,6 +1073,7 @@ const [sessionForm,      setSessionForm]      = useState({
       )
       const studentHours = {}
       for (const s of remaining) {
+        if (s.checked_in) continue  // hours already deducted at check-in
         const hrs = (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60
         studentHours[s.student_id] = (studentHours[s.student_id] ?? 0) + hrs
       }
@@ -1144,7 +1146,7 @@ const [sessionForm,      setSessionForm]      = useState({
     try {
       const today = new Date().toISOString().slice(0, 10)
       const toDeduct = allCoachingSessions.filter(
-        s => s.group_id === groupEditModal.group_id && s.student_id === studentId && s.date?.slice(0, 10) >= today
+        s => s.group_id === groupEditModal.group_id && s.student_id === studentId && s.date?.slice(0, 10) >= today && !s.checked_in
       )
       const hrs = toDeduct.reduce((sum, s) =>
         sum + (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60, 0)
@@ -1192,7 +1194,7 @@ const [sessionForm,      setSessionForm]      = useState({
     try {
       const { data } = await coachingAPI.removeStudentFromGroup(groupEditModal.group_id, studentId, fromDate)
       if (data.sessions?.length) {
-        const hrs = data.sessions.reduce((sum, s) =>
+        const hrs = data.sessions.filter(s => !s.checked_in).reduce((sum, s) =>
           sum + (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60, 0)
         if (hrs > 0) await coachingAPI.addHours(studentId, { delta: -hrs, note: `Removed from group coaching from ${fromDate}`, session_type: 'group' }).catch(() => {})
       }
@@ -1293,10 +1295,11 @@ const [sessionForm,      setSessionForm]      = useState({
       return
     }
 
-    // Full cancel — deduct hours for each student
+    // Full cancel — deduct hours for each student (skip if already checked in)
     try {
       for (const s of sessionsOnDate) {
         await coachingAPI.cancelSession(s.id)
+        if (s.checked_in) continue
         const hrs = (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60
         if (hrs > 0) await coachingAPI.addHours(s.student_id, { delta: -hrs, note: `Group session cancelled on ${date}`, session_type: 'group' }).catch(() => {})
       }
@@ -1314,6 +1317,7 @@ const [sessionForm,      setSessionForm]      = useState({
         const sessionsOnDate = dateMap[date] ?? []
         for (const s of sessionsOnDate) {
           await coachingAPI.cancelSession(s.id)
+          if (s.checked_in) continue
           const hrs = (toMins(s.end_time.slice(0, 5)) - toMins(s.start_time.slice(0, 5))) / 60
           if (hrs > 0) await coachingAPI.addHours(s.student_id, { delta: -hrs, note: `Group session cancelled on ${date}`, session_type: 'group' }).catch(() => {})
         }
@@ -1420,11 +1424,13 @@ const [sessionForm,      setSessionForm]      = useState({
       return
     }
 
-    // Full cancel: record leave + deduct hours
+    // Full cancel: record leave + deduct hours (skip if already checked in)
     try {
       await coachingAPI.cancelSession(session.id)
-      const hrs = (toMins(session.end_time.slice(0, 5)) - toMins(session.start_time.slice(0, 5))) / 60
-      if (hrs > 0) await coachingAPI.addHours(session.student_id, { delta: -hrs, note: 'Group session cancelled', session_type: 'group' }).catch(() => {})
+      if (!session.checked_in) {
+        const hrs = (toMins(session.end_time.slice(0, 5)) - toMins(session.start_time.slice(0, 5))) / 60
+        if (hrs > 0) await coachingAPI.addHours(session.student_id, { delta: -hrs, note: 'Group session cancelled', session_type: 'group' }).catch(() => {})
+      }
       await refreshGroup()
     } catch (err) { alert(err.response?.data?.message ?? 'Could not cancel session.') }
   }
@@ -4008,10 +4014,12 @@ const [sessionForm,      setSessionForm]      = useState({
                                               await coachingAPI.cancelSession(item.id)
                                               setMemberModal(prev => ({ ...prev, coaching: prev.coaching.filter(x => x.id !== item.id) }))
                                               if (memberModalEditId === item.id) setMemberModalEditId(null)
-                                              const hasMakeup = await offerMakeupSession(item, mCoaching)
-                                              if (!hasMakeup) {
-                                                const hrs = (toMins(item.end_time.slice(0, 5)) - toMins(item.start_time.slice(0, 5))) / 60
-                                                await coachingAPI.addHours(member.id, { delta: -hrs, note: 'Session cancelled', session_type: item.group_id ? 'group' : 'solo' }).catch(() => {})
+                                              if (!item.checked_in) {
+                                                const hasMakeup = await offerMakeupSession(item, mCoaching)
+                                                if (!hasMakeup) {
+                                                  const hrs = (toMins(item.end_time.slice(0, 5)) - toMins(item.start_time.slice(0, 5))) / 60
+                                                  await coachingAPI.addHours(member.id, { delta: -hrs, note: 'Session cancelled', session_type: item.group_id ? 'group' : 'solo' }).catch(() => {})
+                                                }
                                               }
                                             } catch { alert('Could not cancel session.') }
                                           }}>Cancel</button>
