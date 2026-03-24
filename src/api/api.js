@@ -172,10 +172,9 @@ export const socialAPI = {
 // Check-In
 // ---------------------------------------------------------------------------
 export const checkinAPI = {
-  // Member self-check-in
+  // Member self-check-in (booking and social only — coaching is admin-only)
   checkInBooking:  (groupId)   => api.post(`/checkin/booking/${groupId}`),
   checkInSocial:   (sessionId) => api.post(`/checkin/social/${sessionId}`),
-  checkInCoaching: (sessionId) => api.post(`/checkin/coaching/${sessionId}`),
   // Member: today's check-in statuses
   getToday: () => api.get('/checkin/today'),
   // Admin: all check-ins for a date, and admin-initiated check-in (pass user_id in body)

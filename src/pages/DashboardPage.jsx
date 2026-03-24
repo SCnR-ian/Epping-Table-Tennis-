@@ -89,7 +89,7 @@ export default function DashboardPage() {
   const [socialSessions,   setSocialSessions]   = useState([])
   const [checkedIn,        setCheckedIn]        = useState(new Set())
   const [hoursBalance,     setHoursBalance]     = useState(null)
-  const [confirmCheckIn,   setConfirmCheckIn]   = useState(null)
+
   const [loadingData,      setLoadingData]      = useState(false)
 
   // Check-in day picker — default to today if it's a club day, else Monday of current week
@@ -150,16 +150,6 @@ export default function DashboardPage() {
     }
   }, [coachingSessions, coachSessions, socialSessions, weeks])
 
-  const handleCheckIn = async (type, refId) => {
-    try {
-      if (type === 'coaching') await checkinAPI.checkInCoaching(refId)
-      setCheckedIn(prev => new Set([...prev, `${type}:${refId}`]))
-    } catch {
-      alert('Could not check in. Please try again.')
-    } finally {
-      setConfirmCheckIn(null)
-    }
-  }
 
   const currentWeekDates = weeks[selectedWeek] ?? weeks[0]
   const todayISO         = toISO(new Date())
@@ -304,10 +294,6 @@ export default function DashboardPage() {
                         </div>
                         {done ? (
                           <span className="text-xs text-emerald-400 flex-shrink-0">✓ Checked In</span>
-                        ) : isToday ? (
-                          <button onClick={() => setConfirmCheckIn(act)} className="btn-primary text-xs py-1 px-3 flex-shrink-0">
-                            Check In
-                          </button>
                         ) : (
                           <span className="text-xs text-slate-600 flex-shrink-0">Upcoming</span>
                         )}
@@ -447,26 +433,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── Check-In Confirmation Modal ──────────────────────────────────── */}
-      {confirmCheckIn && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-court-mid border border-court-light rounded-xl w-full max-w-sm p-6 space-y-4">
-            <h2 className="text-white">Confirm Check-In</h2>
-            <div className="space-y-1">
-              <p className="text-white">{confirmCheckIn.title}</p>
-              <p className="text-slate-300">{confirmCheckIn.subtitle}</p>
-              <p className="text-slate-400 text-sm">{confirmCheckIn.time}</p>
-            </div>
-            <p className="text-sm text-slate-500">
-              Once both you and your coach/student have checked in, the session will be counted in the pay report.
-            </p>
-            <div className="flex gap-3 pt-1">
-              <button onClick={() => setConfirmCheckIn(null)} className="btn-secondary flex-1">Cancel</button>
-              <button onClick={() => handleCheckIn(confirmCheckIn.type, confirmCheckIn.refId)} className="btn-primary flex-1">Confirm</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

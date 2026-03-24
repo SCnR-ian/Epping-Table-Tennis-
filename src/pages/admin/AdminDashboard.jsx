@@ -250,8 +250,9 @@ const [sessionForm,      setSessionForm]      = useState({
   const [groupEditSelected,   setGroupEditSelected]   = useState(new Set()) // selected date strings for bulk cancel
   const [groupEditForm,       setGroupEditForm]       = useState({ date: '', start_time: '', end_time: '' })
   const [groupEditSaving,     setGroupEditSaving]     = useState(false)
-  const [coachViewModal,        setCoachViewModal]        = useState(null) // { coach_id, coach_name }
+  const [coachViewModal,        setCoachViewModal]        = useState(null) // { coach_id, coach_name, email, phone }
   const [coachViewExpanded,     setCoachViewExpanded]     = useState(new Set()) // Set of group_ids / student_ids
+  const [coachSeriesExpanded,   setCoachSeriesExpanded]   = useState(new Set()) // series keys expanded in coach modal
   const [coachViewSelectedDate, setCoachViewSelectedDate] = useState({})        // groupId → selected date string
   const [expandedCoachMemberId, setExpandedCoachMemberId] = useState(null) // member id of expanded coach row
   const [coachRowExpanded,      setCoachRowExpanded]      = useState(new Set()) // student_ids expanded inside inline coach row
@@ -1288,7 +1289,7 @@ const [sessionForm,      setSessionForm]      = useState({
 
     const map = buildGroupDateMap()
     const allDates = Object.keys(map).sort()
-    const lastDate = allDates.filter(d => map[d].length > 1).at(-1) ?? allDates.at(-1)
+    const lastDate = allDates.filter(d => map[d].some(s => !s.is_makeup)).at(-1) ?? allDates.at(-1)
     const moveToDate = new Date((lastDate ?? date) + 'T12:00:00Z')
     moveToDate.setUTCDate(moveToDate.getUTCDate() + 7)
     const moveToISO = moveToDate.toISOString().slice(0, 10)
@@ -1423,10 +1424,13 @@ const [sessionForm,      setSessionForm]      = useState({
 
     const map = buildGroupDateMap()
     const allDates = Object.keys(map).sort()
-    // Use last regular session date (>1 student) so all makeups land on the same week
-    const lastDate = allDates.filter(d => map[d].length > 1).at(-1) ?? allDates.at(-1)
+    // Use last date that has original (non-makeup) sessions so all makeups land on the same week
+    const lastDate = allDates.filter(d => map[d].some(s => !s.is_makeup)).at(-1) ?? allDates.at(-1)
     const moveToDate = new Date((lastDate ?? session.date?.slice(0, 10)) + 'T12:00:00Z')
     moveToDate.setUTCDate(moveToDate.getUTCDate() + 7)
+    // Ensure the makeup lands strictly after the session being rescheduled
+    const sessionDate = new Date(session.date.slice(0, 10) + 'T12:00:00Z')
+    while (moveToDate <= sessionDate) moveToDate.setUTCDate(moveToDate.getUTCDate() + 7)
     const moveToISO = moveToDate.toISOString().slice(0, 10)
 
     if (window.confirm(`Move this session to the end of the series (${fmtDate(moveToISO)}) instead of cancelling?`)) {
@@ -1439,8 +1443,9 @@ const [sessionForm,      setSessionForm]      = useState({
       return
     }
 
-    // Full cancel: record leave + deduct hours (skip if already checked in)
+    // Full cancel: record leave, then cancel
     try {
+      await coachingAPI.recordLeave(session.id)
       await coachingAPI.cancelSession(session.id)
       if (!session.checked_in) {
         const hrs = (toMins(session.end_time.slice(0, 5)) - toMins(session.start_time.slice(0, 5))) / 60
@@ -1749,57 +1754,31 @@ const [sessionForm,      setSessionForm]      = useState({
                                   </div>
                                   <div className="flex flex-wrap gap-2">
                                     {type === 'solo' ? (
-                                      <>
-                                        <div className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
+                                      <div className="flex items-center gap-1.5 bg-court-dark rounded-lg px-3 py-1.5">
+                                        {c.admin_checked_in ? (
+                                          <>
+                                            <button onClick={() => handleUndoCheckIn('coaching', c.id, c.student_id)} className="text-xs text-sky-400 hover:text-red-400 transition-colors" title="Undo check-in">✓ {c.student_name}</button>
+                                          </>
+                                        ) : !isFuture ? (
+                                          <button onClick={() => handleCheckIn('coaching', c.id, c.student_id)} className="text-xs text-white hover:text-emerald-300 transition-colors" title="Check in">{c.student_name}</button>
+                                        ) : (
                                           <span className="text-xs text-white">{c.student_name}</span>
-                                          <span className="text-[10px] text-slate-500">student</span>
-                                          {c.admin_checked_in
-                                            ? <span className="flex items-center gap-1">
-                                                <span className="text-[10px] bg-sky-500/15 text-sky-400 px-2 py-0.5 rounded-full">Admin ✓</span>
-                                                <button onClick={() => handleUndoCheckIn('coaching', c.id, c.student_id)} className="text-[10px] text-slate-500 hover:text-red-400 transition-colors" title="Undo">✕</button>
-                                              </span>
-                                            : <Badge in={c.student_checked_in} type="coaching" refId={c.id} userId={c.student_id} />
-                                          }
-                                          {!c.admin_checked_in && !c.student_checked_in && !isFuture && (
-                                            <button onClick={() => handleCheckIn('coaching', c.id, c.student_id)} className="text-[10px] text-sky-400 hover:text-sky-300">Check in</button>
-                                          )}
-                                        </div>
-                                        <div className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
-                                          <span className="text-xs text-white">{c.coach_name}</span>
-                                          <span className="text-[10px] text-slate-500">coach</span>
-                                          {c.coach_user_id
-                                            ? <Badge in={c.coach_checked_in} type="coaching" refId={c.id} userId={c.coach_user_id} />
-                                            : <span className="text-[10px] text-slate-500">no account</span>
-                                          }
-                                        </div>
-                                      </>
+                                        )}
+                                        <span className="text-[10px] text-slate-500">student</span>
+                                      </div>
                                     ) : (
-                                      <>
-                                        {c.students.map(s => (
-                                          <div key={s.student_id} className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
+                                      c.students.map(s => (
+                                        <div key={s.student_id} className="flex items-center gap-1.5 bg-court-dark rounded-lg px-3 py-1.5">
+                                          {s.admin_checked_in ? (
+                                            <button onClick={() => handleUndoCheckIn('coaching', s.id, s.student_id)} className="text-xs text-sky-400 hover:text-red-400 transition-colors" title="Undo check-in">✓ {s.student_name}</button>
+                                          ) : !isFuture ? (
+                                            <button onClick={() => handleCheckIn('coaching', s.id, s.student_id)} className="text-xs text-white hover:text-emerald-300 transition-colors" title="Check in">{s.student_name}</button>
+                                          ) : (
                                             <span className="text-xs text-white">{s.student_name}</span>
-                                            <span className="text-[10px] text-slate-500">student</span>
-                                            {s.admin_checked_in
-                                              ? <span className="flex items-center gap-1">
-                                                  <span className="text-[10px] bg-sky-500/15 text-sky-400 px-2 py-0.5 rounded-full">Admin ✓</span>
-                                                  <button onClick={() => handleUndoCheckIn('coaching', s.id, s.student_id)} className="text-[10px] text-slate-500 hover:text-red-400 transition-colors" title="Undo">✕</button>
-                                                </span>
-                                              : <Badge in={s.student_checked_in} type="coaching" refId={s.id} userId={s.student_id} />
-                                            }
-                                            {!s.admin_checked_in && !s.student_checked_in && !isFuture && (
-                                              <button onClick={() => handleCheckIn('coaching', s.id, s.student_id)} className="text-[10px] text-sky-400 hover:text-sky-300">Check in</button>
-                                            )}
-                                          </div>
-                                        ))}
-                                        <div className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
-                                          <span className="text-xs text-white">{c.coach_name}</span>
-                                          <span className="text-[10px] text-slate-500">coach</span>
-                                          {c.coach_user_id
-                                            ? <Badge in={c.students.some(s => s.coach_checked_in)} type="coaching" refId={c.students[0]?.id} userId={c.coach_user_id} />
-                                            : <span className="text-[10px] text-slate-500">no account</span>
-                                          }
+                                          )}
+                                          <span className="text-[10px] text-slate-500">student</span>
                                         </div>
-                                      </>
+                                      ))
                                     )}
                                   </div>
                                 </div>
@@ -1935,7 +1914,7 @@ const [sessionForm,      setSessionForm]      = useState({
                             <td className="px-5 py-3 font-medium w-[20%]">
                               {coachRec ? (
                                 <button
-                                  onClick={() => { setCoachViewModal({ coach_id: coachRec.id, coach_name: m.name }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}) }}
+                                  onClick={() => { setCoachViewModal({ coach_id: coachRec.id, coach_name: m.name, email: coachRec.email, phone: coachRec.phone }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}
                                   className="text-left text-white hover:text-sky-400 transition-colors">
                                   {m.name}
                                 </button>
@@ -2224,24 +2203,17 @@ const [sessionForm,      setSessionForm]      = useState({
                             style={{ position: 'absolute', top, height, left, width }}
                             className="bg-emerald-500/15 border border-emerald-500/40 rounded-lg px-2.5 py-1.5 overflow-hidden flex flex-col"
                           >
-                            <p className="text-emerald-300 text-xs truncate leading-none">{ev.student_name}</p>
+                            <button
+                              onClick={() => checkedIn
+                                ? handleAdminUndoCheckIn('coaching', ev.id, ev.student_id)
+                                : handleAdminCheckIn('coaching', ev.id, ev.student_id)
+                              }
+                              className={`text-xs truncate leading-none text-left transition-colors ${checkedIn ? 'text-sky-400 hover:text-red-400' : 'text-emerald-300 hover:text-emerald-200'}`}
+                              title={checkedIn ? 'Undo check-in' : 'Check in'}
+                            >{checkedIn ? '✓ ' : ''}{ev.student_name}</button>
                             <p className="text-slate-300 text-xs mt-1 leading-none">Coach: {ev.coach_name}</p>
                             <p className="text-slate-300 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
-                            <div className="mt-auto flex items-center justify-between gap-1">
-                              {checkedIn ? (
-                                <button
-                                  onClick={() => handleAdminUndoCheckIn('coaching', ev.id, ev.student_id)}
-                                  className="text-xs text-emerald-400 hover:text-red-400 leading-none transition-colors"
-                                  title="Undo check-in"
-                                >✓ In</button>
-                              ) : (
-                                <button
-                                  onClick={() => handleAdminCheckIn('coaching', ev.id, ev.student_id)}
-                                  className="text-xs text-emerald-400 hover:text-emerald-300 text-left leading-none"
-                                >
-                                  Check In
-                                </button>
-                              )}
+                            <div className="mt-auto flex items-center justify-end">
                               <button
                                 onClick={() => handleCancelSession(ev.id)}
                                 className="text-xs text-red-400 hover:text-red-300 leading-none"
@@ -2260,10 +2232,29 @@ const [sessionForm,      setSessionForm]      = useState({
                             style={{ position: 'absolute', top, height, left, width }}
                             className="bg-teal-500/15 border border-teal-500/40 rounded-lg px-2.5 py-1.5 overflow-hidden flex flex-col"
                           >
-                            <p className="text-teal-300 text-xs truncate leading-none">{ev.student_names.join(', ')}</p>
-                            <p className="text-slate-300 text-xs mt-1 leading-none">Coach: {ev.coach_name}</p>
+                            <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                              {ev.student_names.map((name, i) => {
+                                const sid       = ev.student_ids[i]
+                                const sessionId = ev.session_ids[i]
+                                const ciIn = adminCheckIns.some(
+                                  ci => ci.type === 'coaching' && ci.reference_id === String(sessionId) && ci.user_id === sid
+                                )
+                                return (
+                                  <button
+                                    key={i}
+                                    onClick={() => ciIn
+                                      ? handleAdminUndoCheckIn('coaching', sessionId, sid)
+                                      : handleAdminCheckIn('coaching', sessionId, sid)
+                                    }
+                                    className={`text-xs leading-none text-left transition-colors ${ciIn ? 'text-sky-400 hover:text-red-400' : 'text-teal-300 hover:text-teal-200'}`}
+                                    title={ciIn ? 'Undo check-in' : 'Check in'}
+                                  >{ciIn ? '✓ ' : ''}{name}</button>
+                                )
+                              })}
+                            </div>
+                            <p className="text-slate-400 text-xs mt-0.5 leading-none">Coach: {ev.coach_name}</p>
                             <p className="text-slate-300 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
-                            <div className="mt-auto">
+                            <div className="mt-auto flex items-center justify-end">
                               <button
                                 onClick={() => handleCancelTodayGroupSession(ev)}
                                 className="text-xs text-red-400 hover:text-red-300 leading-none"
@@ -2590,14 +2581,24 @@ const [sessionForm,      setSessionForm]      = useState({
                         return (
                           <tr key={s.id} className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors">
                             <td className="px-5 py-3">
-                              <button onClick={() => handleOpenMemberModal(s.student_id)}
-                                className="font-medium text-white hover:text-brand-400 transition-colors text-left">
-                                {s.student_name}
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => adminCI
+                                    ? handleAdminUndoCheckInCoaching(s.id, s.student_id)
+                                    : handleAdminCheckInCoaching(s.id, s.student_id)
+                                  }
+                                  className={`font-medium transition-colors text-left ${adminCI ? 'text-sky-400 hover:text-red-400' : 'text-white hover:text-emerald-300'}`}
+                                  title={adminCI ? 'Undo check-in' : 'Check in'}
+                                >{adminCI ? '✓ ' : ''}{s.student_name}</button>
+                                <button onClick={() => handleOpenMemberModal(s.student_id)}
+                                  className="text-slate-600 hover:text-brand-400 transition-colors flex-shrink-0" title="View member">
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                                </button>
+                              </div>
                               <p className="text-slate-400 text-xs">{s.student_email}</p>
                             </td>
                             <td className="px-5 py-3">
-                              <button onClick={() => { setCoachViewModal({ coach_id: s.coach_id, coach_name: s.coach_name }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}) }}
+                              <button onClick={() => { const ci = coaches.find(c => c.id === s.coach_id); setCoachViewModal({ coach_id: s.coach_id, coach_name: s.coach_name, email: ci?.email, phone: ci?.phone }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}
                                 className="text-slate-300 hover:text-sky-400 transition-colors text-left">
                                 {s.coach_name}
                               </button>
@@ -2615,24 +2616,6 @@ const [sessionForm,      setSessionForm]      = useState({
                             <td className="px-5 py-3 text-slate-400 text-xs max-w-[160px] truncate">{s.notes ?? '—'}</td>
                             <td className="px-5 py-3">
                               <div className="flex items-center gap-3">
-                                {adminCI ? (
-                                  <button onClick={() => handleAdminUndoCheckInCoaching(s.id, s.student_id)}
-                                    className="text-xs font-medium text-sky-400 hover:text-red-400 transition-colors">
-                                    Admin ✓
-                                  </button>
-                                ) : s.checked_in ? (
-                                  <span className="text-xs text-emerald-400">Student ✓</span>
-                                ) : (
-                                  <button onClick={() => handleAdminCheckInCoaching(s.id, s.student_id)}
-                                    className="text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors">
-                                    Check in
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => { setSoloEditModal(s); setSoloEditSelected(new Set()) }}
-                                  className="text-xs text-sky-400 hover:text-sky-300 font-medium">
-                                  Edit
-                                </button>
                                 <button onClick={() => handleCancelSession(s.id)}
                                   className="text-xs text-red-400 hover:text-red-300 font-medium">
                                   Cancel
@@ -2907,7 +2890,7 @@ const [sessionForm,      setSessionForm]      = useState({
                               </div>
                             </td>
                             <td className="px-5 py-3 align-top">
-                              <button onClick={() => { setCoachViewModal({ coach_id: g.coach_id, coach_name: g.coach_name }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}) }}
+                              <button onClick={() => { const ci = coaches.find(c => c.id === g.coach_id); setCoachViewModal({ coach_id: g.coach_id, coach_name: g.coach_name, email: ci?.email, phone: ci?.phone }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}
                                 className="text-slate-300 hover:text-sky-400 transition-colors text-left">
                                 {g.coach_name}
                               </button>
@@ -2923,24 +2906,16 @@ const [sessionForm,      setSessionForm]      = useState({
                                   const sid       = g.student_ids?.[i]
                                   const sessionId = g.session_ids?.[i]
                                   const adminCI = g.admin_checked_ins?.[i] === true || (sessionId !== undefined && adminCheckedIn.has(sessionId))
-                                  const studentCI = g.checked_ins?.[i] === true
                                   return (
-                                    <div key={i} className="flex items-center gap-2">
-                                      <span className="text-xs text-slate-400 w-[120px] truncate">{name}</span>
-                                      {adminCI ? (
-                                        <button onClick={() => handleAdminUndoCheckInCoaching(sessionId, sid)}
-                                          className="text-xs font-medium text-sky-400 hover:text-red-400 transition-colors whitespace-nowrap">
-                                          Admin ✓
-                                        </button>
-                                      ) : studentCI ? (
-                                        <span className="text-xs text-emerald-400 whitespace-nowrap">Student ✓</span>
-                                      ) : (
-                                        <button onClick={() => handleAdminCheckInCoaching(sessionId, sid)}
-                                          className="text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors whitespace-nowrap">
-                                          Check in
-                                        </button>
-                                      )}
-                                    </div>
+                                    <button
+                                      key={i}
+                                      onClick={() => adminCI
+                                        ? handleAdminUndoCheckInCoaching(sessionId, sid)
+                                        : handleAdminCheckInCoaching(sessionId, sid)
+                                      }
+                                      className={`text-xs text-left transition-colors whitespace-nowrap w-[150px] truncate ${adminCI ? 'text-sky-400 hover:text-red-400' : 'text-slate-400 hover:text-emerald-300'}`}
+                                      title={adminCI ? 'Undo check-in' : 'Check in'}
+                                    >{adminCI ? '✓ ' : ''}{name}</button>
                                   )
                                 })}
                                 <div className="flex items-center gap-2 mt-0.5">
@@ -3218,18 +3193,10 @@ const [sessionForm,      setSessionForm]      = useState({
                                     {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
                                   </td>
                                   <td className="px-3 py-2.5 text-xs whitespace-nowrap">
-                                    {s.admin_checked_in ? (
-                                      <span className="text-sky-400">Admin ✓</span>
-                                    ) : (
-                                      <span className="space-x-2">
-                                        <span className={s.student_checked_in ? 'text-emerald-400' : 'text-red-400'}>
-                                          Student {s.student_checked_in ? '✓' : '✗'}
-                                        </span>
-                                        <span className={s.coach_checked_in === null ? 'text-slate-400' : s.coach_checked_in ? 'text-emerald-400' : 'text-red-400'}>
-                                          {s.coach_checked_in === null ? 'Coach N/A' : `Coach ${s.coach_checked_in ? '✓' : '✗'}`}
-                                        </span>
-                                      </span>
-                                    )}
+                                    {s.admin_checked_in
+                                      ? <span className="text-sky-400">Admin ✓</span>
+                                      : <span className="text-slate-500">Not checked in</span>
+                                    }
                                   </td>
                                   <td className="px-3 py-2.5 text-xs">
                                     {s.counted ? <span className="text-emerald-400">Counted</span> : <span className="text-slate-400">Not counted</span>}
@@ -4401,191 +4368,143 @@ const [sessionForm,      setSessionForm]      = useState({
       {/* ── Coach Modal ──────────────────────────────────────────────────── */}
       {coachViewModal && (() => {
         const todayISO = new Date().toISOString().slice(0, 10)
-        // Separate group sessions (by group_id) from 1-on-1
-        const groupMap = {}  // group_id → { start_time, end_time, students: { student_id → { name, sessions[] } } }
-        const soloMap  = {}  // student_id → { student_name, sessions[] }
-        for (const s of allCoachingSessions) {
-          if (s.coach_id !== coachViewModal.coach_id) continue
-          if (s.group_id) {
-            if (!groupMap[s.group_id]) groupMap[s.group_id] = { group_id: s.group_id, start_time: s.start_time, end_time: s.end_time, students: {} }
-            if (!groupMap[s.group_id].students[s.student_id])
-              groupMap[s.group_id].students[s.student_id] = { student_id: s.student_id, student_name: s.student_name, sessions: [] }
-            groupMap[s.group_id].students[s.student_id].sessions.push(s)
-          } else {
-            if (!soloMap[s.student_id]) soloMap[s.student_id] = { student_id: s.student_id, student_name: s.student_name, sessions: [] }
-            soloMap[s.student_id].sessions.push(s)
+        const coachSessions = allCoachingSessions.filter(s => s.coach_id === coachViewModal.coach_id)
+
+        // Collapse individual session rows into series (group by group_id or recurrence_id)
+        function collapseSeries(sessions) {
+          const map = {}
+          for (const s of sessions) {
+            const key = s.group_id
+              ? `group_${s.group_id}`
+              : s.recurrence_id
+              ? `solo_${s.recurrence_id}`
+              : `solo_${s.id}`
+            if (!map[key]) map[key] = { ...s, seriesKey: key, students: new Set(), dates: [], rawSessions: [], checkedInCount: 0, totalCount: 0 }
+            map[key].students.add(s.student_name)
+            map[key].dates.push(s.date?.slice(0, 10))
+            map[key].rawSessions.push(s)
+            map[key].totalCount++
+            if (s.admin_checked_in || adminCheckedIn.has(s.id)) map[key].checkedInCount++
           }
+          return Object.values(map).map(g => ({ ...g, students: [...g.students].sort(), dates: g.dates.sort() }))
         }
-        const groups = Object.values(groupMap)
-        const solos  = Object.values(soloMap).sort((a, b) => a.student_name.localeCompare(b.student_name))
-        const totalStudents = groups.reduce((sum, g) => sum + Object.keys(g.students).length, 0) + solos.length
+
+        const upcoming = collapseSeries(coachSessions.filter(s => s.date?.slice(0, 10) >= todayISO))
+          .sort((a, b) => a.dates[0] < b.dates[0] ? -1 : 1)
+        const past     = collapseSeries(coachSessions.filter(s => s.date?.slice(0, 10) <  todayISO))
+          .sort((a, b) => a.dates[a.dates.length - 1] > b.dates[b.dates.length - 1] ? -1 : 1)
+        const tab      = coachViewExpanded.has('past') ? 'past' : 'upcoming'
+        const items    = tab === 'upcoming' ? upcoming : past
+
+        const totalStudents = [...new Set(coachSessions.map(s => s.student_id))].length
 
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setCoachViewModal(null)}>
-            <div className="bg-court-dark border border-court-light rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
+               onClick={() => { setCoachViewModal(null); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}>
+            <div className="bg-court-mid border border-court-light rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+                 onClick={e => e.stopPropagation()}>
               {/* Header */}
-              <div className="p-5 pb-4 border-b border-court-light flex items-center justify-between shrink-0">
+              <div className="flex items-start justify-between px-6 py-4 border-b border-court-light shrink-0">
                 <div>
-                  <h2 className="text-white">{coachViewModal.coach_name}</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">{totalStudents} student{totalStudents !== 1 ? 's' : ''}</p>
+                  <h2 className="text-white font-medium text-lg">{coachViewModal.coach_name}</h2>
+                  <p className="text-slate-400 text-sm mt-0.5">
+                    {[coachViewModal.email, coachViewModal.phone, `${totalStudents} student${totalStudents !== 1 ? 's' : ''}`].filter(Boolean).join(' · ')}
+                  </p>
                 </div>
-                <button onClick={() => setCoachViewModal(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+                <button onClick={() => { setCoachViewModal(null); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}
+                  className="text-slate-400 hover:text-white text-xl leading-none mt-1">✕</button>
               </div>
 
-              <div className="overflow-y-auto flex-1 p-4 space-y-3">
-                {totalStudents === 0 && (
-                  <p className="text-slate-500 text-sm px-1">No sessions found for this coach.</p>
-                )}
+              {/* Tabs */}
+              <div className="flex gap-1 border-b border-court-light px-6">
+                {[['upcoming', 'Upcoming', upcoming.length], ['past', 'Past', past.length]].map(([id, label, count]) => (
+                  <button key={id}
+                    onClick={() => { setCoachViewExpanded(id === 'past' ? new Set(['past']) : new Set()); setCoachSeriesExpanded(new Set()) }}
+                    className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                      tab === id ? 'border-brand-500 text-brand-400' : 'border-transparent text-slate-500 hover:text-slate-300'
+                    }`}>
+                    {label}{count > 0 && <span className="ml-1.5 text-xs opacity-60">{count}</span>}
+                  </button>
+                ))}
+              </div>
 
-                {/* Group sessions — one card per group_id */}
-                {groups.map(group => {
-                  const isExpanded = coachViewExpanded.has(group.group_id)
-                  const studentList = Object.values(group.students).sort((a, b) => a.student_name.localeCompare(b.student_name))
-                  const allSessions = studentList.flatMap(s => s.sessions)
-                  const uniqueDates = [...new Set(allSessions.map(s => s.date?.slice(0, 10)))].sort()
-                  const upcomingCount = uniqueDates.filter(d => d >= todayISO).length
-                  const pastCount = uniqueDates.filter(d => d < todayISO).length
-                  const selectedDate = coachViewSelectedDate[group.group_id] ?? null
-                  const selectedSessions = selectedDate
-                    ? allSessions.filter(s => s.date?.slice(0, 10) === selectedDate)
-                    : []
+              {/* Session list */}
+              <div className="overflow-y-auto flex-1 px-6 py-4 space-y-1">
+                {items.length === 0 ? (
+                  <p className="text-slate-500 text-sm">No {tab} sessions.</p>
+                ) : items.map((s, i) => {
+                  const firstDate    = s.dates[0]
+                  const lastDate     = s.dates[s.dates.length - 1]
+                  const isMulti      = s.dates.length > 1
+                  const seriesAllPast = lastDate < todayISO
+                  const isExpanded   = coachSeriesExpanded.has(s.seriesKey)
+                  const dateLabel    = isMulti
+                    ? `${fmtDate(firstDate)} – ${fmtDate(lastDate)}`
+                    : fmtDate(firstDate)
+
+                  // Build per-date sub-rows for expanded view
+                  const dateMap = {}
+                  for (const r of s.rawSessions) {
+                    const d = r.date?.slice(0, 10)
+                    if (!dateMap[d]) dateMap[d] = { date: d, students: [], checkedCount: 0, total: 0 }
+                    dateMap[d].students.push(r.student_name)
+                    dateMap[d].total++
+                    if (r.admin_checked_in || adminCheckedIn.has(r.id)) dateMap[d].checkedCount++
+                  }
+                  const dateRows = Object.values(dateMap).sort((a, b) =>
+                    tab === 'past' ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)
+                  )
+
                   return (
-                    <div key={group.group_id} className="rounded-lg border border-court-light bg-court overflow-hidden">
+                    <div key={i} className="border-b border-court-light/30 last:border-0">
+                      {/* Series header row */}
                       <button
-                        className="w-full flex items-center justify-between px-4 py-3 text-left"
-                        onClick={() => {
-                          setCoachViewExpanded(prev => {
-                            const n = new Set(prev)
-                            isExpanded ? n.delete(group.group_id) : n.add(group.group_id)
-                            return n
-                          })
-                          if (isExpanded) setCoachViewSelectedDate(prev => ({ ...prev, [group.group_id]: null }))
-                        }}>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] bg-teal-500/15 text-teal-400 px-2 py-0.5 rounded font-medium uppercase tracking-wide">Group</span>
-                          <span className="text-sm font-medium text-white">{fmtTime(group.start_time)}–{fmtTime(group.end_time)}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs text-slate-400">{upcomingCount} upcoming · {pastCount} past</span>
-                          <span className="text-slate-500 text-xs">{isExpanded ? '▲' : '▼'}</span>
-                        </div>
-                      </button>
-                      {/* Student chips — coloured by check-in when a date is selected */}
-                      <div className="px-4 pb-3 flex flex-wrap gap-1.5">
-                        {studentList.map(s => {
-                          if (!selectedDate) {
-                            return (
-                              <span key={s.student_id} className="text-xs bg-court-mid border border-court-light px-2.5 py-0.5 rounded-full text-slate-300">
-                                {s.student_name}
-                              </span>
-                            )
-                          }
-                          const sessionOnDate = selectedSessions.find(x => x.student_id === s.student_id)
-                          const absent = !sessionOnDate
-                          const checkedIn = sessionOnDate && (sessionOnDate.checked_in || adminCheckedIn.has(sessionOnDate.id))
-                          return (
-                            <span key={s.student_id} className={`text-xs px-2.5 py-0.5 rounded-full border transition-colors ${
-                              absent      ? 'bg-court-mid border-court-light text-slate-600 line-through' :
-                              checkedIn   ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300' :
-                                            'bg-court-mid border-court-light text-slate-400'
-                            }`}>
-                              {checkedIn && <span className="mr-1">✓</span>}{s.student_name}
-                            </span>
-                          )
+                        onClick={() => setCoachSeriesExpanded(prev => {
+                          const next = new Set(prev)
+                          next.has(s.seriesKey) ? next.delete(s.seriesKey) : next.add(s.seriesKey)
+                          return next
                         })}
-                        {selectedDate && (
-                          <button
-                            className="text-[10px] text-slate-500 hover:text-slate-300 px-1"
-                            onClick={() => setCoachViewSelectedDate(prev => ({ ...prev, [group.group_id]: null }))}>
-                            ✕ clear
-                          </button>
+                        className="w-full flex items-center gap-3 py-2.5 text-left hover:bg-court-light/20 rounded transition-colors">
+                        <span className={`text-[10px] px-2 py-0.5 rounded font-medium uppercase tracking-wide shrink-0 ${
+                          s.group_id ? 'bg-teal-500/15 text-teal-400' : 'bg-emerald-500/15 text-emerald-400'
+                        }`}>{s.group_id ? 'Group' : 'Coaching'}</span>
+                        <span className={`text-sm flex-1 min-w-0 ${seriesAllPast ? 'text-slate-400' : 'text-white'}`}>
+                          {dateLabel} · {s.students.join(', ')}
+                          {isMulti && <span className="text-xs text-slate-500 ml-1.5">({s.totalCount})</span>}
+                        </span>
+                        <span className="text-xs text-slate-500 font-mono shrink-0">{fmtTime(s.start_time)}–{fmtTime(s.end_time)}</span>
+                        {tab === 'past' && (
+                          s.checkedInCount > 0
+                            ? <span className="text-emerald-400 text-xs shrink-0 ml-2">✓ {s.checkedInCount}/{s.totalCount}</span>
+                            : <span className="text-slate-600 text-xs shrink-0 ml-2">No show</span>
                         )}
-                      </div>
-                      {/* Session dates — expanded only, click a row to highlight check-in */}
+                        {isMulti && (
+                          <span className="text-slate-500 text-xs ml-1">{isExpanded ? '▲' : '▼'}</span>
+                        )}
+                      </button>
+
+                      {/* Expanded per-date rows */}
                       {isExpanded && (
-                        <div className="border-t border-court-light/40 px-4 pb-3 pt-2 space-y-0.5">
-                          {uniqueDates.map(date => {
-                            const rep = allSessions.find(s => s.date?.slice(0, 10) === date)
-                            const isPast = date < todayISO
-                            const sessionsOnDate = allSessions.filter(s => s.date?.slice(0, 10) === date)
-                            const checkedInCount = sessionsOnDate.filter(s => s.checked_in || adminCheckedIn.has(s.id)).length
-                            const isSelected = selectedDate === date
-                            return (
-                              <button
-                                key={date}
-                                className={`w-full flex items-center gap-2 py-1.5 px-2 rounded-lg text-left transition-colors ${isSelected ? 'bg-court-light/40' : 'hover:bg-court-light/20'}`}
-                                onClick={() => setCoachViewSelectedDate(prev => ({
-                                  ...prev,
-                                  [group.group_id]: isSelected ? null : date
-                                }))}>
-                                <span className={`text-sm flex-1 ${isPast ? 'text-slate-500' : 'text-white'}`}>{fmtDate(date)}</span>
-                                <span className="text-xs text-slate-500 font-mono">{fmtTime(rep?.start_time)}–{fmtTime(rep?.end_time)}</span>
-                                {isPast
-                                  ? <span className="text-xs text-slate-400 shrink-0">{checkedInCount}/{sessionsOnDate.length} checked in</span>
-                                  : <span className="text-slate-500 text-xs shrink-0">Upcoming</span>
-                                }
-                              </button>
-                            )
-                          })}
+                        <div className="ml-4 mb-2 space-y-0.5">
+                          {dateRows.map(dr => (
+                            <div key={dr.date} className="flex items-center gap-3 py-1.5 pl-3 border-l border-court-light/40">
+                              <span className={`text-xs flex-1 ${dr.date < todayISO ? 'text-slate-500' : 'text-slate-300'}`}>
+                                {fmtDate(dr.date)}
+                                {s.group_id && <span className="text-slate-600 ml-1.5">· {dr.students.join(', ')}</span>}
+                              </span>
+                              {dr.date < todayISO && (
+                                dr.checkedCount > 0
+                                  ? <span className="text-emerald-400 text-xs shrink-0">✓ {dr.checkedCount > 1 ? `${dr.checkedCount}/${dr.total}` : 'In'}</span>
+                                  : <span className="text-slate-600 text-xs shrink-0">No show</span>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>
                   )
                 })}
-
-                {/* 1-on-1 sessions */}
-                {solos.length > 0 && (
-                  <div className="space-y-1">
-                    {groups.length > 0 && (
-                      <p className="text-[10px] text-slate-500 uppercase tracking-wide px-1 pt-1">1-on-1 Sessions</p>
-                    )}
-                    {solos.map(({ student_id, student_name, sessions }) => {
-                      const isExpanded = coachViewExpanded.has(student_id)
-                      const sorted = [...sessions].sort((a, b) => a.date < b.date ? -1 : 1)
-                      const upcoming = sorted.filter(s => s.date?.slice(0, 10) >= todayISO)
-                      const past = sorted.filter(s => s.date?.slice(0, 10) < todayISO)
-                      return (
-                        <div key={student_id} className={`rounded-lg border transition-colors ${isExpanded ? 'border-court-light bg-court' : 'border-transparent bg-court'}`}>
-                          <button
-                            className="w-full flex items-center justify-between px-4 py-3 text-left"
-                            onClick={() => setCoachViewExpanded(prev => {
-                              const n = new Set(prev)
-                              isExpanded ? n.delete(student_id) : n.add(student_id)
-                              return n
-                            })}>
-                            <span className="font-medium text-white text-sm">{student_name}</span>
-                            <div className="flex items-center gap-3">
-                              <span className="text-xs text-slate-400">{upcoming.length} upcoming · {past.length} past</span>
-                              <span className="text-slate-500 text-xs">{isExpanded ? '▲' : '▼'}</span>
-                            </div>
-                          </button>
-                          {isExpanded && (
-                            <div className="border-t border-court-light/40 px-4 pb-3 pt-2 space-y-1">
-                              {sorted.map(s => {
-                                const isPast = s.date?.slice(0, 10) < todayISO
-                                const checkedIn = s.checked_in || adminCheckedIn.has(s.id)
-                                return (
-                                  <div key={s.id} className="flex items-center gap-2 py-1">
-                                    <span className={`text-sm flex-1 ${isPast ? 'text-slate-500' : 'text-white'}`}>{fmtDate(s.date)}</span>
-                                    <span className="text-xs text-slate-500 font-mono">{fmtTime(s.start_time)}–{fmtTime(s.end_time)}</span>
-                                    {isPast
-                                      ? checkedIn
-                                        ? <span className="text-emerald-400 text-xs font-medium shrink-0">✓ In</span>
-                                        : <span className="text-slate-600 text-xs shrink-0">— No show</span>
-                                      : <span className="text-slate-500 text-xs shrink-0">Upcoming</span>
-                                    }
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
               </div>
-
             </div>
           </div>
         )

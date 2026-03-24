@@ -66,33 +66,32 @@ router.post('/social/:sessionId', requireAuth, async (req, res) => {
 })
 
 // POST /api/checkin/coaching/:sessionId
-// Student or linked coach (or admin) checks in for a coaching session.
-// When the student checks in, coaching hours are deducted from their balance.
+// Admin checks in the student for a coaching session and deducts their hours.
 router.post('/coaching/:sessionId', requireAuth, async (req, res) => {
-  const uid = resolveTarget(req)
+  if (req.user.role !== 'admin')
+    return res.status(403).json({ message: 'Admin only.' })
   const client = await pool.connect()
   try {
     const { rows } = await client.query(
       `SELECT cs.date, cs.start_time, cs.end_time, cs.student_id, cs.group_id
        FROM coaching_sessions cs
-       LEFT JOIN coaches co ON co.id = cs.coach_id
-       WHERE cs.id=$1 AND (cs.student_id=$2 OR co.user_id=$2)
-         AND cs.status='confirmed' LIMIT 1`,
-      [req.params.sessionId, uid]
+       WHERE cs.id=$1 AND cs.status='confirmed' LIMIT 1`,
+      [req.params.sessionId]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Coaching session not found.' })
     if (rows[0].date > TODAY())
       return res.status(409).json({ message: 'Cannot check in for a future session.' })
 
+    const studentId = rows[0].student_id
     await client.query('BEGIN')
     const { rowCount } = await client.query(
       `INSERT INTO check_ins (user_id, type, reference_id, date, checked_in_by)
        VALUES ($1, 'coaching', $2, $3, $4)
        ON CONFLICT (user_id, type, reference_id) DO NOTHING`,
-      [uid, req.params.sessionId, rows[0].date, checkedInBy(req, uid)]
+      [studentId, req.params.sessionId, rows[0].date, req.user.id]
     )
-    // Deduct hours only when the student checks in (not the coach), and only once
-    if (rowCount > 0 && uid === rows[0].student_id) {
+    // Deduct hours when first checked in
+    if (rowCount > 0) {
       const [sh, sm] = rows[0].start_time.substring(0, 5).split(':').map(Number)
       const [eh, em] = rows[0].end_time.substring(0, 5).split(':').map(Number)
       const hrs = ((eh * 60 + em) - (sh * 60 + sm)) / 60
@@ -100,7 +99,7 @@ router.post('/coaching/:sessionId', requireAuth, async (req, res) => {
       await client.query(
         `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_type, session_id, created_by)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [uid, -hrs, 'Coaching session attended', sessionType, req.params.sessionId, checkedInBy(req, uid)]
+        [studentId, -hrs, 'Coaching session attended', sessionType, req.params.sessionId, req.user.id]
       )
     }
     await client.query('COMMIT')

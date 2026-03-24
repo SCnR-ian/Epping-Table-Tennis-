@@ -27,7 +27,7 @@ async function ledgerEntry(client, userId, delta, note, sessionId, createdBy) {
 router.get('/coaches', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT co.* FROM coaches co
+      `SELECT co.*, u.email, u.phone FROM coaches co
        JOIN users u ON u.id = co.user_id
        WHERE co.user_id IS NOT NULL AND u.role = 'coach'
        ORDER BY co.name ASC`
@@ -111,7 +111,11 @@ router.get('/sessions', requireAuth, requireAdmin, async (req, res) => {
            WHERE ci.type='coaching'
              AND ci.reference_id = cs.id::text
              AND ci.checked_in_by IS NOT NULL
-         ) AS admin_checked_in
+         ) AS admin_checked_in,
+         EXISTS(
+           SELECT 1 FROM group_session_leaves gsl
+           WHERE gsl.session_id = cs.id AND gsl.student_id = cs.student_id
+         ) AS is_makeup
        FROM coaching_sessions cs
        JOIN coaches c  ON c.id  = cs.coach_id
        JOIN users   u  ON u.id  = cs.student_id
@@ -356,6 +360,12 @@ router.get('/sessions/groups', requireAuth, requireAdmin, async (req, res) => {
             WHERE gl.group_id = cs.group_id AND gl.student_id = cs.student_id)
            ORDER BY u.name
          ) AS leave_used,
+         array_agg(
+           EXISTS(
+             SELECT 1 FROM group_session_leaves gsl
+             WHERE gsl.session_id = cs.id AND gsl.student_id = cs.student_id
+           ) ORDER BY u.name
+         ) AS session_is_makeup,
          (SELECT COALESCE(json_object_agg(gsl.student_id::text, gsl.cnt), '{}')
           FROM (
             SELECT student_id, COUNT(*)::int AS cnt
@@ -736,8 +746,7 @@ router.delete('/sessions/:id', requireAuth, async (req, res) => {
 
       await pool.query(
         `INSERT INTO group_session_leaves (group_id, student_id, session_id, leave_date)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (session_id, student_id) DO NOTHING`,
+         VALUES ($1, $2, $3, $4)`,
         [session.group_id, session.student_id, session.id, session.date]
       )
     }
@@ -769,8 +778,7 @@ router.post('/sessions/:id/leave', requireAuth, requireAdmin, async (req, res) =
 
     await pool.query(
       `INSERT INTO group_session_leaves (group_id, student_id, session_id, leave_date)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (session_id, student_id) DO NOTHING`,
+       VALUES ($1, $2, $3, $4)`,
       [session.group_id, session.student_id, session.id, session.date]
     )
     res.json({ message: 'Leave recorded.' })
