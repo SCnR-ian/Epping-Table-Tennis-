@@ -3562,12 +3562,15 @@ const [sessionForm,      setSessionForm]      = useState({
                     {/* Participant count + names */}
                     <div>
                       <div className="flex justify-between text-xs text-slate-300 mb-1.5 font-medium">
-                        <span>{s.participant_count} / {s.max_players} players joined</span>
+                        <span>
+                          {s.online_count ?? s.participant_count} / {s.max_players} online
+                          {s.walkin_count > 0 && <span className="text-slate-400"> · {s.walkin_count} walk-in</span>}
+                        </span>
                       </div>
                       <div className="h-1.5 bg-court-dark rounded-full overflow-hidden mb-2">
                         <div
-                          className={`h-full rounded-full ${s.participant_count / s.max_players >= 0.9 ? 'bg-red-500' : 'bg-brand-500'}`}
-                          style={{ width: `${Math.min(Math.round(s.participant_count / s.max_players * 100), 100)}%` }}
+                          className={`h-full rounded-full ${(s.online_count ?? s.participant_count) / s.max_players >= 0.9 ? 'bg-red-500' : 'bg-brand-500'}`}
+                          style={{ width: `${Math.min(Math.round((s.online_count ?? s.participant_count) / s.max_players * 100), 100)}%` }}
                         />
                       </div>
                       {s.participants.length > 0 && (

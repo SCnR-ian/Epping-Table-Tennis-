@@ -29,15 +29,17 @@ export default function SocialPlayCard({ session, isAuthenticated, isPast = fals
     num_courts     = 1,
     max_players    = 12,
     participant_count = 0,
+    online_count   = null,
     participants   = [],
     joined         = false,
   } = session
 
-  const courtsLabel = `${num_courts} court${num_courts !== 1 ? 's' : ''}`
+  const courtsLabel  = `${num_courts} court${num_courts !== 1 ? 's' : ''}`
+  const onlineCount  = online_count ?? participant_count
 
-  const spotsLeft = max_players - participant_count
+  const spotsLeft = max_players - onlineCount
   const isFull    = spotsLeft <= 0
-  const fillPct   = Math.min(Math.round((participant_count / max_players) * 100), 100)
+  const fillPct   = Math.min(Math.round((onlineCount / max_players) * 100), 100)
 
   return (
     <div className="card-hover flex flex-col gap-4">
@@ -79,7 +81,7 @@ export default function SocialPlayCard({ session, isAuthenticated, isPast = fals
       {/* Participant fill bar */}
       <div>
         <div className="flex justify-between text-xs text-slate-500 mb-1.5">
-          <span>{participant_count} / {max_players} players</span>
+          <span>{onlineCount} / {max_players} players</span>
           <span>{isFull ? 'Full' : `${spotsLeft} spot${spotsLeft !== 1 ? 's' : ''} left`}</span>
         </div>
         <div className="h-1.5 bg-court-dark rounded-full overflow-hidden">

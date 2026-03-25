@@ -17,7 +17,9 @@ function softAuth(req) {
 const SESSION_COLS = `
   s.id, s.title, s.description, s.date, s.start_time, s.end_time,
   s.max_players, s.num_courts, s.status, s.recurrence_id, s.created_at,
-  COUNT(p.user_id)::int AS participant_count
+  COUNT(p.user_id)::int AS participant_count,
+  (SELECT COUNT(*)::int FROM social_play_participants pp JOIN users uu ON uu.id = pp.user_id WHERE pp.session_id = s.id AND NOT uu.is_walkin) AS online_count,
+  (SELECT COUNT(*)::int FROM social_play_participants pp JOIN users uu ON uu.id = pp.user_id WHERE pp.session_id = s.id AND uu.is_walkin) AS walkin_count
 `
 
 // GET /api/social
@@ -245,18 +247,16 @@ router.patch('/:id', requireAuth, async (req, res) => {
     // Fetch current session + participant count
     const { rows: cur } = await pool.query(
       `SELECT s.date, s.start_time, s.end_time, s.num_courts,
-              COUNT(p.user_id)::int AS participant_count
+              (SELECT COUNT(*)::int FROM social_play_participants pp JOIN users uu ON uu.id = pp.user_id WHERE pp.session_id = s.id AND NOT uu.is_walkin) AS online_count
        FROM social_play_sessions s
-       LEFT JOIN social_play_participants p ON p.session_id = s.id
-       WHERE s.id=$1
-       GROUP BY s.id`,
+       WHERE s.id=$1`,
       [req.params.id]
     )
     if (!cur[0]) return res.status(404).json({ message: 'Session not found.' })
     const sess = cur[0]
 
-    if (max_players !== undefined && Number(max_players) < sess.participant_count)
-      return res.status(409).json({ message: `Cannot set max players below current participant count (${sess.participant_count}).` })
+    if (max_players !== undefined && Number(max_players) < sess.online_count)
+      return res.status(409).json({ message: `Cannot set max players below current online reservations (${sess.online_count}).` })
 
     const toM = t => { const [h, m] = t.substring(0, 5).split(':').map(Number); return h * 60 + m }
 
@@ -348,14 +348,16 @@ router.post('/:id/join', requireAuth, async (req, res) => {
     // Lock the session row so concurrent joins can't both pass the capacity check
     const { rows } = await client.query(
       `SELECT id, date, start_time, end_time, max_players,
-         (SELECT COUNT(*)::int FROM social_play_participants WHERE session_id=$1) AS count
+         (SELECT COUNT(*)::int FROM social_play_participants pp
+          JOIN users uu ON uu.id = pp.user_id
+          WHERE pp.session_id=$1 AND NOT uu.is_walkin) AS online_count
        FROM social_play_sessions
        WHERE id=$1 AND status='open'
        FOR UPDATE`,
       [req.params.id]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Session not found or not open.' })
-    if (rows[0].count >= rows[0].max_players)
+    if (rows[0].online_count >= rows[0].max_players)
       return res.status(409).json({ message: 'Session is full.' })
 
     const { date, start_time, end_time } = rows[0]
