@@ -238,7 +238,7 @@ router.patch('/:id', requireAuth, async (req, res) => {
     return res.status(403).json({ message: 'Admin only.' })
 
   try {
-    const { num_courts, start_time, end_time } = req.body
+    const { num_courts, start_time, end_time, title, max_players, date } = req.body
     const updates = []
     const values  = []
 
@@ -255,14 +255,16 @@ router.patch('/:id', requireAuth, async (req, res) => {
     const finalCourts = num_courts !== undefined ? Math.min(Math.max(Number(num_courts), 1), 6) : sess.num_courts
     const finalStart  = start_time !== undefined ? start_time : sess.start_time.substring(0, 5)
     const finalEnd    = end_time   !== undefined ? end_time   : sess.end_time.substring(0, 5)
+    const finalDate   = date       !== undefined ? date       : sess.date
 
     const courtsIncreasing = finalCourts > sess.num_courts
     const timeExpanding    = toM(finalStart) < toM(sess.start_time.substring(0, 5)) ||
                              toM(finalEnd)   > toM(sess.end_time.substring(0, 5))
+    const dateChanging     = date !== undefined && date !== sess.date
 
-    if (courtsIncreasing || timeExpanding) {
+    if (courtsIncreasing || timeExpanding || dateChanging) {
       const availError = await checkCourtsAvailable(
-        sess.date, finalStart, finalEnd, Number(req.params.id), finalCourts
+        finalDate, finalStart, finalEnd, Number(req.params.id), finalCourts
       )
       if (availError) return res.status(409).json({ message: availError })
     }
@@ -278,6 +280,18 @@ router.patch('/:id', requireAuth, async (req, res) => {
     if (end_time !== undefined) {
       updates.push(`end_time=$${values.length + 1}`)
       values.push(end_time)
+    }
+    if (title !== undefined) {
+      updates.push(`title=$${values.length + 1}`)
+      values.push(String(title).trim() || 'Social Play')
+    }
+    if (max_players !== undefined) {
+      updates.push(`max_players=$${values.length + 1}`)
+      values.push(Math.max(1, Number(max_players)))
+    }
+    if (date !== undefined) {
+      updates.push(`date=$${values.length + 1}`)
+      values.push(date)
     }
     if (updates.length === 0)
       return res.status(400).json({ message: 'Nothing to update.' })

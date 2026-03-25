@@ -298,7 +298,9 @@ const [sessionForm,      setSessionForm]      = useState({
     title: '', description: '', num_courts: 1, date: '', start_time: '', end_time: '', max_players: 12, weeks: 1,
   })
   // { [sessionId]: { start_time: 'HH:MM', end_time: 'HH:MM' } } — open when admin is editing times
-  const [editingTimes, setEditingTimes] = useState({})
+  const [editingTimes,   setEditingTimes]   = useState({})
+  // { [sessionId]: { title, max_players, date } } — open when admin is editing session details
+  const [editingDetails, setEditingDetails] = useState({})
   // { [sessionId]: { query: '', userId: '' } } — add-member state per session
   const [addingMember, setAddingMember] = useState({})
 
@@ -677,6 +679,22 @@ const [sessionForm,      setSessionForm]      = useState({
       setEditingTimes(prev => { const n = { ...prev }; delete n[id]; return n })
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not update time.')
+    }
+  }
+
+  const handleSaveDetails = async (id) => {
+    const edits = editingDetails[id]
+    if (!edits) return
+    try {
+      const { data } = await socialAPI.updateSession(id, {
+        title:       edits.title,
+        max_players: Number(edits.max_players),
+        date:        edits.date,
+      })
+      setSocialSessions(prev => prev.map(s => s.id === id ? { ...s, ...data.session } : s))
+      setEditingDetails(prev => { const n = { ...prev }; delete n[id]; return n })
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not update session.')
     }
   }
 
@@ -3388,25 +3406,70 @@ const [sessionForm,      setSessionForm]      = useState({
               <div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {pageSlice.map(s => {
-                const timeEdit = editingTimes[s.id]
+                const timeEdit    = editingTimes[s.id]
+                const detailEdit  = editingDetails[s.id]
                 return (
                   <div key={s.id} className="card flex flex-col gap-3">
                     {/* Header row */}
                     <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="text-white text-base">{s.title}</p>
-                          {s.recurrence_id && (
-                            <span className="text-[10px] uppercase tracking-widest text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded-full font-medium">
-                              Recurring
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-slate-300 mt-0.5 font-medium">
-                          {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
-                        </p>
-                        {s.description && (
-                          <p className="text-sm text-slate-300 mt-1">{s.description}</p>
+                      <div className="flex-1 min-w-0">
+                        {detailEdit ? (
+                          <div className="flex flex-col gap-2">
+                            <input
+                              type="text"
+                              className="input py-1 px-2 text-sm w-full"
+                              value={detailEdit.title}
+                              onChange={e => setEditingDetails(prev => ({ ...prev, [s.id]: { ...prev[s.id], title: e.target.value } }))}
+                              placeholder="Session name"
+                            />
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="date"
+                                className="input py-1 px-2 text-xs"
+                                value={detailEdit.date}
+                                onChange={e => setEditingDetails(prev => ({ ...prev, [s.id]: { ...prev[s.id], date: e.target.value } }))}
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-slate-400">Max players</span>
+                              <input
+                                type="number"
+                                min="1"
+                                className="input py-1 px-2 text-xs w-20"
+                                value={detailEdit.max_players}
+                                onChange={e => setEditingDetails(prev => ({ ...prev, [s.id]: { ...prev[s.id], max_players: e.target.value } }))}
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => handleSaveDetails(s.id)} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">Save</button>
+                              <button onClick={() => setEditingDetails(prev => { const n = { ...prev }; delete n[s.id]; return n })} className="text-xs text-slate-400 hover:text-slate-200">✕</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <p className="text-white text-base">{s.title}</p>
+                              {s.recurrence_id && (
+                                <span className="text-[10px] uppercase tracking-widest text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded-full font-medium">
+                                  Recurring
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <p className="text-xs text-slate-300 font-medium">
+                                {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
+                              </p>
+                              <button
+                                onClick={() => setEditingDetails(prev => ({ ...prev, [s.id]: { title: s.title, max_players: s.max_players, date: s.date } }))}
+                                className="text-xs text-sky-400 hover:text-sky-300 font-medium"
+                              >
+                                Edit
+                              </button>
+                            </div>
+                            {s.description && (
+                              <p className="text-sm text-slate-300 mt-1">{s.description}</p>
+                            )}
+                          </>
                         )}
                       </div>
                       <div className="flex flex-col items-end gap-1 flex-shrink-0">
