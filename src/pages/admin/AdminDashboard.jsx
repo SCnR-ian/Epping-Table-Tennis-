@@ -301,6 +301,7 @@ const [sessionForm,      setSessionForm]      = useState({
   const [editingTimes,   setEditingTimes]   = useState({})
   // { [sessionId]: { title, max_players, date } } — open when admin is editing session details
   const [editingDetails, setEditingDetails] = useState({})
+  const [calendarReschedule, setCalendarReschedule] = useState(null) // { type:'solo'|'group', ev, newDate, saving }
   // { [sessionId]: { query: '', userId: '' } } — add-member state per session
   const [addingMember, setAddingMember] = useState({})
 
@@ -969,6 +970,23 @@ const [sessionForm,      setSessionForm]      = useState({
       )
       if (remaining.length === 0) setSoloEditModal(null)
     } catch (err) { alert(err.response?.data?.message ?? 'Could not cancel sessions.') }
+  }
+
+  const handleCalendarRescheduleSave = async () => {
+    const { type, ev, newDate } = calendarReschedule ?? {}
+    if (!newDate) return
+    setCalendarReschedule(prev => ({ ...prev, saving: true }))
+    try {
+      const updates = type === 'solo'
+        ? [{ id: ev.id, date: newDate }]
+        : ev.session_ids.map(id => ({ id, date: newDate }))
+      await coachingAPI.rescheduleBulk(updates)
+      await refreshBookingView()
+      setCalendarReschedule(null)
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not reschedule.')
+      setCalendarReschedule(prev => ({ ...prev, saving: false }))
+    }
   }
 
   const handleCancelSession = async (id) => {
@@ -2231,13 +2249,34 @@ const [sessionForm,      setSessionForm]      = useState({
                             >{checkedIn ? '✓ ' : ''}{ev.student_name}</button>
                             <p className="text-slate-300 text-xs mt-1 leading-none">Coach: {ev.coach_name}</p>
                             <p className="text-slate-300 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
-                            <div className="mt-auto flex items-center justify-end">
-                              <button
-                                onClick={() => handleCancelSession(ev.id)}
-                                className="text-xs text-red-400 hover:text-red-300 leading-none"
-                              >
-                                Cancel
-                              </button>
+                            <div className="mt-auto flex items-center justify-end gap-2">
+                              {calendarReschedule?.type === 'solo' && calendarReschedule.ev.id === ev.id ? (
+                                <>
+                                  <input
+                                    type="date"
+                                    className="input py-0.5 px-1.5 text-xs"
+                                    value={calendarReschedule.newDate}
+                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newDate: e.target.value }))}
+                                  />
+                                  <button onClick={handleCalendarRescheduleSave} disabled={calendarReschedule.saving} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">Save</button>
+                                  <button onClick={() => setCalendarReschedule(null)} className="text-xs text-slate-400 hover:text-slate-200">✕</button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => setCalendarReschedule({ type: 'solo', ev, newDate: selectedDate, saving: false })}
+                                    className="text-xs text-sky-400 hover:text-sky-300 leading-none"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    onClick={() => handleCancelSession(ev.id)}
+                                    className="text-xs text-red-400 hover:text-red-300 leading-none"
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </div>
                         )
@@ -2272,13 +2311,34 @@ const [sessionForm,      setSessionForm]      = useState({
                             </div>
                             <p className="text-slate-400 text-xs mt-0.5 leading-none">Coach: {ev.coach_name}</p>
                             <p className="text-slate-300 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
-                            <div className="mt-auto flex items-center justify-end">
-                              <button
-                                onClick={() => handleCancelTodayGroupSession(ev)}
-                                className="text-xs text-red-400 hover:text-red-300 leading-none"
-                              >
-                                Cancel
-                              </button>
+                            <div className="mt-auto flex items-center justify-end gap-2">
+                              {calendarReschedule?.type === 'group' && calendarReschedule.ev.group_id === ev.group_id ? (
+                                <>
+                                  <input
+                                    type="date"
+                                    className="input py-0.5 px-1.5 text-xs"
+                                    value={calendarReschedule.newDate}
+                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newDate: e.target.value }))}
+                                  />
+                                  <button onClick={handleCalendarRescheduleSave} disabled={calendarReschedule.saving} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">Save</button>
+                                  <button onClick={() => setCalendarReschedule(null)} className="text-xs text-slate-400 hover:text-slate-200">✕</button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => setCalendarReschedule({ type: 'group', ev, newDate: selectedDate, saving: false })}
+                                    className="text-xs text-sky-400 hover:text-sky-300 leading-none"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    onClick={() => handleCancelTodayGroupSession(ev)}
+                                    className="text-xs text-red-400 hover:text-red-300 leading-none"
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </div>
                         )
