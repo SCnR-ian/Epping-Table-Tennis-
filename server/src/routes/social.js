@@ -242,13 +242,21 @@ router.patch('/:id', requireAuth, async (req, res) => {
     const updates = []
     const values  = []
 
-    // Fetch current session
+    // Fetch current session + participant count
     const { rows: cur } = await pool.query(
-      'SELECT date, start_time, end_time, num_courts FROM social_play_sessions WHERE id=$1',
+      `SELECT s.date, s.start_time, s.end_time, s.num_courts,
+              COUNT(p.user_id)::int AS participant_count
+       FROM social_play_sessions s
+       LEFT JOIN social_play_participants p ON p.session_id = s.id
+       WHERE s.id=$1
+       GROUP BY s.id`,
       [req.params.id]
     )
     if (!cur[0]) return res.status(404).json({ message: 'Session not found.' })
     const sess = cur[0]
+
+    if (max_players !== undefined && Number(max_players) < sess.participant_count)
+      return res.status(409).json({ message: `Cannot set max players below current participant count (${sess.participant_count}).` })
 
     const toM = t => { const [h, m] = t.substring(0, 5).split(':').map(Number); return h * 60 + m }
 
