@@ -729,11 +729,16 @@ const [sessionForm,      setSessionForm]      = useState({
     }
   }
 
+  const refreshSocialSessions = async () => {
+    const params = socialDateFilter ? { date: socialDateFilter } : {}
+    const { data } = await socialAPI.getAdminSessions(params)
+    setSocialSessions(data.sessions)
+  }
+
   const handleSocialAddWalkin = async (sessionId) => {
     try {
       await socialAPI.adminAddWalkin(sessionId)
-      const { data } = await socialAPI.getAdminSessions({})
-      setSocialSessions(data.sessions)
+      await refreshSocialSessions()
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not add walk-in.')
     }
@@ -743,8 +748,7 @@ const [sessionForm,      setSessionForm]      = useState({
     if (!userId) return
     try {
       await socialAPI.adminAddMember(sessionId, userId)
-      const { data } = await socialAPI.getAdminSessions({})
-      setSocialSessions(data.sessions)
+      await refreshSocialSessions()
       setAddingMember(prev => { const n = { ...prev }; delete n[sessionId]; return n })
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not add member.')
