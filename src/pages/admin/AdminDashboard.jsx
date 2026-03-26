@@ -566,13 +566,14 @@ const [sessionForm,      setSessionForm]      = useState({
     return () => { cancelled = true }
   }, [coachingSessions, groupSessions])
 
-  // Fetch social play sessions when Social Play tab is active
+  // Fetch social play sessions when Social Play tab is active or date filter changes
   useEffect(() => {
     if (activeTab !== 'Social Play') return
     let cancelled = false
     setLoading(true)
+    const params = socialDateFilter ? { date: socialDateFilter } : {}
     const membersFetch = members.length === 0 ? adminAPI.getAllMembers() : Promise.resolve({ data: { members } })
-    Promise.all([socialAPI.getAdminSessions(), membersFetch])
+    Promise.all([socialAPI.getAdminSessions(params), membersFetch])
       .then(([{ data: sd }, { data: md }]) => {
         if (!cancelled) {
           setSocialSessions(sd.sessions)
@@ -582,7 +583,7 @@ const [sessionForm,      setSessionForm]      = useState({
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [activeTab])
+  }, [activeTab, socialDateFilter])
 
   const loadTodaySummary = (date) => {
     setTodayLoading(true)
