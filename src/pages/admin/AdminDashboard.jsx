@@ -308,6 +308,7 @@ const [sessionForm,      setSessionForm]      = useState({
   // { [sessionId]: { title, max_players, date } } — open when admin is editing session details
   const [editingDetails, setEditingDetails] = useState({})
   const [calendarReschedule, setCalendarReschedule] = useState(null) // { type:'solo'|'group', ev, newDate, saving }
+  const [socialCalendarEdit, setSocialCalendarEdit] = useState(null) // { id, title, num_courts, max_players, date, start_time, end_time, saving }
   // { [sessionId]: { query: '', userId: '' } } — add-member state per session
   const [addingMember, setAddingMember] = useState({})
 
@@ -702,6 +703,28 @@ const [sessionForm,      setSessionForm]      = useState({
       setEditingDetails(prev => { const n = { ...prev }; delete n[id]; return n })
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not update session.')
+    }
+  }
+
+  const handleSocialCalendarEditSave = async () => {
+    const e = socialCalendarEdit
+    if (!e) return
+    setSocialCalendarEdit(prev => ({ ...prev, saving: true }))
+    try {
+      const { data } = await socialAPI.updateSession(e.id, {
+        title:       e.title,
+        num_courts:  Number(e.num_courts),
+        max_players: Number(e.max_players),
+        date:        e.date,
+        start_time:  e.start_time,
+        end_time:    e.end_time,
+      })
+      setSocialSessions(prev => prev.map(s => s.id === e.id ? { ...s, ...data.session } : s))
+      setBookingViewSocialSessions(prev => prev.map(s => s.id === e.id ? { ...s, ...data.session } : s))
+      setSocialCalendarEdit(null)
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not update session.')
+      setSocialCalendarEdit(prev => ({ ...prev, saving: false }))
     }
   }
 
@@ -2390,6 +2413,16 @@ const [sessionForm,      setSessionForm]      = useState({
                           {socialCheckinCount > 0 && (
                             <p className="text-xs text-emerald-400 mt-0.5 leading-none">✓ {socialCheckinCount} checked in</p>
                           )}
+                          <div className="mt-auto flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => setSocialCalendarEdit({ id: ev.id, title: ev.title, num_courts: ev.num_courts, max_players: ev.max_players, date: ev.date, start_time: ev.start_time.slice(0,5), end_time: ev.end_time.slice(0,5), saving: false })}
+                              className="text-xs text-sky-400 hover:text-sky-300 leading-none"
+                            >Edit</button>
+                            <button
+                              onClick={() => handleCancelSocialSession(ev.id)}
+                              className="text-xs text-red-400 hover:text-red-300 leading-none"
+                            >Cancel</button>
+                          </div>
                         </div>
                       )
                     })}
@@ -5160,6 +5193,84 @@ const [sessionForm,      setSessionForm]      = useState({
                   </button>
                 </div>
                 <button onClick={() => setRescheduleModal(null)} className="btn-secondary text-sm">Close</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Social Calendar Edit Modal ──────────────────────────────────── */}
+      {socialCalendarEdit && (() => {
+        const e = socialCalendarEdit
+        const lastMins  = slotsForDay.length ? toMins(slotsForDay[slotsForDay.length - 1]) + 30 : 1230
+        const closingT  = `${String(Math.floor(lastMins/60)).padStart(2,'0')}:${String(lastMins%60).padStart(2,'0')}`
+        const allSlots  = [...slotsForDay, closingT]
+        const endSlots  = allSlots.filter(t => toMins(t) > toMins(e.start_time))
+        const autoEnd   = (ns) => {
+          const pref = toMins(ns) + 60
+          const key  = `${String(Math.floor(pref/60)).padStart(2,'0')}:${String(pref%60).padStart(2,'0')}`
+          const opts = allSlots.filter(t => toMins(t) > toMins(ns))
+          return opts.includes(key) ? key : (opts[0] ?? ns)
+        }
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={f => { if (f.target === f.currentTarget) setSocialCalendarEdit(null) }}>
+            <div className="bg-court-dark border border-court-light rounded-2xl shadow-2xl w-full max-w-sm">
+              <div className="p-5 pb-4 border-b border-court-light flex items-center justify-between">
+                <h2 className="text-white text-base">Edit Social Play</h2>
+                <button onClick={() => setSocialCalendarEdit(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+              </div>
+              <div className="p-5 space-y-4">
+                {/* Title */}
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Name</label>
+                  <input type="text" className="input w-full text-sm"
+                    value={e.title}
+                    onChange={f => setSocialCalendarEdit(prev => ({ ...prev, title: f.target.value }))} />
+                </div>
+                {/* Date */}
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Date</label>
+                  <input type="date" className="input w-full text-sm"
+                    value={e.date}
+                    onChange={f => setSocialCalendarEdit(prev => ({ ...prev, date: f.target.value }))} />
+                </div>
+                {/* Time */}
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Time</label>
+                  <div className="flex items-center gap-2">
+                    <select className="input flex-1 text-sm"
+                      value={e.start_time}
+                      onChange={f => { const ns = f.target.value; setSocialCalendarEdit(prev => ({ ...prev, start_time: ns, end_time: autoEnd(ns) })) }}>
+                      {allSlots.slice(0,-1).map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                    </select>
+                    <span className="text-slate-400 text-xs">–</span>
+                    <select className="input flex-1 text-sm"
+                      value={e.end_time}
+                      onChange={f => setSocialCalendarEdit(prev => ({ ...prev, end_time: f.target.value }))}>
+                      {endSlots.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {/* Courts + Max players */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-slate-400 block mb-1">Courts</label>
+                    <input type="number" min="1" max="6" className="input w-full text-sm"
+                      value={e.num_courts}
+                      onChange={f => setSocialCalendarEdit(prev => ({ ...prev, num_courts: f.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400 block mb-1">Max players</label>
+                    <input type="number" min="1" className="input w-full text-sm"
+                      value={e.max_players}
+                      onChange={f => setSocialCalendarEdit(prev => ({ ...prev, max_players: f.target.value }))} />
+                  </div>
+                </div>
+              </div>
+              <div className="px-5 pb-5 flex justify-end gap-3">
+                <button onClick={() => setSocialCalendarEdit(null)} className="btn-secondary text-sm">Cancel</button>
+                <button onClick={handleSocialCalendarEditSave} disabled={e.saving} className="btn-primary text-sm">{e.saving ? 'Saving…' : 'Save'}</button>
               </div>
             </div>
           </div>
