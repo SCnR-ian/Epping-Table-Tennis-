@@ -132,7 +132,7 @@ async function checkCourtsAvailable(date, startTime, endTime, excludeId, request
          AND end_time   >  ($2::time + gs.slot_n * INTERVAL '30 minutes')
      ) bk
      CROSS JOIN LATERAL (
-       SELECT COUNT(*)::int AS cnt FROM coaching_sessions
+       SELECT COUNT(DISTINCT court_id)::int AS cnt FROM coaching_sessions
        WHERE date=$1 AND status='confirmed'
          AND start_time <= ($2::time + gs.slot_n * INTERVAL '30 minutes')
          AND end_time   >  ($2::time + gs.slot_n * INTERVAL '30 minutes')
