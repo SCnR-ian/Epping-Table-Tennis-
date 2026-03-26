@@ -2251,43 +2251,26 @@ const [sessionForm,      setSessionForm]      = useState({
                             >{checkedIn ? '✓ ' : ''}{ev.student_name}</button>
                             <p className="text-slate-300 text-xs mt-1 leading-none">Coach: {ev.coach_name}</p>
                             <p className="text-slate-300 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
-                            <div className="mt-auto flex items-center justify-end gap-2">
-                              {calendarReschedule?.type === 'solo' && calendarReschedule.ev.id === ev.id ? (
-                                <div className="flex flex-col gap-1 items-end w-full">
-                                  <input
-                                    type="date"
-                                    className="input py-0.5 px-1.5 text-xs w-full"
+                            <div className="mt-auto flex items-center justify-end gap-1 flex-wrap">
+                              {soloEditing ? (
+                                <>
+                                  <input type="date" className="input py-0.5 px-1 text-xs" style={{width:'7.5rem'}}
                                     value={calendarReschedule.newDate}
-                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newDate: e.target.value }))}
-                                  />
-                                  <div className="flex items-center gap-1">
-                                    <input type="time" className="input py-0.5 px-1.5 text-xs w-24"
-                                      value={calendarReschedule.newStart}
-                                      onChange={e => setCalendarReschedule(prev => ({ ...prev, newStart: e.target.value }))} />
-                                    <span className="text-slate-400 text-xs">–</span>
-                                    <input type="time" className="input py-0.5 px-1.5 text-xs w-24"
-                                      value={calendarReschedule.newEnd}
-                                      onChange={e => setCalendarReschedule(prev => ({ ...prev, newEnd: e.target.value }))} />
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <button onClick={handleCalendarRescheduleSave} disabled={calendarReschedule.saving} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">Save</button>
-                                    <button onClick={() => setCalendarReschedule(null)} className="text-xs text-slate-400 hover:text-slate-200">✕</button>
-                                  </div>
-                                </div>
+                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newDate: e.target.value }))} />
+                                  <input type="time" className="input py-0.5 px-1 text-xs" style={{width:'5.5rem'}}
+                                    value={calendarReschedule.newStart}
+                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newStart: e.target.value }))} />
+                                  <span className="text-slate-400 text-xs">–</span>
+                                  <input type="time" className="input py-0.5 px-1 text-xs" style={{width:'5.5rem'}}
+                                    value={calendarReschedule.newEnd}
+                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newEnd: e.target.value }))} />
+                                  <button onClick={handleCalendarRescheduleSave} disabled={calendarReschedule.saving} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">Save</button>
+                                  <button onClick={() => setCalendarReschedule(null)} className="text-xs text-slate-400 hover:text-slate-200">✕</button>
+                                </>
                               ) : (
                                 <>
-                                  <button
-                                    onClick={() => setCalendarReschedule({ type: 'solo', ev, newDate: selectedDate, newStart: ev.start_time.slice(0,5), newEnd: ev.end_time.slice(0,5), saving: false })}
-                                    className="text-xs text-sky-400 hover:text-sky-300 leading-none"
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    onClick={() => handleCancelSession(ev.id)}
-                                    className="text-xs text-red-400 hover:text-red-300 leading-none"
-                                  >
-                                    Cancel
-                                  </button>
+                                  <button onClick={() => setCalendarReschedule({ type: 'solo', ev, newDate: selectedDate, newStart: ev.start_time.slice(0,5), newEnd: ev.end_time.slice(0,5), saving: false })} className="text-xs text-sky-400 hover:text-sky-300 leading-none">Edit</button>
+                                  <button onClick={() => handleCancelSession(ev.id)} className="text-xs text-red-400 hover:text-red-300 leading-none">Cancel</button>
                                 </>
                               )}
                             </div>
@@ -2325,29 +2308,22 @@ const [sessionForm,      setSessionForm]      = useState({
                             </div>
                             <p className="text-slate-400 text-xs mt-0.5 leading-none">Coach: {ev.coach_name}</p>
                             <p className="text-slate-300 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
-                            <div className="mt-auto flex items-center justify-end gap-2">
-                              {calendarReschedule?.type === 'group' && calendarReschedule.ev.group_id === ev.group_id ? (
-                                <div className="flex flex-col gap-1 items-end w-full">
-                                  <input
-                                    type="date"
-                                    className="input py-0.5 px-1.5 text-xs w-full"
+                            <div className="mt-auto flex items-center justify-end gap-1 flex-wrap">
+                              {groupEditing ? (
+                                <>
+                                  <input type="date" className="input py-0.5 px-1 text-xs" style={{width:'7.5rem'}}
                                     value={calendarReschedule.newDate}
-                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newDate: e.target.value }))}
-                                  />
-                                  <div className="flex items-center gap-1">
-                                    <input type="time" className="input py-0.5 px-1.5 text-xs w-24"
-                                      value={calendarReschedule.newStart}
-                                      onChange={e => setCalendarReschedule(prev => ({ ...prev, newStart: e.target.value }))} />
-                                    <span className="text-slate-400 text-xs">–</span>
-                                    <input type="time" className="input py-0.5 px-1.5 text-xs w-24"
-                                      value={calendarReschedule.newEnd}
-                                      onChange={e => setCalendarReschedule(prev => ({ ...prev, newEnd: e.target.value }))} />
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <button onClick={handleCalendarRescheduleSave} disabled={calendarReschedule.saving} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">Save</button>
-                                    <button onClick={() => setCalendarReschedule(null)} className="text-xs text-slate-400 hover:text-slate-200">✕</button>
-                                  </div>
-                                </div>
+                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newDate: e.target.value }))} />
+                                  <input type="time" className="input py-0.5 px-1 text-xs" style={{width:'5.5rem'}}
+                                    value={calendarReschedule.newStart}
+                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newStart: e.target.value }))} />
+                                  <span className="text-slate-400 text-xs">–</span>
+                                  <input type="time" className="input py-0.5 px-1 text-xs" style={{width:'5.5rem'}}
+                                    value={calendarReschedule.newEnd}
+                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newEnd: e.target.value }))} />
+                                  <button onClick={handleCalendarRescheduleSave} disabled={calendarReschedule.saving} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">Save</button>
+                                  <button onClick={() => setCalendarReschedule(null)} className="text-xs text-slate-400 hover:text-slate-200">✕</button>
+                                </>
                               ) : (
                                 <>
                                   <button
