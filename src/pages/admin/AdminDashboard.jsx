@@ -2117,6 +2117,20 @@ const [sessionForm,      setSessionForm]      = useState({
             ) : (() => {
               const search         = memberSearch.toLowerCase().trim()
               const firstSlotMins  = slotsForDay.length ? toMins(slotsForDay[0]) : 0
+              const lastSlotMins   = slotsForDay.length ? toMins(slotsForDay[slotsForDay.length - 1]) + 30 : 1230
+              const closingSlot    = `${String(Math.floor(lastSlotMins / 60)).padStart(2, '0')}:${String(lastSlotMins % 60).padStart(2, '0')}`
+              const openTimeSlots  = [...slotsForDay, closingSlot]
+
+              // Returns end-time options after a given start, and auto-selects +1hr
+              const endSlotsAfter  = (start) => openTimeSlots.filter(t => toMins(t) > toMins(start))
+              const autoEndTime    = (start) => {
+                const preferred = toMins(start) + 60
+                const hh = String(Math.floor(preferred / 60)).padStart(2, '0')
+                const mm = String(preferred % 60).padStart(2, '0')
+                const key = `${hh}:${mm}`
+                const ends = endSlotsAfter(start)
+                return ends.includes(key) ? key : (ends[0] ?? start)
+              }
 
               // Merge group coaching sessions (same group_id) into one event each
               const coachingEvents = []
@@ -2265,14 +2279,14 @@ const [sessionForm,      setSessionForm]      = useState({
                                     onChange={e => setCalendarReschedule(prev => ({ ...prev, newDate: e.target.value }))} />
                                   <select className="input py-0.5 px-1 text-xs" style={{width:'6rem'}}
                                     value={calendarReschedule.newStart}
-                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newStart: e.target.value }))}>
-                                    {TIMES.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                                    onChange={e => { const ns = e.target.value; setCalendarReschedule(prev => ({ ...prev, newStart: ns, newEnd: autoEndTime(ns) })) }}>
+                                    {openTimeSlots.slice(0, -1).map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
                                   </select>
                                   <span className="text-slate-400 text-xs">–</span>
                                   <select className="input py-0.5 px-1 text-xs" style={{width:'6rem'}}
                                     value={calendarReschedule.newEnd}
                                     onChange={e => setCalendarReschedule(prev => ({ ...prev, newEnd: e.target.value }))}>
-                                    {TIMES.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                                    {endSlotsAfter(calendarReschedule.newStart).map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
                                   </select>
                                   <button onClick={handleCalendarRescheduleSave} disabled={calendarReschedule.saving} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">Save</button>
                                   <button onClick={() => setCalendarReschedule(null)} className="text-xs text-slate-400 hover:text-slate-200">✕</button>
@@ -2326,14 +2340,14 @@ const [sessionForm,      setSessionForm]      = useState({
                                     onChange={e => setCalendarReschedule(prev => ({ ...prev, newDate: e.target.value }))} />
                                   <select className="input py-0.5 px-1 text-xs" style={{width:'6rem'}}
                                     value={calendarReschedule.newStart}
-                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newStart: e.target.value }))}>
-                                    {TIMES.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                                    onChange={e => { const ns = e.target.value; setCalendarReschedule(prev => ({ ...prev, newStart: ns, newEnd: autoEndTime(ns) })) }}>
+                                    {openTimeSlots.slice(0, -1).map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
                                   </select>
                                   <span className="text-slate-400 text-xs">–</span>
                                   <select className="input py-0.5 px-1 text-xs" style={{width:'6rem'}}
                                     value={calendarReschedule.newEnd}
                                     onChange={e => setCalendarReschedule(prev => ({ ...prev, newEnd: e.target.value }))}>
-                                    {TIMES.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                                    {endSlotsAfter(calendarReschedule.newStart).map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
                                   </select>
                                   <button onClick={handleCalendarRescheduleSave} disabled={calendarReschedule.saving} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">Save</button>
                                   <button onClick={() => setCalendarReschedule(null)} className="text-xs text-slate-400 hover:text-slate-200">✕</button>
