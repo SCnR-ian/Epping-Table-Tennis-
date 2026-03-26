@@ -766,14 +766,23 @@ const [sessionForm,      setSessionForm]      = useState({
   }
 
   const handleSocialRemoveMember = async (sessionId, userId) => {
+    // Optimistic update
+    setSocialSessions(prev => prev.map(s => {
+      if (s.id !== sessionId) return s
+      const removed = s.participants.find(p => p.id === userId)
+      const isWalkin = removed?.is_walkin ?? false
+      return {
+        ...s,
+        participants: s.participants.filter(p => p.id !== userId),
+        participant_count: s.participant_count - 1,
+        walkin_count: isWalkin ? (s.walkin_count ?? 0) - 1 : s.walkin_count,
+        online_count: !isWalkin ? (s.online_count ?? s.participant_count) - 1 : s.online_count,
+      }
+    }))
     try {
       await socialAPI.adminRemoveMember(sessionId, userId)
-      setSocialSessions(prev => prev.map(s =>
-        s.id === sessionId
-          ? { ...s, participants: s.participants.filter(p => p.id !== userId), participant_count: s.participant_count - 1 }
-          : s
-      ))
     } catch (err) {
+      await refreshSocialSessions()
       alert(err.response?.data?.message ?? 'Could not remove member.')
     }
   }
