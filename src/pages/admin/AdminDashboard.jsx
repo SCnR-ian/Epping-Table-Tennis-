@@ -31,6 +31,12 @@ function toISO(d) {
   return `${y}-${m}-${day}`
 }
 
+const TIMES = Array.from({ length: 37 }, (_, i) => {
+  const h = Math.floor(i / 2) + 6
+  const m = i % 2 === 0 ? '00' : '30'
+  return `${String(h).padStart(2, '0')}:${m}`
+}) // 06:00 – 23:30 in 30-min steps
+
 // Returns the first date on or after `isoDate` that falls on `targetDow` (0=Sun…6=Sat).
 function nextOccurrence(isoDate, targetDow) {
   const d = new Date(isoDate + 'T12:00:00')
@@ -2257,13 +2263,17 @@ const [sessionForm,      setSessionForm]      = useState({
                                   <input type="date" className="input py-0.5 px-1 text-xs" style={{width:'7.5rem'}}
                                     value={calendarReschedule.newDate}
                                     onChange={e => setCalendarReschedule(prev => ({ ...prev, newDate: e.target.value }))} />
-                                  <input type="time" className="input py-0.5 px-1 text-xs" style={{width:'5.5rem'}}
+                                  <select className="input py-0.5 px-1 text-xs" style={{width:'6rem'}}
                                     value={calendarReschedule.newStart}
-                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newStart: e.target.value }))} />
+                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newStart: e.target.value }))}>
+                                    {TIMES.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                                  </select>
                                   <span className="text-slate-400 text-xs">–</span>
-                                  <input type="time" className="input py-0.5 px-1 text-xs" style={{width:'5.5rem'}}
+                                  <select className="input py-0.5 px-1 text-xs" style={{width:'6rem'}}
                                     value={calendarReschedule.newEnd}
-                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newEnd: e.target.value }))} />
+                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newEnd: e.target.value }))}>
+                                    {TIMES.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                                  </select>
                                   <button onClick={handleCalendarRescheduleSave} disabled={calendarReschedule.saving} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">Save</button>
                                   <button onClick={() => setCalendarReschedule(null)} className="text-xs text-slate-400 hover:text-slate-200">✕</button>
                                 </>
@@ -2314,13 +2324,17 @@ const [sessionForm,      setSessionForm]      = useState({
                                   <input type="date" className="input py-0.5 px-1 text-xs" style={{width:'7.5rem'}}
                                     value={calendarReschedule.newDate}
                                     onChange={e => setCalendarReschedule(prev => ({ ...prev, newDate: e.target.value }))} />
-                                  <input type="time" className="input py-0.5 px-1 text-xs" style={{width:'5.5rem'}}
+                                  <select className="input py-0.5 px-1 text-xs" style={{width:'6rem'}}
                                     value={calendarReschedule.newStart}
-                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newStart: e.target.value }))} />
+                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newStart: e.target.value }))}>
+                                    {TIMES.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                                  </select>
                                   <span className="text-slate-400 text-xs">–</span>
-                                  <input type="time" className="input py-0.5 px-1 text-xs" style={{width:'5.5rem'}}
+                                  <select className="input py-0.5 px-1 text-xs" style={{width:'6rem'}}
                                     value={calendarReschedule.newEnd}
-                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newEnd: e.target.value }))} />
+                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newEnd: e.target.value }))}>
+                                    {TIMES.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                                  </select>
                                   <button onClick={handleCalendarRescheduleSave} disabled={calendarReschedule.saving} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">Save</button>
                                   <button onClick={() => setCalendarReschedule(null)} className="text-xs text-slate-400 hover:text-slate-200">✕</button>
                                 </>
