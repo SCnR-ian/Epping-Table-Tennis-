@@ -736,10 +736,20 @@ const [sessionForm,      setSessionForm]      = useState({
   }
 
   const handleSocialAddWalkin = async (sessionId) => {
+    // Optimistic: increment walk-in count immediately
+    setSocialSessions(prev => prev.map(s => s.id === sessionId
+      ? { ...s, walkin_count: (s.walkin_count ?? 0) + 1, participant_count: s.participant_count + 1 }
+      : s
+    ))
     try {
       await socialAPI.adminAddWalkin(sessionId)
       await refreshSocialSessions()
     } catch (err) {
+      // Revert on failure
+      setSocialSessions(prev => prev.map(s => s.id === sessionId
+        ? { ...s, walkin_count: Math.max(0, (s.walkin_count ?? 1) - 1), participant_count: Math.max(0, s.participant_count - 1) }
+        : s
+      ))
       alert(err.response?.data?.message ?? 'Could not add walk-in.')
     }
   }
@@ -3700,20 +3710,6 @@ const [sessionForm,      setSessionForm]      = useState({
                           style={{ width: `${Math.min(Math.round((s.online_count ?? s.participant_count) / s.max_players * 100), 100)}%` }}
                         />
                       </div>
-                      {s.participants.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mt-1">
-                          {s.participants.map(p => (
-                            <span key={p.id} className={`inline-flex items-center gap-1 text-xs rounded-full pl-2.5 pr-1.5 py-0.5 font-medium ${p.is_walkin ? 'bg-amber-500/15 text-amber-300' : 'bg-court-light text-slate-100'}`}>
-                              {p.name}{p.is_walkin && <span className="text-[9px] opacity-60">walk-in</span>}
-                              <button
-                                onClick={() => handleSocialRemoveMember(s.id, p.id)}
-                                className="text-slate-400 hover:text-red-400 leading-none transition-colors"
-                                title="Remove"
-                              >✕</button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
                       {/* Add member */}
                       {s.participant_count < s.max_players && (() => {
                         const existingIds = new Set(s.participants.map(p => p.id))
@@ -3756,6 +3752,20 @@ const [sessionForm,      setSessionForm]      = useState({
                           </div>
                         )
                       })()}
+                      {/* Participant chips */}
+                      {s.participants.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {s.participants.map(p => (
+                            <span key={p.id} className={`text-xs rounded-full px-2.5 py-0.5 flex items-center gap-1 ${p.is_walkin ? 'bg-slate-700 text-slate-400' : 'bg-court-light text-slate-300'}`}>
+                              {p.name}
+                              <button
+                                onClick={() => handleSocialRemoveMember(s.id, p.id)}
+                                className="text-slate-500 hover:text-red-400 transition-colors leading-none"
+                              >×</button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   )
