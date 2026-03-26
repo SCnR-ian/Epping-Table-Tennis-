@@ -2234,11 +2234,12 @@ const [sessionForm,      setSessionForm]      = useState({
                         const checkedIn = adminCheckIns.some(
                           ci => ci.type === 'coaching' && ci.reference_id === String(ev.id) && ci.user_id === ev.student_id
                         )
+                        const soloEditing = calendarReschedule?.type === 'solo' && calendarReschedule.ev.id === ev.id
                         return (
                           <div
                             key={ev.key}
-                            style={{ position: 'absolute', top, height, left, width }}
-                            className="bg-emerald-500/15 border border-emerald-500/40 rounded-lg px-2.5 py-1.5 overflow-hidden flex flex-col"
+                            style={{ position: 'absolute', top, height: soloEditing ? 'auto' : height, left, width, zIndex: soloEditing ? 20 : undefined }}
+                            className={`bg-emerald-500/15 border border-emerald-500/40 rounded-lg px-2.5 py-1.5 flex flex-col ${soloEditing ? 'overflow-visible' : 'overflow-hidden'}`}
                           >
                             <button
                               onClick={() => checkedIn
@@ -2295,11 +2296,12 @@ const [sessionForm,      setSessionForm]      = useState({
                       }
 
                       if (ev.type === 'coaching_group') {
+                        const groupEditing = calendarReschedule?.type === 'group' && calendarReschedule.ev.group_id === ev.group_id
                         return (
                           <div
                             key={ev.key}
-                            style={{ position: 'absolute', top, height, left, width }}
-                            className="bg-teal-500/15 border border-teal-500/40 rounded-lg px-2.5 py-1.5 overflow-hidden flex flex-col"
+                            style={{ position: 'absolute', top, height: groupEditing ? 'auto' : height, left, width, zIndex: groupEditing ? 20 : undefined }}
+                            className={`bg-teal-500/15 border border-teal-500/40 rounded-lg px-2.5 py-1.5 flex flex-col ${groupEditing ? 'overflow-visible' : 'overflow-hidden'}`}
                           >
                             <div className="flex flex-wrap gap-x-2 gap-y-0.5">
                               {ev.student_names.map((name, i) => {
