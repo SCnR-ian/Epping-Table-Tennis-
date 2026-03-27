@@ -105,15 +105,16 @@ export default function AboutUsPage() {
               level, you'll find your place here.
             </p>
             <p className="text-slate-400 leading-relaxed mb-4">
-              We offer six competition-grade courts, certified coaching, weekly
-              social nights, and a vibrant tournament calendar. Our community is
-              what makes us special — come and experience it for yourself.
+              We offer six competition-grade courts in a fully air-conditioned
+              facility, certified coaching, regular social play sessions, and a
+              vibrant tournament calendar. Our community is what makes us
+              special — come and experience it for yourself.
             </p>
             <p className="text-slate-400 leading-relaxed mb-8">
-              Our coaches hold national and state-level certifications and are
-              dedicated to helping every member reach their full potential. From
-              beginners learning the basics to competitive players honing
-              advanced techniques, there's a program for everyone.
+              Our coaches include nationally accredited coaches with national
+              team experience, offering both one-on-one and group coaching
+              programs. From beginners learning the basics to competitive
+              players honing advanced techniques, there's a program for everyone.
             </p>
             <div className="grid grid-cols-3 gap-6">
               {[
@@ -135,24 +136,24 @@ export default function AboutUsPage() {
           <div className="space-y-4">
             {[
               {
-                icon: "🏆",
-                title: "Excellence",
-                desc: "We push every player to reach their potential through structured programs and expert coaching.",
+                icon: "❄️",
+                title: "Air-Conditioned Facility",
+                desc: "Play in comfort year-round in our fully air-conditioned venue — no matter the weather outside.",
               },
               {
-                icon: "🤝",
-                title: "Community",
-                desc: "A welcoming environment where players of all ages and skill levels belong and grow together.",
+                icon: "👥",
+                title: "Regular Social Play",
+                desc: "Weekly social play sessions open to all members. Show up, meet the community, and enjoy the game.",
               },
               {
-                icon: "🎯",
-                title: "Inclusivity",
-                desc: "From school-aged beginners to seasoned competitors — everyone is welcome at Epping TT Club.",
+                icon: "🥇",
+                title: "National Team Coach",
+                desc: "Train under coaches with national team experience, bringing elite-level insight to every session.",
               },
               {
                 icon: "🏓",
-                title: "World-Class Facilities",
-                desc: "Six competition-grade courts in a purpose-built facility with modern training equipment.",
+                title: "Group Coaching",
+                desc: "Structured group coaching programs for all skill levels — a great way to improve fast and meet fellow players.",
               },
             ].map(({ icon, title, desc }) => (
               <div
