@@ -2743,7 +2743,7 @@ const [sessionForm,      setSessionForm]      = useState({
                         if (s.group_id) return false
                         const q = coachingSearch.toLowerCase()
                         return !q || s.student_name?.toLowerCase().includes(q) || s.coach_name?.toLowerCase().includes(q)
-                      }).map(s => {
+                      }).sort((a, b) => (a.coach_name ?? '').localeCompare(b.coach_name ?? '')).map(s => {
                         const adminCI = s.admin_checked_in || adminCheckedIn.has(s.id)
                         return (
                           <tr key={s.id} className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors">
