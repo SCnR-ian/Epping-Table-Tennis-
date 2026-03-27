@@ -1,15 +1,6 @@
-import { useState } from "react";
-import BookingPage    from "./BookingPage";
 import SocialPlayPage from "./SocialPlayPage";
 
-const TABS = [
-  { id: "booking",    label: "Book a Court",   icon: "🏓" },
-  { id: "socialplay", label: "Social Play",     icon: "👥" },
-];
-
 export default function PlayPage() {
-  const [tab, setTab] = useState("booking");
-
   return (
     <div className="page-wrapper">
       {/* ── Hero ────────────────────────────────────────────────────────── */}
@@ -21,43 +12,16 @@ export default function PlayPage() {
           <p className="text-brand-400 font-normal text-sm uppercase tracking-widest mb-4">
             Get on the Table
           </p>
-          <h1 className="section-title text-5xl md:text-6xl mb-6">Play</h1>
+          <h1 className="section-title text-5xl md:text-6xl mb-6">Social Play</h1>
           <p className="text-slate-400 text-lg leading-relaxed">
-            Book a court for your own session or join one of our social play
-            nights — it's all here.
+            Join one of our social play nights — open to all members.
           </p>
         </div>
       </section>
 
-      {/* ── Tabs ────────────────────────────────────────────────────────── */}
-      <div className="sticky top-16 z-30 bg-court-dark/95 backdrop-blur border-b border-court-light">
-        <div className="max-w-7xl mx-auto px-4 flex items-center justify-center gap-1 py-2">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                tab === t.id
-                  ? "bg-brand-500 text-white shadow"
-                  : "text-slate-400 hover:text-white hover:bg-court-light"
-              }`}
-            >
-              <span>{t.icon}</span>
-              {t.label}
-              <span className={`text-xs px-2 py-0.5 rounded-full font-normal ${
-                tab === t.id ? "bg-white/20 text-white" : "bg-court-light text-slate-400"
-              }`}>
-                {t.id === "booking" ? "$20/hr" : "$10/session"}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Tab Content ─────────────────────────────────────────────────── */}
+      {/* ── Content ─────────────────────────────────────────────────────── */}
       <div className="min-h-screen">
-        {tab === "booking"    && <BookingPage    embedded />}
-        {tab === "socialplay" && <SocialPlayPage embedded />}
+        <SocialPlayPage embedded />
       </div>
     </div>
   );

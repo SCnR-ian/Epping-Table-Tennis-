@@ -72,9 +72,6 @@ export default function HomePage() {
             {isAuthenticated ? (
               <>
                 <Link to="/play" className="btn-primary text-base px-8 py-3 w-full sm:w-auto">
-                  Book a Court
-                </Link>
-                <Link to="/play" className="btn-outline text-base px-8 py-3 w-full sm:w-auto">
                   Join Social Play
                 </Link>
               </>
@@ -84,7 +81,7 @@ export default function HomePage() {
                   Join the Club
                 </Link>
                 <Link to="/play" className="btn-outline text-base px-8 py-3 w-full sm:w-auto">
-                  Book a Court
+                  Join Social Play
                 </Link>
               </>
             )}
@@ -211,9 +208,9 @@ export default function HomePage() {
                 </span>
               </div>
               <div className="flex-1">
-                <h3 className="font-display text-2xl text-white tracking-wider mb-2">Book a Court & Social Play</h3>
+                <h3 className="font-display text-2xl text-white tracking-wider mb-2">Social Play</h3>
                 <p className="text-slate-400 text-sm leading-relaxed">
-                  Reserve a court for a private session, or join one of our weekly social play nights. Open to all members — just show up, play, and meet the community.
+                  Join one of our weekly social play nights. Open to all members — just show up, play, and meet the community.
                 </p>
               </div>
               <Link to="/play" className="btn-outline text-sm self-start">
@@ -325,9 +322,6 @@ export default function HomePage() {
           {isAuthenticated ? (
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link to="/play" className="btn-primary text-base px-10 py-3">
-                Book a Court
-              </Link>
-              <Link to="/play" className="btn-outline text-base px-10 py-3">
                 Join Social Play
               </Link>
             </div>
