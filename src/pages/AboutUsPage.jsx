@@ -8,7 +8,7 @@ const FALLBACK_COACHES = [
     title: "Head Coach",
     nationality: "AUS",
     bio: "A two-time national champion turned elite coach, David has spent over 15 years shaping Australia's top table tennis talent. His precision-focused training philosophy and deep technical knowledge have produced five Australian national representatives under his direct guidance.",
-    avatar: "https://images.unsplash.com/photo-1566492031773-4f4e44671857?auto=format&fit=crop&w=800&q=80",
+    avatar: "/coaches/coach1.jpg",
     stats: [
       { value: "15+", label: "Yrs Coaching" },
       { value: "2×", label: "Nat. Champion" },
