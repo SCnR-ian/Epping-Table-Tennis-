@@ -148,9 +148,11 @@ const BOOKABLE_COURTS = [
 // Height in px of each 30-minute slot row in the calendar view.
 const SLOT_H = 48
 
-const WEEKDAY_SLOTS  = ['15:30','16:00','16:30','17:00','17:30','18:00','18:30','19:00','19:30','20:00','20:30']
+const WEEKDAY_SLOTS  = ['15:30','16:00','16:30','17:00','17:30','18:00','18:30','19:00','19:30','20:00']
 const SATURDAY_SLOTS = ['12:00','12:30','13:00','13:30','14:00','14:30','15:00','15:30','16:00','16:30','17:00','17:30']
 const ALL_SLOTS = [...new Set([...SATURDAY_SLOTS, ...WEEKDAY_SLOTS])].sort()
+// Returns the closing slot (last slot + 30 min) for a given slot array
+const slotClosing = (slots) => { const m = toMins(slots[slots.length - 1]) + 30; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}` }
 
 const OPEN_DAYS = [
   { dow: 1, slots: WEEKDAY_SLOTS  },
@@ -2542,7 +2544,8 @@ const [sessionForm,      setSessionForm]      = useState({
                 const hasSat  = effectiveDows.includes(6)
                 const hasWkd  = effectiveDows.some(d => d !== 6)
                 const formSlots = hasSat && hasWkd ? ALL_SLOTS : hasSat ? SATURDAY_SLOTS : WEEKDAY_SLOTS
-                const endSlots  = formSlots.filter(s => !sessionForm.start_time || toMins(s) > toMins(sessionForm.start_time))
+                const formClosing = slotClosing(formSlots)
+                const endSlots  = [...formSlots, formClosing].filter(s => !sessionForm.start_time || toMins(s) > toMins(sessionForm.start_time))
                 return (
                   <div className="card mb-2 space-y-4">
                     <div className="flex items-center justify-between">
@@ -2628,7 +2631,7 @@ const [sessionForm,      setSessionForm]      = useState({
                           const dayLabel = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dow]
                           const slots = dow === 6 ? SATURDAY_SLOTS : WEEKDAY_SLOTS
                           const dt = sessionForm.dayTimes[dow] || { start_time: '', end_time: '' }
-                          const eSlots = slots.filter(s => !dt.start_time || toMins(s) > toMins(dt.start_time))
+                          const eSlots = [...slots, slotClosing(slots)].filter(s => !dt.start_time || toMins(s) > toMins(dt.start_time))
                           return (
                             <div key={dow} className="flex gap-2 items-center">
                               <span className="text-xs text-slate-400 w-8">{dayLabel}</span>
@@ -2806,7 +2809,8 @@ const [sessionForm,      setSessionForm]      = useState({
                 const hasSat  = effectiveDows.includes(6)
                 const hasWkd  = effectiveDows.some(d => d !== 6)
                 const formSlots = hasSat && hasWkd ? ALL_SLOTS : hasSat ? SATURDAY_SLOTS : WEEKDAY_SLOTS
-                const endSlots  = formSlots.filter(s => !groupForm.start_time || toMins(s) > toMins(groupForm.start_time))
+                const formClosing = slotClosing(formSlots)
+                const endSlots  = [...formSlots, formClosing].filter(s => !groupForm.start_time || toMins(s) > toMins(groupForm.start_time))
                 const selectedStudents = members.filter(m => groupForm.student_ids.includes(m.id))
                 const filteredStudents = groupStudentSearch
                   ? members.filter(m =>
@@ -2917,7 +2921,7 @@ const [sessionForm,      setSessionForm]      = useState({
                           const dayLabel = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dow]
                           const slots = dow === 6 ? SATURDAY_SLOTS : WEEKDAY_SLOTS
                           const dt = groupForm.dayTimes[dow] || { start_time: '', end_time: '' }
-                          const eSlots = slots.filter(s => !dt.start_time || toMins(s) > toMins(dt.start_time))
+                          const eSlots = [...slots, slotClosing(slots)].filter(s => !dt.start_time || toMins(s) > toMins(dt.start_time))
                           return (
                             <div key={dow} className="flex gap-2 items-center">
                               <span className="text-xs text-slate-400 w-8">{dayLabel}</span>
