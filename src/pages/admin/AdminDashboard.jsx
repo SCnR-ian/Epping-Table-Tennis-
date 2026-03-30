@@ -62,26 +62,10 @@ function getUpcomingOpenDates(count = 7) {
 // Count how many of the 6 courts are free during a given time slot.
 function countFreeAtSlot(bookings, sessions, socialSessions, slotTime) {
   const slotMins = toMins(slotTime)
-
-  const inSlot = ({ start_time, end_time }) => {
-    const start = toMins(start_time)
-    const end   = toMins(end_time)
-    return slotMins >= start && slotMins < end
-  }
-
-  // Regular bookings: Set of court_ids so the same court isn't double-counted
-  // when multiple 30-min slot rows for the same booking pass the filter.
-  const bookingCourts = new Set(bookings.filter(inSlot).map(b => b.court_id)).size
-
-  // Coaching sessions: deduplicate by court_id so group sessions (multiple
-  // students on the same court) only count as 1 court.
+  const inSlot = ({ start_time, end_time }) => slotMins >= toMins(start_time) && slotMins < toMins(end_time)
+  const bookingCourts  = new Set(bookings.filter(inSlot).map(b => b.court_id)).size
   const coachingCourts = new Set(sessions.filter(inSlot).map(s => s.court_id)).size
-
-  // Social play: count-based, no court IDs.
-  const socialCourts = socialSessions
-    .filter(inSlot)
-    .reduce((sum, s) => sum + (s.num_courts ?? 0), 0)
-
+  const socialCourts   = socialSessions.filter(inSlot).reduce((sum, s) => sum + (s.num_courts ?? 0), 0)
   return Math.max(0, BOOKABLE_COURTS.length - bookingCourts - coachingCourts - socialCourts)
 }
 
@@ -161,20 +145,53 @@ const OPEN_DAYS = [
   { dow: 6, slots: SATURDAY_SLOTS },
 ]
 
-// Assigns each event a lane (column index) so overlapping events don't cover
-// each other. Returns the same array with `lane` and `totalLanes` added.
+// Assigns each event a lane (column index).
+// Coaching: one dedicated column per coach, sorted by session count desc (most → left).
+// Social play: overlap-detected columns placed to the right of all coaching columns.
+// Other (bookings): overlap-detected columns placed to the right of social.
 function layoutEvents(events) {
-  const sorted = [...events].sort((a, b) => toMins(a.start_time) - toMins(b.start_time))
-  const laneEnd = [] // laneEnd[i] = end-time (mins) of the last event placed in lane i
-  const placed = sorted.map(ev => {
+  const coaching = events.filter(e => e.type === 'coaching' || e.type === 'coaching_group')
+  const social   = events.filter(e => e.type === 'social')
+  const other    = events.filter(e => e.type !== 'coaching' && e.type !== 'coaching_group' && e.type !== 'social')
+
+  // Count sessions per coach and assign lanes (most sessions = lane 0)
+  const coachCounts = {}
+  coaching.forEach(e => { const k = e.coach_id ?? e.coach_name ?? 'x'; coachCounts[k] = (coachCounts[k] ?? 0) + 1 })
+  const coachOrder = Object.entries(coachCounts).sort((a, b) => b[1] - a[1]).map(([k]) => k)
+  const coachLane  = Object.fromEntries(coachOrder.map((k, i) => [k, i]))
+  const numCoachLanes = coachOrder.length
+
+  const coachPlaced = coaching.map(ev => ({
+    ...ev, lane: coachLane[ev.coach_id ?? ev.coach_name ?? 'x'] ?? 0,
+  }))
+
+  // Social: overlap detection starting at numCoachLanes
+  const socialSorted = [...social].sort((a, b) => toMins(a.start_time) - toMins(b.start_time))
+  const socialLaneEnd = []
+  const socialPlaced = socialSorted.map(ev => {
     const s = toMins(ev.start_time)
-    let lane = laneEnd.findIndex(e => e <= s)
-    if (lane === -1) { lane = laneEnd.length; laneEnd.push(0) }
-    laneEnd[lane] = toMins(ev.end_time)
-    return { ...ev, lane }
+    let lane = socialLaneEnd.findIndex(e => e <= s)
+    if (lane === -1) { lane = socialLaneEnd.length; socialLaneEnd.push(0) }
+    socialLaneEnd[lane] = toMins(ev.end_time)
+    return { ...ev, lane: numCoachLanes + lane }
   })
-  const totalLanes = Math.max(laneEnd.length, 1)
-  return placed.map(ev => ({ ...ev, totalLanes }))
+  const numSocialLanes = social.length > 0 ? Math.max(socialLaneEnd.length, 1) : 0
+
+  // Other (bookings etc): overlap detection after social
+  const otherSorted = [...other].sort((a, b) => toMins(a.start_time) - toMins(b.start_time))
+  const otherLaneEnd = []
+  const otherBase = numCoachLanes + numSocialLanes
+  const otherPlaced = otherSorted.map(ev => {
+    const s = toMins(ev.start_time)
+    let lane = otherLaneEnd.findIndex(e => e <= s)
+    if (lane === -1) { lane = otherLaneEnd.length; otherLaneEnd.push(0) }
+    otherLaneEnd[lane] = toMins(ev.end_time)
+    return { ...ev, lane: otherBase + lane }
+  })
+  const numOtherLanes = otherLaneEnd.length
+
+  const totalLanes = Math.max(numCoachLanes + numSocialLanes + numOtherLanes, 1)
+  return [...coachPlaced, ...socialPlaced, ...otherPlaced].map(ev => ({ ...ev, totalLanes }))
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -313,6 +330,7 @@ const [sessionForm,      setSessionForm]      = useState({
   const [socialCalendarEdit, setSocialCalendarEdit] = useState(null) // { id, title, num_courts, max_players, date, start_time, end_time, saving }
   // { [sessionId]: { query: '', userId: '' } } — add-member state per session
   const [addingMember, setAddingMember] = useState({})
+  const [editingMember, setEditingMember] = useState(null) // { id, name, email }
 
   // Default selected date = first upcoming open day
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -443,6 +461,17 @@ const [sessionForm,      setSessionForm]      = useState({
       setShowAddMember(false)
     } catch (err) {
       setAddMemberError(err.response?.data?.message ?? 'Could not add member.')
+    }
+  }
+
+  const handleSaveMemberEdit = async () => {
+    if (!editingMember) return
+    try {
+      const { data } = await adminAPI.updateMember(editingMember.id, { name: editingMember.name, email: editingMember.email })
+      setMembers(prev => prev.map(m => m.id === editingMember.id ? { ...m, ...data.member } : m))
+      setEditingMember(null)
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not update member.')
     }
   }
 
@@ -804,21 +833,31 @@ const [sessionForm,      setSessionForm]      = useState({
     }
     try {
       // Create one recurring series per selected day
+      const allSkipped = []
+      let totalCreated = 0
       for (const dow of days) {
         const startDate = nextOccurrence(date, dow)
         const times = mixed ? { start_time: dayTimes[dow].start_time, end_time: dayTimes[dow].end_time } : { start_time, end_time }
-        await coachingAPI.createSession({ ...sessionForm, ...times, date: startDate })
+        const { data: created } = await coachingAPI.createSession({ ...sessionForm, ...times, date: startDate })
+        totalCreated += created.sessions?.length ?? 0
+        if (created.skipped?.length) allSkipped.push(...created.skipped)
       }
-      // Auto-credit total hours: duration × weeks × number of days
-      const totalHrs = days.reduce((sum, dow) => {
+      // Auto-credit hours only for sessions actually created
+      const hrsPerSession = days.reduce((sum, dow) => {
         const t = mixed ? dayTimes[dow] : { start_time, end_time }
-        return sum + (toMins(t.end_time) - toMins(t.start_time)) / 60 * weeks
+        return sum + (toMins(t.end_time) - toMins(t.start_time)) / 60
       }, 0)
-      await coachingAPI.addHours(student_id, {
-        delta: totalHrs,
-        note: `Coaching hours — ${days.length > 1 ? `${days.length} days/week, ` : ''}${weeks} week${weeks > 1 ? 's' : ''}`,
-        session_type: 'solo',
-      })
+      const totalHrs = hrsPerSession * (totalCreated / days.length)
+      if (totalHrs > 0) {
+        await coachingAPI.addHours(student_id, {
+          delta: totalHrs,
+          note: `Coaching hours — ${totalCreated} session${totalCreated !== 1 ? 's' : ''}${allSkipped.length ? ` (${allSkipped.length} skipped — no court)` : ''}`,
+          session_type: 'solo',
+        })
+      }
+      if (allSkipped.length) {
+        alert(`Sessions created. Note: ${allSkipped.length} date${allSkipped.length > 1 ? 's' : ''} were skipped because all courts were full:\n${allSkipped.join(', ')}`)
+      }
       setShowSessionForm(false)
       setSessionSaved(false)
       const [{ data }, { data: allData }] = await Promise.all([
@@ -2004,7 +2043,15 @@ const [sessionForm,      setSessionForm]      = useState({
                         <React.Fragment key={m.id}>
                           <tr className={`border-b border-court-light/50 ${isCoachExpanded ? '' : 'last:border-0'} hover:bg-court-light/30 transition-colors`}>
                             <td className="px-5 py-3 font-medium w-[20%]">
-                              {coachRec ? (
+                              {editingMember?.id === m.id ? (
+                                <input
+                                  className="input text-xs py-1 w-full"
+                                  value={editingMember.name}
+                                  onChange={e => setEditingMember(prev => ({ ...prev, name: e.target.value }))}
+                                  onKeyDown={e => { if (e.key === 'Enter') handleSaveMemberEdit(); if (e.key === 'Escape') setEditingMember(null) }}
+                                  autoFocus
+                                />
+                              ) : coachRec ? (
                                 <button
                                   onClick={() => { setCoachViewModal({ coach_id: coachRec.id, coach_name: m.name, email: coachRec.email, phone: coachRec.phone }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}
                                   className="text-left text-white hover:text-sky-400 transition-colors">
@@ -2014,7 +2061,17 @@ const [sessionForm,      setSessionForm]      = useState({
                                 <button onClick={() => handleOpenMemberModal(m.id)} className="text-white hover:text-brand-400 transition-colors text-left">{m.name}</button>
                               )}
                             </td>
-                            <td className="px-5 py-3 text-slate-300 w-[30%]">{m.email}</td>
+                            <td className="px-5 py-3 text-slate-300 w-[30%]">
+                              {editingMember?.id === m.id ? (
+                                <input
+                                  className="input text-xs py-1 w-full"
+                                  type="email"
+                                  value={editingMember.email}
+                                  onChange={e => setEditingMember(prev => ({ ...prev, email: e.target.value }))}
+                                  onKeyDown={e => { if (e.key === 'Enter') handleSaveMemberEdit(); if (e.key === 'Escape') setEditingMember(null) }}
+                                />
+                              ) : m.email}
+                            </td>
                             <td className="px-5 py-3 w-[15%]">
                               <span className={`badge border ${
                                 m.role === 'admin' ? 'bg-brand-500/10 text-brand-400 border-brand-500/30'
@@ -2026,17 +2083,27 @@ const [sessionForm,      setSessionForm]      = useState({
                             <td className="px-5 py-3 text-slate-300 w-[20%]">{fmtDate(m.created_at)}</td>
                             <td className="px-5 py-3 w-[15%]">
                               <div className="flex gap-3 flex-wrap">
-                                {m.role === 'admin' ? (
-                                  <button onClick={() => handleRoleToggle(m.id, m.role, m.name)} className="text-xs text-sky-400 hover:text-sky-300">Demote</button>
-                                ) : m.role === 'coach' ? (
-                                  <button onClick={() => handleRoleToggle(m.id, m.role, m.name)} className="text-xs text-sky-400 hover:text-sky-300">Demote</button>
+                                {editingMember?.id === m.id ? (
+                                  <>
+                                    <button onClick={handleSaveMemberEdit} className="text-xs text-emerald-400 hover:text-emerald-300">Save</button>
+                                    <button onClick={() => setEditingMember(null)} className="text-xs text-slate-400 hover:text-white">✕</button>
+                                  </>
                                 ) : (
                                   <>
-                                    <button onClick={() => handleRoleToggle(m.id, m.role, m.name)} className="text-xs text-sky-400 hover:text-sky-300">Make Admin</button>
-                                    <button onClick={() => { setCoachModal({ id: m.id, name: m.name }); setCoachForm({ availability_start: '', availability_end: '', bio: '', resume: null }) }} className="text-xs text-emerald-400 hover:text-emerald-300">Make Coach</button>
+                                    <button onClick={() => setEditingMember({ id: m.id, name: m.name, email: m.email })} className="text-xs text-amber-400 hover:text-amber-300">Edit</button>
+                                    {m.role === 'admin' ? (
+                                      <button onClick={() => handleRoleToggle(m.id, m.role, m.name)} className="text-xs text-sky-400 hover:text-sky-300">Demote</button>
+                                    ) : m.role === 'coach' ? (
+                                      <button onClick={() => handleRoleToggle(m.id, m.role, m.name)} className="text-xs text-sky-400 hover:text-sky-300">Demote</button>
+                                    ) : (
+                                      <>
+                                        <button onClick={() => handleRoleToggle(m.id, m.role, m.name)} className="text-xs text-sky-400 hover:text-sky-300">Make Admin</button>
+                                        <button onClick={() => { setCoachModal({ id: m.id, name: m.name }); setCoachForm({ availability_start: '', availability_end: '', bio: '', resume: null }) }} className="text-xs text-emerald-400 hover:text-emerald-300">Make Coach</button>
+                                      </>
+                                    )}
+                                    <button onClick={() => handleRemoveMember(m.id, m.name, m.role)} className="text-xs text-red-400 hover:text-red-300">Remove</button>
                                   </>
                                 )}
-                                <button onClick={() => handleRemoveMember(m.id, m.name, m.role)} className="text-xs text-red-400 hover:text-red-300">Remove</button>
                               </div>
                             </td>
                           </tr>
@@ -2303,12 +2370,11 @@ const [sessionForm,      setSessionForm]      = useState({
                         const checkedIn = adminCheckIns.some(
                           ci => ci.type === 'coaching' && ci.reference_id === String(ev.id) && ci.user_id === ev.student_id
                         )
-                        const soloEditing = calendarReschedule?.type === 'solo' && calendarReschedule.ev.id === ev.id
                         return (
                           <div
                             key={ev.key}
-                            style={{ position: 'absolute', top, height: soloEditing ? 'auto' : height, left, width, zIndex: soloEditing ? 20 : undefined }}
-                            className={`bg-emerald-500/15 border border-emerald-500/40 rounded-lg px-2.5 py-1.5 flex flex-col ${soloEditing ? 'overflow-visible' : 'overflow-hidden'}`}
+                            style={{ position: 'absolute', top, height, left, width }}
+                            className="bg-emerald-500/15 border border-emerald-500/40 rounded-lg px-2.5 py-1.5 flex flex-col overflow-hidden"
                           >
                             <button
                               onClick={() => checkedIn
@@ -2320,44 +2386,20 @@ const [sessionForm,      setSessionForm]      = useState({
                             >{checkedIn ? '✓ ' : ''}{ev.student_name}</button>
                             <p className="text-slate-300 text-xs mt-1 leading-none">Coach: {ev.coach_name}</p>
                             <p className="text-slate-300 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
-                            <div className="mt-auto flex items-center justify-end gap-1 flex-wrap">
-                              {soloEditing ? (
-                                <>
-                                  <input type="date" className="input py-0.5 px-1 text-xs" style={{width:'7.5rem'}}
-                                    value={calendarReschedule.newDate}
-                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newDate: e.target.value }))} />
-                                  <select className="input py-0.5 px-1 text-xs" style={{width:'6rem'}}
-                                    value={calendarReschedule.newStart}
-                                    onChange={e => { const ns = e.target.value; setCalendarReschedule(prev => ({ ...prev, newStart: ns, newEnd: autoEndTime(ns) })) }}>
-                                    {openTimeSlots.slice(0, -1).map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
-                                  </select>
-                                  <span className="text-slate-400 text-xs">–</span>
-                                  <select className="input py-0.5 px-1 text-xs" style={{width:'6rem'}}
-                                    value={calendarReschedule.newEnd}
-                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newEnd: e.target.value }))}>
-                                    {endSlotsAfter(calendarReschedule.newStart).map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
-                                  </select>
-                                  <button onClick={handleCalendarRescheduleSave} disabled={calendarReschedule.saving} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">Save</button>
-                                  <button onClick={() => setCalendarReschedule(null)} className="text-xs text-slate-400 hover:text-slate-200">✕</button>
-                                </>
-                              ) : (
-                                <>
-                                  <button onClick={() => setCalendarReschedule({ type: 'solo', ev, newDate: selectedDate, newStart: ev.start_time.slice(0,5), newEnd: ev.end_time.slice(0,5), saving: false })} className="text-xs text-sky-400 hover:text-sky-300 leading-none">Edit</button>
-                                  <button onClick={() => handleCancelSession(ev.id)} className="text-xs text-red-400 hover:text-red-300 leading-none">Cancel</button>
-                                </>
-                              )}
+                            <div className="mt-auto flex items-center justify-end gap-1">
+                              <button onClick={() => setCalendarReschedule({ type: 'solo', ev, newDate: selectedDate, newStart: ev.start_time.slice(0,5), newEnd: ev.end_time.slice(0,5), saving: false, _slots: openTimeSlots })} className="text-xs text-sky-400 hover:text-sky-300 leading-none">Edit</button>
+                              <button onClick={() => handleCancelSession(ev.id)} className="text-xs text-red-400 hover:text-red-300 leading-none">Cancel</button>
                             </div>
                           </div>
                         )
                       }
 
                       if (ev.type === 'coaching_group') {
-                        const groupEditing = calendarReschedule?.type === 'group' && calendarReschedule.ev.group_id === ev.group_id
                         return (
                           <div
                             key={ev.key}
-                            style={{ position: 'absolute', top, height: groupEditing ? 'auto' : height, left, width, zIndex: groupEditing ? 20 : undefined }}
-                            className={`bg-teal-500/15 border border-teal-500/40 rounded-lg px-2.5 py-1.5 flex flex-col ${groupEditing ? 'overflow-visible' : 'overflow-hidden'}`}
+                            style={{ position: 'absolute', top, height, left, width }}
+                            className="bg-teal-500/15 border border-teal-500/40 rounded-lg px-2.5 py-1.5 flex flex-col overflow-hidden"
                           >
                             <div className="flex flex-wrap gap-x-2 gap-y-0.5">
                               {ev.student_names.map((name, i) => {
@@ -2381,42 +2423,15 @@ const [sessionForm,      setSessionForm]      = useState({
                             </div>
                             <p className="text-slate-400 text-xs mt-0.5 leading-none">Coach: {ev.coach_name}</p>
                             <p className="text-slate-300 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
-                            <div className="mt-auto flex items-center justify-end gap-1 flex-wrap">
-                              {groupEditing ? (
-                                <>
-                                  <input type="date" className="input py-0.5 px-1 text-xs" style={{width:'7.5rem'}}
-                                    value={calendarReschedule.newDate}
-                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newDate: e.target.value }))} />
-                                  <select className="input py-0.5 px-1 text-xs" style={{width:'6rem'}}
-                                    value={calendarReschedule.newStart}
-                                    onChange={e => { const ns = e.target.value; setCalendarReschedule(prev => ({ ...prev, newStart: ns, newEnd: autoEndTime(ns) })) }}>
-                                    {openTimeSlots.slice(0, -1).map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
-                                  </select>
-                                  <span className="text-slate-400 text-xs">–</span>
-                                  <select className="input py-0.5 px-1 text-xs" style={{width:'6rem'}}
-                                    value={calendarReschedule.newEnd}
-                                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newEnd: e.target.value }))}>
-                                    {endSlotsAfter(calendarReschedule.newStart).map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
-                                  </select>
-                                  <button onClick={handleCalendarRescheduleSave} disabled={calendarReschedule.saving} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">Save</button>
-                                  <button onClick={() => setCalendarReschedule(null)} className="text-xs text-slate-400 hover:text-slate-200">✕</button>
-                                </>
-                              ) : (
-                                <>
-                                  <button
-                                    onClick={() => setCalendarReschedule({ type: 'group', ev, newDate: selectedDate, newStart: ev.start_time.slice(0,5), newEnd: ev.end_time.slice(0,5), saving: false })}
-                                    className="text-xs text-sky-400 hover:text-sky-300 leading-none"
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    onClick={() => handleCancelTodayGroupSession(ev)}
-                                    className="text-xs text-red-400 hover:text-red-300 leading-none"
-                                  >
-                                    Cancel
-                                  </button>
-                                </>
-                              )}
+                            <div className="mt-auto flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => setCalendarReschedule({ type: 'group', ev, newDate: selectedDate, newStart: ev.start_time.slice(0,5), newEnd: ev.end_time.slice(0,5), saving: false, _slots: openTimeSlots })}
+                                className="text-xs text-sky-400 hover:text-sky-300 leading-none"
+                              >Edit</button>
+                              <button
+                                onClick={() => handleCancelTodayGroupSession(ev)}
+                                className="text-xs text-red-400 hover:text-red-300 leading-none"
+                              >Cancel</button>
                             </div>
                           </div>
                         )
@@ -3999,6 +4014,58 @@ const [sessionForm,      setSessionForm]      = useState({
           })()}
         </div>
       )}
+
+      {/* ── Calendar Reschedule Modal ─────────────────────────────────────── */}
+      {calendarReschedule && (() => {
+        const { ev, newDate, newStart, newEnd } = calendarReschedule
+        const label = calendarReschedule.type === 'solo'
+          ? ev.student_name
+          : ev.student_names?.join(', ')
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+               onClick={e => { if (e.target === e.currentTarget) setCalendarReschedule(null) }}>
+            <div className="bg-court-mid border border-court-light rounded-xl w-full max-w-sm p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-white text-sm font-normal">Reschedule — {label}</h2>
+                <button onClick={() => setCalendarReschedule(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Date</label>
+                  <input type="date" className="input w-full"
+                    value={newDate}
+                    onChange={e => setCalendarReschedule(prev => ({ ...prev, newDate: e.target.value }))} />
+                </div>
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-400 mb-1">Start</label>
+                    <select className="input w-full"
+                      value={newStart}
+                      onChange={e => { const ns = e.target.value; const pm = toMins(ns)+60; const auto = `${String(Math.floor(pm/60)).padStart(2,'0')}:${String(pm%60).padStart(2,'0')}`; const slots = calendarReschedule._slots ?? []; const ends = slots.filter(t => toMins(t) > toMins(ns)); const ne = ends.includes(auto) ? auto : (ends[0] ?? ns); setCalendarReschedule(prev => ({ ...prev, newStart: ns, newEnd: ne })) }}>
+                      {calendarReschedule._slots?.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-400 mb-1">End</label>
+                    <select className="input w-full"
+                      value={newEnd}
+                      onChange={e => setCalendarReschedule(prev => ({ ...prev, newEnd: e.target.value }))}>
+                      {calendarReschedule._slots?.filter(t => toMins(t) > toMins(newStart)).map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button onClick={handleCalendarRescheduleSave} disabled={calendarReschedule.saving || !newDate}
+                  className="btn-primary flex-1 disabled:opacity-50">
+                  {calendarReschedule.saving ? 'Saving…' : 'Save'}
+                </button>
+                <button onClick={() => setCalendarReschedule(null)} className="btn-secondary flex-1">Cancel</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Member Activity Modal ─────────────────────────────────────────── */}
       {memberModal && (() => {

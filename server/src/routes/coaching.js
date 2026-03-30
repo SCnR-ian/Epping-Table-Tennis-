@@ -179,6 +179,7 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
     const coachUserId = coachRows[0].user_id
 
     const inserted = []
+    const skipped  = []   // dates skipped due to no court available
     for (const sessionDate of dates) {
       // ── Conflict checks first so errors are always specific ──
 
@@ -247,9 +248,9 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
 
       // ── Auto-assign the first court not blocked by bookings or coaching,
       //    accounting for social sessions as a court count (not specific IDs).
-      //    Social sessions don't own specific courts, so we rank the free courts
-      //    and skip the first N (where N = total courts claimed by social sessions),
-      //    then take the next one.
+      //    Social sessions don't own specific courts, so we check that the
+      //    number of free courts exceeds what social sessions need, then pick
+      //    the first free court.
       const { rows: free } = await client.query(
         `WITH social_count AS (
            SELECT COALESCE(SUM(num_courts), 0)::int AS total
@@ -258,8 +259,7 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
              AND start_time < $3::time AND end_time > $2::time
          ),
          free_courts AS (
-           SELECT c.id,
-                  ROW_NUMBER() OVER (ORDER BY c.id) AS rn
+           SELECT c.id
            FROM courts c
            WHERE c.id NOT IN (
              SELECT cs2.court_id FROM coaching_sessions cs2
@@ -271,16 +271,27 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
              WHERE b.date = $1 AND b.status = 'confirmed'
                AND b.start_time < $3::time AND b.end_time > $2::time
            )
+         ),
+         free_count AS (SELECT COUNT(*)::int AS n FROM free_courts),
+         adj_court AS (
+           SELECT court_id FROM coaching_sessions
+           WHERE coach_id = $4 AND date = $1 AND status = 'confirmed'
+             AND (end_time = $2::time OR start_time = $3::time)
+           LIMIT 1
          )
          SELECT fc.id
-         FROM free_courts fc, social_count sc
-         WHERE fc.rn > sc.total
-         ORDER BY fc.rn
+         FROM free_courts fc, free_count fcnt, social_count sc
+         WHERE fcnt.n > sc.total
+         ORDER BY
+           CASE WHEN fc.id = (SELECT court_id FROM adj_court) THEN 0 ELSE 1 END,
+           fc.id
          LIMIT 1`,
-        [sessionDate, start_time, end_time]
+        [sessionDate, start_time, end_time, coach_id]
       )
-      if (!free[0])
-        throw Object.assign(new Error('no_court'), { sessionDate })
+      if (!free[0]) {
+        skipped.push(sessionDate)
+        continue   // no court this week — skip rather than abort the whole batch
+      }
 
       const { rows } = await client.query(
         `INSERT INTO coaching_sessions
@@ -292,7 +303,7 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
       inserted.push(rows[0])
     }
     await client.query('COMMIT')
-    res.status(201).json({ sessions: inserted, recurrence_id: recurrenceId })
+    res.status(201).json({ sessions: inserted, recurrence_id: recurrenceId, skipped })
   } catch (err) {
     await client.query('ROLLBACK')
     if (err.message === 'no_court')
@@ -1032,7 +1043,7 @@ async function checkAndAssignCourt(client, session, sessionDate, newStart, newEn
          AND start_time < $3::time AND end_time > $2::time
      ),
      free_courts AS (
-       SELECT c.id, ROW_NUMBER() OVER (ORDER BY c.id) AS rn
+       SELECT c.id
        FROM courts c
        WHERE c.id NOT IN (
          SELECT cs2.court_id FROM coaching_sessions cs2
@@ -1045,10 +1056,22 @@ async function checkAndAssignCourt(client, session, sessionDate, newStart, newEn
          WHERE b.date=$1 AND b.status='confirmed'
            AND b.start_time < $3::time AND b.end_time > $2::time
        )
+     ),
+     free_count AS (SELECT COUNT(*)::int AS n FROM free_courts),
+     adj_court AS (
+       SELECT court_id FROM coaching_sessions
+       WHERE coach_id = $6 AND date = $1 AND status = 'confirmed'
+         AND NOT (id = ANY($4::int[]))
+         AND (end_time = $2::time OR start_time = $3::time)
+       LIMIT 1
      )
-     SELECT fc.id FROM free_courts fc, social_count sc
-     WHERE fc.rn > sc.total ORDER BY fc.rn LIMIT 1`,
-    [sessionDate, newStart, newEnd, excludeIds, groupId ?? null]
+     SELECT fc.id FROM free_courts fc, free_count fcnt, social_count sc
+     WHERE fcnt.n > sc.total
+     ORDER BY
+       CASE WHEN fc.id = (SELECT court_id FROM adj_court) THEN 0 ELSE 1 END,
+       fc.id
+     LIMIT 1`,
+    [sessionDate, newStart, newEnd, excludeIds, groupId ?? null, coachId]
   )
   if (!free[0])
     throw Object.assign(new Error('no_court'), { sessionDate })

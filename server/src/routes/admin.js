@@ -62,6 +62,28 @@ router.get('/members', async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
+// PATCH /api/admin/members/:id — update name and/or email
+router.patch('/members/:id', async (req, res) => {
+  const { name, email } = req.body
+  if (!name?.trim() && !email?.trim())
+    return res.status(400).json({ message: 'Nothing to update.' })
+  try {
+    const updates = [], values = []
+    if (name?.trim())  { updates.push(`name=$${values.length+1}`);  values.push(name.trim()) }
+    if (email?.trim()) { updates.push(`email=$${values.length+1}`); values.push(email.toLowerCase().trim()) }
+    values.push(req.params.id)
+    const { rows } = await pool.query(
+      `UPDATE users SET ${updates.join(', ')} WHERE id=$${values.length} RETURNING *`,
+      values
+    )
+    if (!rows.length) return res.status(404).json({ message: 'Member not found.' })
+    res.json({ member: safeUser(rows[0]) })
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ message: 'That email is already in use.' })
+    res.status(500).json({ message: 'Server error.' })
+  }
+})
+
 // PUT /api/admin/members/:id/role
 router.put('/members/:id/role', async (req, res) => {
   const { role } = req.body

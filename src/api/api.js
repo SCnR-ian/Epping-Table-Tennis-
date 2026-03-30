@@ -108,6 +108,7 @@ export const adminAPI = {
   updateTournament: (id, d) => api.put(`/admin/tournaments/${id}`, d),
   deleteTournament: (id) => api.delete(`/admin/tournaments/${id}`),
   updateMemberRole: (id, d) => api.put(`/admin/members/${id}/role`, d),
+  updateMember: (id, d) => api.patch(`/admin/members/${id}`, d),
   deleteMember: (id) => api.delete(`/admin/members/${id}`),
   makeCoach: (id, formData) => api.post(`/admin/members/${id}/make-coach`, formData),
   getCoachResume: (coachId) => `${api.defaults.baseURL}/admin/coaches/${coachId}/resume`,
