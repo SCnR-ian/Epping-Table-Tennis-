@@ -8,7 +8,7 @@ const COACHES = [
     name: "David Chen",
     title: "Head Coach",
     bio: "A two-time national champion turned elite coach, David has spent over 15 years shaping Australia's top table tennis talent. His precision-focused training philosophy and deep technical knowledge have produced five Australian national representatives under his direct guidance.",
-    image: "/images/training/private.png",
+    image: "/images/coach-4.jpg",
     achievements: [
       "2× Australian National Singles Champion",
       "ITTF Level 3 Certified Head Coach",
@@ -21,7 +21,7 @@ const COACHES = [
     name: "Sarah Kim",
     title: "Junior Development Coach",
     bio: "Former Australian U21 representative and three-time NSW State Women's Champion, Sarah brings world-class experience to every junior session. Her engaging teaching style has made her one of the most sought-after development coaches in the country.",
-    image: "/images/training/school.png",
+    image: "/images/coach-4.jpg",
     achievements: [
       "3× NSW State Women's Singles Champion",
       "ITTF Level 2 Certified Coach",
@@ -34,7 +34,7 @@ const COACHES = [
     name: "Marcus Liu",
     title: "Fitness & Strategy Coach",
     bio: "Armed with a Bachelor of Sports Science and a former top-50 NSW ranking, Marcus bridges physical athleticism with tactical intelligence. His data-driven training programs form the backbone of the club's competitive conditioning system.",
-    image: "/images/training/group.png",
+    image: "/images/coach-4.jpg",
     achievements: [
       "Bachelor of Sports Science — University of Sydney",
       "ITTF Level 2 Certified Coach",
@@ -45,22 +45,29 @@ const COACHES = [
 ];
 
 export default function AboutUsPage() {
-  const [stats, setStats] = useState({ membersDisplay: '—', coachingSessions: '—', socialSessions: '—' });
+  const [stats, setStats] = useState({
+    membersDisplay: "—",
+    coachingSessions: "—",
+    socialSessions: "—",
+  });
 
   useEffect(() => {
-    homepageAPI.getStats().then(r => setStats(r.data)).catch(() => {})
+    homepageAPI
+      .getStats()
+      .then((r) => setStats(r.data))
+      .catch(() => {});
   }, []);
 
   return (
     <div className="bg-white">
-
       {/* ── Intro header ─────────────────────────────────────────────────── */}
       <section className="pt-28 pb-14 px-6 text-center border-b border-gray-100">
         <h1 className="font-display text-2xl md:text-3xl font-normal text-black mb-4 leading-snug">
           Epping Table Tennis Club
         </h1>
         <p className="text-gray-500 text-sm max-w-md mx-auto leading-relaxed mb-6">
-          Sydney's premier table tennis club — built by players, for players, since 2015.
+          Sydney's premier table tennis club — built by players, for players,
+          since 2015.
         </p>
         <Link
           to="/register"
@@ -72,57 +79,77 @@ export default function AboutUsPage() {
 
       {/* ── Full-width photo ─────────────────────────────────────────────── */}
       <div className="w-full h-screen overflow-hidden">
-        <img src="/images/hero.jpg" alt="Epping Table Tennis" className="w-full h-full object-cover" />
+        <img
+          src="/images/hero.jpg"
+          alt="Epping Table Tennis"
+          className="w-full h-full object-cover"
+        />
       </div>
 
       {/* ── Story — text left, image right ───────────────────────────────── */}
       <section className="grid grid-cols-1 lg:grid-cols-2 min-h-[560px]">
         <div className="flex flex-col justify-center px-12 lg:px-20 py-16">
-          <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-4">Who We Are</p>
+          <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-4">
+            Who We Are
+          </p>
           <h2 className="font-display text-4xl md:text-5xl font-normal text-black mb-6 leading-tight">
             More Than Just a Club
           </h2>
           <p className="text-gray-600 leading-relaxed mb-4">
             Founded in 2025 and located at 33 Oxford St, Epping NSW, Epping
-            Table Tennis Club was born out of a shared passion for the sport
-            and a vision to create a home for players of every level in
-            Sydney's north-west. From our first session, we have welcomed
-            beginners picking up a paddle for the very first time alongside
-            seasoned competitors chasing their next ranking point.
+            Table Tennis Club was born out of a shared passion for the sport and
+            a vision to create a home for players of every level in Sydney's
+            north-west. From our first session, we have welcomed beginners
+            picking up a paddle for the very first time alongside seasoned
+            competitors chasing their next ranking point.
           </p>
           <p className="text-gray-600 leading-relaxed mb-8">
             Situated just two minutes from Epping Station, our fully
             air-conditioned venue houses six competition-grade courts,
             professional coaching programs, weekly social play nights, and a
             growing tournament calendar. Whether you are here to compete,
-            improve, or simply enjoy the game in great company, you will
-            find your place at Epping Table Tennis Club.
+            improve, or simply enjoy the game in great company, you will find
+            your place at Epping Table Tennis Club.
           </p>
           <div className="grid grid-cols-3 gap-6 border-t border-gray-100 pt-8">
             {[
-              { value: stats.membersDisplay,   label: "Members" },
+              { value: stats.membersDisplay, label: "Members" },
               { value: stats.coachingSessions, label: "Coaching Sessions" },
-              { value: stats.socialSessions,   label: "Social Sessions" },
+              { value: stats.socialSessions, label: "Social Sessions" },
             ].map(({ value, label }) => (
               <div key={label}>
-                <p className="font-display text-3xl font-normal text-black">{value}</p>
-                <p className="text-gray-400 text-xs tracking-widest uppercase mt-1">{label}</p>
+                <p className="font-display text-3xl font-normal text-black">
+                  {value}
+                </p>
+                <p className="text-gray-400 text-xs tracking-widest uppercase mt-1">
+                  {label}
+                </p>
               </div>
             ))}
           </div>
         </div>
         <div className="overflow-hidden h-[560px] lg:h-auto">
-          <img src="/images/banner2.jpg" alt="Club" className="w-full h-full object-cover" />
+          <img
+            src="/images/banner2.jpg"
+            alt="Club"
+            className="w-full h-full object-cover"
+          />
         </div>
       </section>
 
       {/* ── Coaching — image left, text right ────────────────────────────── */}
       <section className="grid grid-cols-1 lg:grid-cols-2 min-h-[560px]">
         <div className="overflow-hidden h-[560px] lg:h-auto order-2 lg:order-1">
-          <img src="/images/training/group.png" alt="Coaching" className="w-full h-full object-cover" />
+          <img
+            src="/images/training/group.png"
+            alt="Coaching"
+            className="w-full h-full object-cover"
+          />
         </div>
         <div className="flex flex-col justify-center px-12 lg:px-20 py-16 order-1 lg:order-2">
-          <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-4">Expert Guidance</p>
+          <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-4">
+            Expert Guidance
+          </p>
           <h2 className="font-display text-4xl md:text-5xl font-normal text-black mb-6 leading-tight">
             World-Class Coaching
           </h2>
@@ -132,8 +159,8 @@ export default function AboutUsPage() {
             competitive players, we have a program tailored for you.
           </p>
           <p className="text-gray-600 leading-relaxed mb-8">
-            One-on-one, group, school, and holiday programs are available
-            across the week, led by coaches with national team experience.
+            One-on-one, group, school, and holiday programs are available across
+            the week, led by coaches with national team experience.
           </p>
           <Link
             to="/training"
@@ -147,40 +174,59 @@ export default function AboutUsPage() {
       {/* ── Coaches ──────────────────────────────────────────────────────── */}
       <section className="border-t border-gray-100">
         <div className="text-center py-14">
-          <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-4">The Team</p>
+          <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-4">
+            The Team
+          </p>
           <h2 className="font-display text-4xl md:text-5xl font-normal text-black leading-tight">
             Meet Our Coaches
           </h2>
         </div>
 
         {COACHES.map((coach, idx) => (
-          <div key={coach.id} className="flex flex-col md:flex-row border-t border-gray-100">
+          <div
+            key={coach.id}
+            className="flex flex-col md:flex-row border-t border-gray-100"
+          >
             {/* Image */}
-            <div className={`w-full md:w-1/2 overflow-hidden ${idx % 2 === 1 ? "md:order-2" : ""}`} style={{ height: '50vh' }}>
+            <div
+              className={`w-full md:w-1/2 overflow-hidden ${idx % 2 === 1 ? "md:order-2" : ""}`}
+              style={{ height: "60vh" }}
+            >
               <img
                 src={coach.image}
                 alt={coach.name}
-                className="w-full h-full object-cover hover:scale-105 transition-transform duration-700"
+                className="w-full h-full object-cover object-top"
               />
             </div>
             {/* Content */}
-            <div className={`w-full md:w-1/2 flex flex-col justify-center items-center text-center px-12 py-16 ${idx % 2 === 1 ? "md:order-1" : ""}`}>
-              <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-3">{coach.title}</p>
-              <h3 className="font-display text-3xl md:text-4xl font-normal text-black mb-5">{coach.name}</h3>
-              <p className="text-gray-500 leading-relaxed text-sm max-w-xs">{coach.bio}</p>
+            <div
+              className={`w-full md:w-1/2 flex flex-col justify-center items-center text-center px-12 py-16 ${idx % 2 === 1 ? "md:order-1" : ""}`}
+            >
+              <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-3">
+                {coach.title}
+              </p>
+              <h3 className="font-display text-3xl md:text-4xl font-normal text-black mb-5">
+                {coach.name}
+              </h3>
+              <p className="text-gray-500 leading-relaxed text-sm max-w-xs">
+                {coach.bio}
+              </p>
             </div>
           </div>
         ))}
       </section>
 
-{/* ── CTA ──────────────────────────────────────────────────────────── */}
+      {/* ── CTA ──────────────────────────────────────────────────────────── */}
       <section className="py-16 px-6 text-center border-t border-gray-100">
-        <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-6">Join Us</p>
+        <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-6">
+          Join Us
+        </p>
         <h2 className="font-display text-5xl md:text-6xl font-light tracking-wide text-black mb-6">
           Ready to Play?
         </h2>
         <p className="text-gray-600 mb-10 max-w-md mx-auto leading-relaxed">
-          Become part of Epping Table Tennis Club — Sydney's most welcoming competitive table tennis community.
+          Become part of Epping Table Tennis Club — Sydney's most welcoming
+          competitive table tennis community.
         </p>
         <Link
           to="/register"
@@ -189,7 +235,6 @@ export default function AboutUsPage() {
           Get Started
         </Link>
       </section>
-
     </div>
   );
 }
