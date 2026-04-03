@@ -118,7 +118,7 @@ function groupByWeek(sessions) {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 
-const TABS = ['Today', 'Members', 'Bookings', 'Coaching', 'Social Play', 'Pay Report', 'Analytics', 'Homepage']
+const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Pay Report', 'Analytics', 'Homepage']
 
 const BOOKABLE_COURTS = [
   { id: 1, label: 'Court 1' },
@@ -274,7 +274,7 @@ function HomepageCardsTab() {
 }
 
 export default function AdminDashboard() {
-  const [activeTab,    setActiveTab]    = useState('Today')
+  const [activeTab,    setActiveTab]    = useState('Bookings')
 const [members,      setMembers]      = useState([])
   const [bookings,                setBookings]                = useState([])
   const [bookingViewSessions,     setBookingViewSessions]     = useState([])
@@ -1800,8 +1800,8 @@ const [sessionForm,      setSessionForm]      = useState({
         ))}
       </div>
 
-      {/* ── Today tab ────────────────────────────────────────────────────── */}
-      {activeTab === 'Today' && (
+      {/* ── Today tab (hidden) ───────────────────────────────────────────── */}
+      {false && (
         <div className="animate-fade-in space-y-6">
           {todayLoading ? (
             <p className="text-gray-800 text-sm">Loading today's schedule…</p>
@@ -2906,7 +2906,9 @@ const [sessionForm,      setSessionForm]      = useState({
                       <tbody>
                         {allRows.map(row => {
                         if (row._type === 'solo') { const s = row;
-                          const adminCI = s.admin_checked_in || adminCheckedIn.has(s.id)
+                          const ciRecord = adminCheckIns.find(ci => ci.type === 'coaching' && ci.reference_id === String(s.id) && ci.user_id === s.student_id)
+                          const adminCI = s.admin_checked_in || adminCheckedIn.has(s.id) || !!ciRecord
+                          const isNoShow = ciRecord?.no_show === true || (s.admin_checked_in && s.no_show === true)
                           const bal = sessionBalances[s.student_id]
                           return (
                             <tr key={s.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50 transition-colors">
@@ -2916,13 +2918,9 @@ const [sessionForm,      setSessionForm]      = useState({
                               <td className="px-5 py-3">
                                 <div className="flex items-center gap-2">
                                   <button
-                                    onClick={() => adminCI ? handleAdminUndoCheckInCoaching(s.id, s.student_id) : handleAdminCheckInCoaching(s.id, s.student_id)}
-                                    className={`font-medium transition-colors text-left text-sm ${adminCI ? 'text-emerald-600 hover:text-red-600' : 'text-gray-900 hover:text-emerald-700'}`}
-                                    title={adminCI ? 'Undo check-in' : 'Check in'}
-                                  >{adminCI ? '✓ ' : ''}{s.student_name}</button>
-                                  <button onClick={() => handleOpenMemberModal(s.student_id)} className="text-gray-400 hover:text-gray-700 flex-shrink-0">
-                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                                  </button>
+                                    onClick={() => handleOpenMemberModal(s.student_id)}
+                                    className="font-medium text-gray-900 hover:text-blue-700 transition-colors text-left text-sm"
+                                  >{s.student_name}</button>
                                 </div>
                                 {bal !== undefined && (
                                   <span className={`text-[11px] font-mono ${bal.solo < 0 ? 'text-red-600' : bal.solo < 1 ? 'text-amber-600' : 'text-emerald-600'}`}>{bal.solo.toFixed(1)}h</span>
@@ -2935,70 +2933,86 @@ const [sessionForm,      setSessionForm]      = useState({
                               <td className="px-5 py-3 text-gray-700 text-xs font-mono whitespace-nowrap">{fmtTime(s.start_time)} – {fmtTime(s.end_time)}</td>
                               <td className="px-5 py-3 text-gray-600 text-xs max-w-[140px] truncate">{s.notes ?? '—'}</td>
                               <td className="px-5 py-3">
-                                <button onClick={() => handleCancelSession(s.id)} className="text-xs text-red-600 hover:text-red-800 font-medium">Cancel</button>
-                              </td>
-                            </tr>
-                          )
-                        } else { const g = row;
-                          return (
-                          <React.Fragment key={g.group_id}>
-                            <tr className="border-b border-gray-200 last:border-0 hover:bg-gray-50 transition-colors align-top">
-                              <td className="px-5 py-3">
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-teal-100 text-teal-800 border border-teal-200 whitespace-nowrap">Group</span>
-                              </td>
-                              <td className="px-5 py-3">
-                                <div className="flex flex-col gap-2">
-                                  {g.student_names.map((name, i) => {
-                                    const sid = g.student_ids?.[i]
-                                    const bal = sid !== undefined ? sessionBalances[sid]?.group : undefined
-                                    return (
-                                      <div key={i}>
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-medium text-gray-900 text-sm">{name}</span>
-                                          <button onClick={() => sid !== undefined && handleOpenMemberModal(sid)} className="text-gray-400 hover:text-gray-700 flex-shrink-0">
-                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                                          </button>
-                                        </div>
-                                        {bal !== undefined && (
-                                          <span className={`text-[11px] font-mono ${bal < 0 ? 'text-red-600' : bal < 1 ? 'text-amber-600' : 'text-emerald-600'}`}>{bal.toFixed(1)}h</span>
-                                        )}
-                                      </div>
-                                    )
-                                  })}
-                                </div>
-                              </td>
-                              <td className="px-5 py-3">
-                                <button onClick={() => { const ci = coaches.find(c => c.id === g.coach_id); setCoachViewModal({ coach_id: g.coach_id, coach_name: g.coach_name, email: ci?.email, phone: ci?.phone }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}
-                                  className="text-gray-800 hover:text-blue-600 transition-colors text-left">{g.coach_name}</button>
-                              </td>
-                              <td className="px-5 py-3 text-gray-700 text-xs font-mono whitespace-nowrap">{fmtTime(g.start_time)} – {fmtTime(g.end_time)}</td>
-                              <td className="px-5 py-3 text-gray-600 text-xs max-w-[140px] truncate">{g.notes ?? '—'}</td>
-                              <td className="px-5 py-3">
                                 <div className="flex flex-col gap-1.5">
-                                  {g.student_names.map((name, i) => {
-                                    const sid = g.student_ids?.[i]; const sessionId = g.session_ids?.[i]
-                                    const adminCI = g.admin_checked_ins?.[i] === true || (sessionId !== undefined && adminCheckedIn.has(sessionId))
-                                    return (
-                                      <div key={i} className="flex items-center gap-1.5">
-                                        <span className="text-xs text-gray-500 w-16 truncate shrink-0">{name}</span>
-                                        <button
-                                          onClick={() => adminCI ? handleAdminUndoCheckInCoaching(sessionId, sid) : handleAdminCheckInCoaching(sessionId, sid)}
-                                          className={`text-xs font-medium transition-colors whitespace-nowrap ${adminCI ? 'text-emerald-600 hover:text-red-600' : 'text-gray-400 hover:text-emerald-700'}`}
-                                          title={adminCI ? 'Undo check-in' : `Check in ${name}`}
-                                        >{adminCI ? '✓ In' : 'Check In'}</button>
-                                      </div>
-                                    )
-                                  })}
-                                  <div className="flex gap-2 mt-1">
-                                    <button onClick={() => { setGroupEditModal(g); setGroupEditAddSearch(''); setGroupEditSessionDate(null); setGroupEditForm({ date: '', start_time: '', end_time: '' }); setGroupEditSelected(new Set()) }}
-                                      className="text-xs text-blue-600 hover:text-blue-800 font-medium">Edit</button>
-                                    <button onClick={() => handleCancelGroupSession(g.group_id)}
-                                      className="text-xs text-red-600 hover:text-red-800 font-medium">Cancel</button>
+                                  <div className="flex items-center gap-1.5">
+                                    {!adminCI ? (
+                                      <>
+                                        <button onClick={() => handleAdminCheckInCoaching(s.id, s.student_id)} className="text-xs font-medium text-gray-400 hover:text-emerald-700 transition-colors whitespace-nowrap">Check In</button>
+                                        <span className="text-gray-300 text-xs">·</span>
+                                        <button onClick={() => handleAdminNoShow(s.id, s.student_id)} className="text-xs font-medium text-gray-400 hover:text-red-600 transition-colors whitespace-nowrap">No Show</button>
+                                      </>
+                                    ) : isNoShow ? (
+                                      <button onClick={() => handleAdminUndoCheckInCoaching(s.id, s.student_id)} className="text-xs font-medium text-red-500 hover:text-gray-400 transition-colors whitespace-nowrap" title="Undo">✗ No Show</button>
+                                    ) : (
+                                      <button onClick={() => handleAdminUndoCheckInCoaching(s.id, s.student_id)} className="text-xs font-medium text-emerald-600 hover:text-gray-400 transition-colors whitespace-nowrap" title="Undo">✓ In</button>
+                                    )}
+                                  </div>
+                                  <div className="mt-2 pt-1 border-t border-gray-100">
+                                    <button onClick={() => handleCancelSession(s.id)} className="text-xs text-red-600 hover:text-red-800 font-medium">Cancel</button>
                                   </div>
                                 </div>
                               </td>
                             </tr>
-                          </React.Fragment>
+                          )
+                        } else { const g = row;
+                          const studentData = g.student_names.map((name, i) => {
+                            const sid = g.student_ids?.[i]
+                            const sessionId = g.session_ids?.[i]
+                            const bal = sid !== undefined ? sessionBalances[sid]?.group : undefined
+                            const ciRec = adminCheckIns.find(ci => ci.type === 'coaching' && ci.reference_id === String(sessionId) && ci.user_id === sid)
+                            const adminCI = g.admin_checked_ins?.[i] === true || (sessionId !== undefined && adminCheckedIn.has(sessionId)) || !!ciRec
+                            const isNS = ciRec?.no_show === true
+                            return { name, sid, sessionId, bal, adminCI, isNS }
+                          })
+                          return (
+                          <tr key={g.group_id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50 transition-colors align-top">
+                            <td className="px-5 py-3">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-teal-100 text-teal-800 border border-teal-200 whitespace-nowrap">Group</span>
+                            </td>
+                            <td className="px-5 py-3">
+                              <div className="flex flex-col divide-y divide-gray-100">
+                                {studentData.map(({ name, sid, bal }, i) => (
+                                  <div key={i} className="py-2 first:pt-0 last:pb-0">
+                                    <button onClick={() => sid !== undefined && handleOpenMemberModal(sid)} className="font-medium text-gray-900 hover:text-blue-700 transition-colors text-sm text-left block">{name}</button>
+                                    {bal !== undefined && <span className={`text-[11px] font-mono ${bal < 0 ? 'text-red-600' : bal < 1 ? 'text-amber-600' : 'text-emerald-600'}`}>{bal.toFixed(1)}h</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="px-5 py-3">
+                              <button onClick={() => { const ci = coaches.find(c => c.id === g.coach_id); setCoachViewModal({ coach_id: g.coach_id, coach_name: g.coach_name, email: ci?.email, phone: ci?.phone }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}
+                                className="text-gray-800 hover:text-blue-600 transition-colors text-left">{g.coach_name}</button>
+                            </td>
+                            <td className="px-5 py-3 text-gray-700 text-xs font-mono whitespace-nowrap">{fmtTime(g.start_time)} – {fmtTime(g.end_time)}</td>
+                            <td className="px-5 py-3 text-gray-600 text-xs max-w-[140px] truncate">{g.notes ?? '—'}</td>
+                            <td className="px-5 py-3">
+                              <div className="flex flex-col gap-1">
+                                <div className="flex flex-col divide-y divide-gray-100">
+                                  {studentData.map(({ sessionId, sid, adminCI, isNS }, i) => (
+                                    <div key={i} className="py-2 first:pt-0 flex items-center gap-1.5">
+                                      {!adminCI ? (
+                                        <>
+                                          <button onClick={() => handleAdminCheckInCoaching(sessionId, sid)} className="text-xs font-medium text-gray-400 hover:text-emerald-700 transition-colors whitespace-nowrap">Check In</button>
+                                          <span className="text-gray-300 text-xs">·</span>
+                                          <button onClick={() => handleAdminNoShow(sessionId, sid)} className="text-xs font-medium text-gray-400 hover:text-red-600 transition-colors whitespace-nowrap">No Show</button>
+                                        </>
+                                      ) : isNS ? (
+                                        <button onClick={() => handleAdminUndoCheckInCoaching(sessionId, sid)} className="text-xs font-medium text-red-500 hover:text-gray-400 transition-colors whitespace-nowrap" title="Undo">✗ No Show</button>
+                                      ) : (
+                                        <button onClick={() => handleAdminUndoCheckInCoaching(sessionId, sid)} className="text-xs font-medium text-emerald-600 hover:text-gray-400 transition-colors whitespace-nowrap" title="Undo">✓ In</button>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="flex gap-2 pt-2 mt-1 border-t-2 border-gray-200">
+                                  <button onClick={() => { setGroupEditModal(g); setGroupEditAddSearch(''); setGroupEditSessionDate(null); setGroupEditForm({ date: '', start_time: '', end_time: '' }); setGroupEditSelected(new Set()) }}
+                                    className="text-xs text-blue-600 hover:text-blue-800 font-medium">Edit</button>
+                                  <button onClick={() => handleCancelGroupSession(g.group_id)}
+                                    className="text-xs text-red-600 hover:text-red-800 font-medium">Cancel</button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
                           )
                         }
                         })}
