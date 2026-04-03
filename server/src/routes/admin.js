@@ -205,7 +205,12 @@ router.get('/members/:userId/activities', async (req, res) => {
                 EXISTS(
                   SELECT 1 FROM check_ins ci
                   WHERE ci.type='coaching' AND ci.reference_id=cs.id::text AND ci.user_id=cs.student_id
-                ) AS checked_in
+                ) AS checked_in,
+                COALESCE((
+                  SELECT ci.no_show FROM check_ins ci
+                  WHERE ci.type='coaching' AND ci.reference_id=cs.id::text AND ci.user_id=cs.student_id
+                  LIMIT 1
+                ), FALSE) AS no_show
          FROM coaching_sessions cs
          JOIN coaches co ON co.id = cs.coach_id
          WHERE cs.student_id=$1 AND cs.status='confirmed'

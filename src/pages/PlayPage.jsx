@@ -1,28 +1,32 @@
-import SocialPlayPage from "./SocialPlayPage";
+import SocialPlayPage from './SocialPlayPage'
 
 export default function PlayPage() {
   return (
-    <div className="page-wrapper">
-      {/* ── Hero ────────────────────────────────────────────────────────── */}
-      <section className="relative py-28 px-4 -mt-16 bg-court-pattern text-center">
-        <img src="https://images.unsplash.com/photo-1534158914592-062992fbe900?auto=format&fit=crop&w=1920&q=80"
-          alt="" className="absolute inset-0 w-full h-full object-cover opacity-50" />
-        <div className="absolute inset-0 bg-court-dark/60 pointer-events-none" />
-        <div className="relative z-10 max-w-3xl mx-auto">
-          <p className="text-brand-400 font-normal text-sm uppercase tracking-widest mb-4">
-            Get on the Table
+    <div className="bg-white">
+
+      {/* ── Hero ─────────────────────────────────────────────────────────── */}
+      <section className="flex items-center justify-center pt-20 pb-12 px-6 border-b border-gray-100">
+        <div className="text-center max-w-2xl mx-auto">
+          <h1 className="font-display text-4xl md:text-6xl font-normal text-black mb-6 leading-tight">
+            Social Play
+          </h1>
+          <p className="text-gray-500 text-base md:text-lg max-w-md mx-auto leading-relaxed mb-10">
+            Drop-in sessions open to all members — come along, meet other players, and enjoy some casual table tennis.
           </p>
-          <h1 className="section-title text-5xl md:text-6xl mb-6">Social Play</h1>
-          <p className="text-slate-400 text-lg leading-relaxed">
-            Join one of our social play nights — open to all members.
-          </p>
+          <a
+            href="#sessions"
+            className="inline-block bg-black text-white text-sm tracking-widest uppercase px-10 py-4 rounded-full hover:bg-gray-800 transition-colors duration-200"
+          >
+            View Sessions
+          </a>
         </div>
       </section>
 
-      {/* ── Content ─────────────────────────────────────────────────────── */}
-      <div className="min-h-screen">
+      {/* ── Sessions ─────────────────────────────────────────────────────── */}
+      <div id="sessions">
         <SocialPlayPage embedded />
       </div>
+
     </div>
-  );
+  )
 }

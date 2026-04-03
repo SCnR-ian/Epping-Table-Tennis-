@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI } from '@/api/api'
+import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, homepageAPI } from '@/api/api'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   LineChart, Line, CartesianGrid, Legend,
@@ -118,7 +118,7 @@ function groupByWeek(sessions) {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 
-const TABS = ['Today', 'Members', 'Bookings', 'Coaching', 'Social Play', 'Pay Report', 'Analytics']
+const TABS = ['Today', 'Members', 'Bookings', 'Coaching', 'Social Play', 'Pay Report', 'Analytics', 'Homepage']
 
 const BOOKABLE_COURTS = [
   { id: 1, label: 'Court 1' },
@@ -195,6 +195,83 @@ function layoutEvents(events) {
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
+
+// ── Homepage Cards Tab ───────────────────────────────────────────────────────
+function HomepageCardsTab() {
+  const [cards, setCards] = useState([])
+  const [uploading, setUploading] = useState({})
+
+  useEffect(() => {
+    homepageAPI.getCards().then(r => setCards(r.data.cards)).catch(() => {})
+  }, [])
+
+  const handleUpload = async (id, file) => {
+    if (!file) return
+    setUploading(p => ({ ...p, [id]: true }))
+    try {
+      const fd = new FormData()
+      fd.append('image', file)
+      await homepageAPI.uploadImage(id, fd)
+      const r = await homepageAPI.getCards()
+      setCards(r.data.cards)
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Upload failed.')
+    } finally {
+      setUploading(p => ({ ...p, [id]: false }))
+    }
+  }
+
+  const handleRemove = async (id) => {
+    if (!confirm('Remove photo for this card?')) return
+    try {
+      await homepageAPI.deleteImage(id)
+      setCards(prev => prev.map(c => c.id === id ? { ...c, hasImage: false } : c))
+    } catch { alert('Could not remove image.') }
+  }
+
+  return (
+    <div className="animate-fade-in space-y-6">
+      <h2 className="text-gray-900 text-lg font-medium">Homepage Cards</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {cards.map(card => (
+          <div key={card.id} className="card space-y-3">
+            {/* Photo preview */}
+            <div className="relative h-40 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center">
+              {card.hasImage ? (
+                <>
+                  <img
+                    src={`${homepageAPI.getImageUrl(card.id)}?t=${Date.now()}`}
+                    alt={card.title}
+                    className="w-full h-full object-cover"
+                  />
+                  <button
+                    onClick={() => handleRemove(card.id)}
+                    className="absolute top-2 right-2 bg-black/60 hover:bg-red-600 text-gray-900 rounded-full w-6 h-6 flex items-center justify-center text-xs transition-colors"
+                  >✕</button>
+                </>
+              ) : (
+                <span className="text-gray-800 text-xs">No photo</span>
+              )}
+            </div>
+            <p className="text-gray-900 text-sm font-medium">{card.title}</p>
+            <label className="block">
+              <span className="btn-secondary text-xs py-1.5 px-3 cursor-pointer w-full text-center block">
+                {uploading[card.id] ? 'Uploading…' : card.hasImage ? 'Replace Photo' : 'Upload Photo'}
+              </span>
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                disabled={uploading[card.id]}
+                onChange={e => handleUpload(card.id, e.target.files[0])}
+              />
+            </label>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export default function AdminDashboard() {
   const [activeTab,    setActiveTab]    = useState('Today')
@@ -532,6 +609,20 @@ const [sessionForm,      setSessionForm]      = useState({
       if (type === 'coaching') setAdminCheckedIn(prev => new Set([...prev, refId]))
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not check in.')
+    }
+  }
+
+  const handleAdminNoShow = async (sessionId, studentId) => {
+    try {
+      await checkinAPI.adminNoShowCoaching(sessionId)
+      setAdminCheckIns(prev => {
+        const key = ci => ci.type === 'coaching' && ci.reference_id === String(sessionId) && ci.user_id === studentId
+        if (prev.some(key)) return prev
+        return [...prev, { type: 'coaching', reference_id: String(sessionId), user_id: studentId, no_show: true }]
+      })
+      setAdminCheckedIn(prev => new Set([...prev, sessionId]))
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not mark as no-show.')
     }
   }
 
@@ -1656,7 +1747,7 @@ const [sessionForm,      setSessionForm]      = useState({
       {/* Today's coaching — per-coach session count with hover tooltip */}
       {todayCoachSummary.length > 0 && (
         <div className="mb-8">
-          <p className="text-[10px] text-slate-300 uppercase tracking-widest mb-3">
+          <p className="text-[10px] text-gray-800 uppercase tracking-widest mb-3">
             Today's Coaching
           </p>
           <div className="flex flex-wrap gap-3">
@@ -1667,19 +1758,19 @@ const [sessionForm,      setSessionForm]      = useState({
                   <p className="font-display text-3xl tracking-wider text-emerald-400">
                     {coach.sessions.length}
                   </p>
-                  <p className="text-xs text-slate-200 mt-0.5 truncate max-w-[120px]">{coach.name}</p>
-                  <p className="text-[10px] text-slate-400">
+                  <p className="text-xs text-gray-800 mt-0.5 truncate max-w-[120px]">{coach.name}</p>
+                  <p className="text-[10px] text-gray-800">
                     session{coach.sessions.length !== 1 ? 's' : ''} today
                   </p>
                 </div>
                 {/* Hover tooltip */}
                 <div className="absolute left-0 top-full mt-1.5 z-50 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity duration-150 w-64 card shadow-xl pointer-events-none">
-                  <p className="text-[10px] text-slate-300 uppercase tracking-widest mb-2">Schedule</p>
+                  <p className="text-[10px] text-gray-800 uppercase tracking-widest mb-2">Schedule</p>
                   <div className="space-y-1.5">
                     {coach.sessions.map(s => (
                       <div key={s.id} className="flex flex-col gap-0.5">
-                        <span className="text-xs text-slate-300">{s.student_name}</span>
-                        <span className="text-xs font-mono text-slate-400">
+                        <span className="text-xs text-gray-800">{s.student_name}</span>
+                        <span className="text-xs font-mono text-gray-800">
                           {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
                         </span>
                       </div>
@@ -1693,15 +1784,15 @@ const [sessionForm,      setSessionForm]      = useState({
       )}
 
       {/* Tabs */}
-      <div className="flex border-b border-court-light mb-6 gap-1">
+      <div className="flex border-b border-gray-200 mb-6 gap-1">
         {TABS.map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               activeTab === tab
-                ? 'border-brand-500 text-brand-400'
-                : 'border-transparent text-slate-500 hover:text-slate-300'
+                ? 'border-black text-black'
+                : 'border-transparent text-gray-500 hover:text-gray-900'
             }`}
           >
             {tab}
@@ -1713,7 +1804,7 @@ const [sessionForm,      setSessionForm]      = useState({
       {activeTab === 'Today' && (
         <div className="animate-fade-in space-y-6">
           {todayLoading ? (
-            <p className="text-slate-400 text-sm">Loading today's schedule…</p>
+            <p className="text-gray-800 text-sm">Loading today's schedule…</p>
           ) : todayError ? (
             <div className="card text-center py-8 space-y-3">
               <p className="text-red-400 text-sm">{todayError}</p>
@@ -1721,7 +1812,7 @@ const [sessionForm,      setSessionForm]      = useState({
             </div>
           ) : !todaySummary ? (
             <div className="card text-center py-8 space-y-3">
-              <p className="text-slate-400 text-sm">No data loaded.</p>
+              <p className="text-gray-800 text-sm">No data loaded.</p>
               <button onClick={loadTodaySummary} className="btn-primary text-sm">Load</button>
             </div>
           ) : (() => {
@@ -1791,10 +1882,10 @@ const [sessionForm,      setSessionForm]      = useState({
             const Badge = ({ in: checkedIn, type, refId, userId }) => checkedIn
               ? (
                 <span className="flex items-center gap-1">
-                  <span className="text-[10px] bg-emerald-500/15 text-emerald-400 px-2 py-0.5 rounded-full font-medium">Checked in</span>
+                  <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">Checked in</span>
                   <button
                     onClick={() => handleUndoCheckIn(type, refId, userId)}
-                    className="text-[10px] text-slate-500 hover:text-red-400 font-medium transition-colors"
+                    className="text-[10px] text-gray-800 hover:text-red-400 font-medium transition-colors"
                     title="Undo check-in"
                   >✕</button>
                 </span>
@@ -1805,7 +1896,7 @@ const [sessionForm,      setSessionForm]      = useState({
               <>
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <p className="text-slate-400 text-sm">{todayLabel}</p>
+                    <p className="text-gray-800 text-sm">{todayLabel}</p>
                     <input
                       type="date"
                       max={todayStr}
@@ -1814,31 +1905,31 @@ const [sessionForm,      setSessionForm]      = useState({
                       className="input text-xs py-1 px-2"
                     />
                   </div>
-                  <button onClick={() => loadTodaySummary(todayDate)} className="text-xs text-slate-400 hover:text-white transition-colors">↺ Refresh</button>
+                  <button onClick={() => loadTodaySummary(todayDate)} className="text-xs text-gray-800 hover:text-gray-900 transition-colors">↺ Refresh</button>
                 </div>
                 {isFuture && (
                   <p className="text-amber-400 text-xs">Future date selected — check-in is not available.</p>
                 )}
 
                 {noActivity && (
-                  <p className="text-slate-400 text-sm">No activities scheduled for this date.</p>
+                  <p className="text-gray-800 text-sm">No activities scheduled for this date.</p>
                 )}
 
                 {/* ── Bookings ──────────────────────────────────────── */}
                 {Object.keys(bookingGroups).length > 0 && (
                   <div>
-                    <p className="text-xs text-slate-400 uppercase tracking-widest mb-3">Court Bookings</p>
+                    <p className="text-xs text-gray-800 uppercase tracking-widest mb-3">Court Bookings</p>
                     <div className="space-y-3">
                       {Object.values(bookingGroups).map(g => (
                         <div key={g.group_id + g.start_time} className="card py-3 px-4">
                           <div className="flex items-center gap-3 mb-2">
-                            <span className="text-xs font-mono text-slate-300">{fmtTime(g.start_time)} – {fmtTime(g.end_time)}</span>
-                            <span className="text-xs text-slate-500">{g.court_name}</span>
+                            <span className="text-xs font-mono text-gray-800">{fmtTime(g.start_time)} – {fmtTime(g.end_time)}</span>
+                            <span className="text-xs text-gray-800">{g.court_name}</span>
                           </div>
                           <div className="flex flex-wrap gap-2">
                             {g.members.map(m => (
-                              <div key={m.user_id} className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
-                                <span className="text-xs text-white">{m.user_name}</span>
+                              <div key={m.user_id} className="flex items-center gap-2 bg-gray-100 border border-gray-300 rounded-lg px-3 py-1.5">
+                                <span className="text-xs text-gray-900">{m.user_name}</span>
                                 <Badge in={m.checked_in} type="booking" refId={g.group_id} userId={m.user_id} />
                                 {!m.checked_in && !isFuture && (
                                   <button
@@ -1870,44 +1961,44 @@ const [sessionForm,      setSessionForm]      = useState({
                   const coachEntries = Object.values(byCoach).sort((a, b) => a.coach_name.localeCompare(b.coach_name))
                   return (
                     <div>
-                      <p className="text-xs text-slate-400 uppercase tracking-widest mb-3">Coaching Sessions</p>
+                      <p className="text-xs text-gray-800 uppercase tracking-widest mb-3">Coaching Sessions</p>
                       <div className="space-y-5">
                         {coachEntries.map(coach => (
                           <div key={coach.coach_name}>
-                            <p className="text-sm text-white mb-2 px-1">{coach.coach_name}</p>
+                            <p className="text-sm text-gray-900 mb-2 px-1">{coach.coach_name}</p>
                             <div className="space-y-2">
                               {coach.sessions.sort((a, b) => a.data.start_time < b.data.start_time ? -1 : 1).map(({ type, data: c }) => (
                                 <div key={type === 'solo' ? c.id : c.group_id} className="card py-3 px-4">
                                   <div className="flex items-center gap-3 mb-2">
-                                    <span className="text-xs font-mono text-slate-300">{fmtTime(c.start_time)} – {fmtTime(c.end_time)}</span>
-                                    <span className="text-xs text-slate-500">{c.court_name}</span>
-                                    {type === 'group' && <span className="text-[10px] bg-teal-500/15 text-teal-400 px-2 py-0.5 rounded-full">Group</span>}
+                                    <span className="text-xs font-mono text-gray-800">{fmtTime(c.start_time)} – {fmtTime(c.end_time)}</span>
+                                    <span className="text-xs text-gray-800">{c.court_name}</span>
+                                    {type === 'group' && <span className="text-[10px] bg-teal-500/15 text-teal-600 px-2 py-0.5 rounded-full">Group</span>}
                                   </div>
                                   <div className="flex flex-wrap gap-2">
                                     {type === 'solo' ? (
-                                      <div className="flex items-center gap-1.5 bg-court-dark rounded-lg px-3 py-1.5">
+                                      <div className="flex items-center gap-1.5 bg-gray-100 border border-gray-300 rounded-lg px-3 py-1.5">
                                         {c.admin_checked_in ? (
                                           <>
                                             <button onClick={() => handleUndoCheckIn('coaching', c.id, c.student_id)} className="text-xs text-sky-400 hover:text-red-400 transition-colors" title="Undo check-in">✓ {c.student_name}</button>
                                           </>
                                         ) : !isFuture ? (
-                                          <button onClick={() => handleCheckIn('coaching', c.id, c.student_id)} className="text-xs text-white hover:text-emerald-300 transition-colors" title="Check in">{c.student_name}</button>
+                                          <button onClick={() => handleCheckIn('coaching', c.id, c.student_id)} className="text-xs text-gray-900 hover:text-emerald-600 transition-colors" title="Check in">{c.student_name}</button>
                                         ) : (
-                                          <span className="text-xs text-white">{c.student_name}</span>
+                                          <span className="text-xs text-gray-900">{c.student_name}</span>
                                         )}
-                                        <span className="text-[10px] text-slate-500">student</span>
+                                        <span className="text-[10px] text-gray-500">student</span>
                                       </div>
                                     ) : (
                                       c.students.map(s => (
-                                        <div key={s.student_id} className="flex items-center gap-1.5 bg-court-dark rounded-lg px-3 py-1.5">
+                                        <div key={s.student_id} className="flex items-center gap-1.5 bg-gray-100 border border-gray-300 rounded-lg px-3 py-1.5">
                                           {s.admin_checked_in ? (
                                             <button onClick={() => handleUndoCheckIn('coaching', s.id, s.student_id)} className="text-xs text-sky-400 hover:text-red-400 transition-colors" title="Undo check-in">✓ {s.student_name}</button>
                                           ) : !isFuture ? (
-                                            <button onClick={() => handleCheckIn('coaching', s.id, s.student_id)} className="text-xs text-white hover:text-emerald-300 transition-colors" title="Check in">{s.student_name}</button>
+                                            <button onClick={() => handleCheckIn('coaching', s.id, s.student_id)} className="text-xs text-gray-900 hover:text-emerald-600 transition-colors" title="Check in">{s.student_name}</button>
                                           ) : (
-                                            <span className="text-xs text-white">{s.student_name}</span>
+                                            <span className="text-xs text-gray-900">{s.student_name}</span>
                                           )}
-                                          <span className="text-[10px] text-slate-500">student</span>
+                                          <span className="text-[10px] text-gray-500">student</span>
                                         </div>
                                       ))
                                     )}
@@ -1925,18 +2016,18 @@ const [sessionForm,      setSessionForm]      = useState({
                 {/* ── Social play ────────────────────────────────────── */}
                 {Object.keys(socialGroups).length > 0 && (
                   <div>
-                    <p className="text-xs text-slate-400 uppercase tracking-widest mb-3">Social Play</p>
+                    <p className="text-xs text-gray-800 uppercase tracking-widest mb-3">Social Play</p>
                     <div className="space-y-3">
                       {Object.values(socialGroups).map(g => (
                         <div key={g.id} className="card py-3 px-4">
                           <div className="flex items-center gap-3 mb-2">
-                            <span className="text-white text-sm">{g.title}</span>
-                            <span className="text-xs font-mono text-slate-300">{fmtTime(g.start_time)} – {fmtTime(g.end_time)}</span>
+                            <span className="text-gray-900 text-sm">{g.title}</span>
+                            <span className="text-xs font-mono text-gray-800">{fmtTime(g.start_time)} – {fmtTime(g.end_time)}</span>
                           </div>
                           <div className="flex flex-wrap gap-2">
                             {g.members.map(m => (
-                              <div key={m.user_id} className="flex items-center gap-2 bg-court-dark rounded-lg px-3 py-1.5">
-                                <span className="text-xs text-white">{m.user_name}</span>
+                              <div key={m.user_id} className="flex items-center gap-2 bg-gray-100 border border-gray-300 rounded-lg px-3 py-1.5">
+                                <span className="text-xs text-gray-900">{m.user_name}</span>
                                 <Badge in={m.checked_in} type="social" refId={g.id} userId={m.user_id} />
                                 {!m.checked_in && !isFuture && (
                                   <button
@@ -1965,7 +2056,7 @@ const [sessionForm,      setSessionForm]      = useState({
           {/* Add Member form */}
           {showAddMember && (
             <div className="card">
-              <h3 className="text-sm font-normal text-white mb-4">Add Member</h3>
+              <h3 className="text-sm font-normal text-gray-900 mb-4">Add Member</h3>
               <form onSubmit={handleAddMember} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <input className="input text-sm" placeholder="Full name *" value={addMemberForm.name}
                   onChange={e => setAddMemberForm(f => ({ ...f, name: e.target.value }))} required />
@@ -1985,7 +2076,7 @@ const [sessionForm,      setSessionForm]      = useState({
           )}
 
         <div className="card p-0 overflow-hidden">
-          <div className="px-5 py-3 border-b border-court-light flex items-center gap-3">
+          <div className="px-5 py-3 border-b border-gray-200 flex items-center gap-3">
             <input
               type="text"
               className="input flex-1 text-sm"
@@ -2000,9 +2091,9 @@ const [sessionForm,      setSessionForm]      = useState({
             )}
           </div>
           {loading ? (
-            <p className="text-slate-300 text-sm p-5">Loading members…</p>
+            <p className="text-gray-800 text-sm p-5">Loading members…</p>
           ) : members.length === 0 ? (
-            <p className="text-slate-300 text-sm p-5">No members found.</p>
+            <p className="text-gray-800 text-sm p-5">No members found.</p>
           ) : (() => {
             const ROLE_ORDER = { admin: 0, coach: 1, member: 2 }
             const s = memberListSearch.toLowerCase().trim()
@@ -2010,14 +2101,14 @@ const [sessionForm,      setSessionForm]      = useState({
               .filter(m => !s || m.name.toLowerCase().includes(s) || m.email.toLowerCase().includes(s))
               .sort((a, b) => (ROLE_ORDER[a.role] ?? 3) - (ROLE_ORDER[b.role] ?? 3))
             return filtered.length === 0 ? (
-              <p className="text-slate-300 text-sm p-5">No members match your search.</p>
+              <p className="text-gray-800 text-sm p-5">No members match your search.</p>
             ) : (
               <div className="overflow-x-auto overflow-y-auto max-h-[480px]">
                 <table className="w-full text-sm">
                   <thead>
                     <tr>
                       {['Name', 'Email', 'Role', 'Joined', 'Actions'].map(h => (
-                        <th key={h} className="sticky top-0 bg-court-mid text-left px-5 py-3 text-xs text-slate-300 uppercase tracking-wider border-b border-court-light z-10">{h}</th>
+                        <th key={h} className="sticky top-0 bg-gray-100 text-left px-5 py-3 text-xs text-gray-700 font-semibold uppercase tracking-wider border-b border-gray-300 z-10">{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -2041,7 +2132,7 @@ const [sessionForm,      setSessionForm]      = useState({
 
                       return (
                         <React.Fragment key={m.id}>
-                          <tr className={`border-b border-court-light/50 ${isCoachExpanded ? '' : 'last:border-0'} hover:bg-court-light/30 transition-colors`}>
+                          <tr className={`border-b border-gray-300 ${isCoachExpanded ? '' : 'last:border-0'} hover:bg-gray-100 transition-colors`}>
                             <td className="px-5 py-3 font-medium w-[20%]">
                               {editingMember?.id === m.id ? (
                                 <input
@@ -2054,14 +2145,14 @@ const [sessionForm,      setSessionForm]      = useState({
                               ) : coachRec ? (
                                 <button
                                   onClick={() => { setCoachViewModal({ coach_id: coachRec.id, coach_name: m.name, email: coachRec.email, phone: coachRec.phone }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}
-                                  className="text-left text-white hover:text-sky-400 transition-colors">
+                                  className="text-left text-gray-900 hover:text-blue-600 transition-colors font-medium">
                                   {m.name}
                                 </button>
                               ) : (
-                                <button onClick={() => handleOpenMemberModal(m.id)} className="text-white hover:text-brand-400 transition-colors text-left">{m.name}</button>
+                                <button onClick={() => handleOpenMemberModal(m.id)} className="text-gray-900 hover:text-blue-600 transition-colors text-left font-medium">{m.name}</button>
                               )}
                             </td>
-                            <td className="px-5 py-3 text-slate-300 w-[30%]">
+                            <td className="px-5 py-3 text-gray-800 w-[30%]">
                               {editingMember?.id === m.id ? (
                                 <input
                                   className="input text-xs py-1 w-full"
@@ -2073,35 +2164,35 @@ const [sessionForm,      setSessionForm]      = useState({
                               ) : m.email}
                             </td>
                             <td className="px-5 py-3 w-[15%]">
-                              <span className={`badge border ${
-                                m.role === 'admin' ? 'bg-brand-500/10 text-brand-400 border-brand-500/30'
-                                : m.role === 'coach' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                                : 'bg-court-light text-slate-400 border-court-light'}`}>
+                              <span className={`badge border rounded-full ${
+                                m.role === 'admin' ? 'bg-blue-100 text-blue-800 border-blue-300'
+                                : m.role === 'coach' ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                : 'bg-gray-100 text-gray-600 border-gray-300'}`}>
                                 {m.role}
                               </span>
                             </td>
-                            <td className="px-5 py-3 text-slate-300 w-[20%]">{fmtDate(m.created_at)}</td>
+                            <td className="px-5 py-3 text-gray-800 w-[20%]">{fmtDate(m.created_at)}</td>
                             <td className="px-5 py-3 w-[15%]">
                               <div className="flex gap-3 flex-wrap">
                                 {editingMember?.id === m.id ? (
                                   <>
-                                    <button onClick={handleSaveMemberEdit} className="text-xs text-emerald-400 hover:text-emerald-300">Save</button>
-                                    <button onClick={() => setEditingMember(null)} className="text-xs text-slate-400 hover:text-white">✕</button>
+                                    <button onClick={handleSaveMemberEdit} className="text-xs text-emerald-600 hover:text-emerald-800 font-medium">Save</button>
+                                    <button onClick={() => setEditingMember(null)} className="text-xs text-gray-500 hover:text-gray-700">✕</button>
                                   </>
                                 ) : (
                                   <>
-                                    <button onClick={() => setEditingMember({ id: m.id, name: m.name, email: m.email })} className="text-xs text-amber-400 hover:text-amber-300">Edit</button>
+                                    <button onClick={() => setEditingMember({ id: m.id, name: m.name, email: m.email })} className="text-xs text-amber-600 hover:text-amber-800 font-medium">Edit</button>
                                     {m.role === 'admin' ? (
-                                      <button onClick={() => handleRoleToggle(m.id, m.role, m.name)} className="text-xs text-sky-400 hover:text-sky-300">Demote</button>
+                                      <button onClick={() => handleRoleToggle(m.id, m.role, m.name)} className="text-xs text-orange-600 hover:text-orange-800 font-medium">Demote</button>
                                     ) : m.role === 'coach' ? (
-                                      <button onClick={() => handleRoleToggle(m.id, m.role, m.name)} className="text-xs text-sky-400 hover:text-sky-300">Demote</button>
+                                      <button onClick={() => handleRoleToggle(m.id, m.role, m.name)} className="text-xs text-orange-600 hover:text-orange-800 font-medium">Demote</button>
                                     ) : (
                                       <>
-                                        <button onClick={() => handleRoleToggle(m.id, m.role, m.name)} className="text-xs text-sky-400 hover:text-sky-300">Make Admin</button>
-                                        <button onClick={() => { setCoachModal({ id: m.id, name: m.name }); setCoachForm({ availability_start: '', availability_end: '', bio: '', resume: null }) }} className="text-xs text-emerald-400 hover:text-emerald-300">Make Coach</button>
+                                        <button onClick={() => handleRoleToggle(m.id, m.role, m.name)} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Make Admin</button>
+                                        <button onClick={() => { setCoachModal({ id: m.id, name: m.name }); setCoachForm({ availability_start: '', availability_end: '', bio: '', resume: null }) }} className="text-xs text-emerald-600 hover:text-emerald-800 font-medium">Make Coach</button>
                                       </>
                                     )}
-                                    <button onClick={() => handleRemoveMember(m.id, m.name, m.role)} className="text-xs text-red-400 hover:text-red-300">Remove</button>
+                                    <button onClick={() => handleRemoveMember(m.id, m.name, m.role)} className="text-xs text-red-600 hover:text-red-800 font-medium">Remove</button>
                                   </>
                                 )}
                               </div>
@@ -2110,10 +2201,10 @@ const [sessionForm,      setSessionForm]      = useState({
 
                           {/* Inline coach expansion — student list */}
                           {isCoachExpanded && (
-                            <tr className="border-b border-court-light/50 bg-court-light/10">
+                            <tr className="border-b border-gray-300 bg-gray-100/10">
                               <td colSpan={5} className="px-6 py-3">
                                 {coachStudents.length === 0 ? (
-                                  <p className="text-slate-500 text-xs py-1">No sessions found for this coach.</p>
+                                  <p className="text-gray-800 text-xs py-1">No sessions found for this coach.</p>
                                 ) : (
                                   <div className="space-y-1">
                                     {coachStudents.map(({ student_id, student_name, sessions }) => {
@@ -2122,7 +2213,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                       const upcoming = sorted.filter(s => s.date?.slice(0, 10) >= todayISO)
                                       const past = sorted.filter(s => s.date?.slice(0, 10) < todayISO)
                                       return (
-                                        <div key={student_id} className={`rounded-lg border ${isStudentExpanded ? 'border-court-light bg-court' : 'border-transparent'}`}>
+                                        <div key={student_id} className={`rounded-lg border ${isStudentExpanded ? 'border-gray-200 bg-court' : 'border-transparent'}`}>
                                           <button
                                             className="w-full flex items-center justify-between px-4 py-2.5 text-left"
                                             onClick={() => setCoachRowExpanded(prev => {
@@ -2130,31 +2221,31 @@ const [sessionForm,      setSessionForm]      = useState({
                                               isStudentExpanded ? n.delete(student_id) : n.add(student_id)
                                               return n
                                             })}>
-                                            <span className="font-medium text-white text-sm">{student_name}</span>
+                                            <span className="font-medium text-gray-900 text-sm">{student_name}</span>
                                             <div className="flex items-center gap-3">
-                                              <span className="text-xs text-slate-400">{upcoming.length} upcoming · {past.length} past</span>
-                                              <span className="text-slate-500 text-xs">{isStudentExpanded ? '▲' : '▼'}</span>
+                                              <span className="text-xs text-gray-800">{upcoming.length} upcoming · {past.length} past</span>
+                                              <span className="text-gray-800 text-xs">{isStudentExpanded ? '▲' : '▼'}</span>
                                             </div>
                                           </button>
                                           {isStudentExpanded && (
-                                            <div className="border-t border-court-light/40 px-4 pb-3 pt-2 space-y-1">
+                                            <div className="border-t border-gray-200/40 px-4 pb-3 pt-2 space-y-1">
                                               {sorted.map(s => {
                                                 const isPast = s.date?.slice(0, 10) < todayISO
                                                 const checkedIn = s.checked_in || adminCheckedIn.has(s.id)
                                                 return (
                                                   <div key={s.id} className="flex items-center gap-2 py-1">
-                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${s.group_id ? 'bg-teal-500/15 text-teal-400' : 'bg-emerald-500/15 text-emerald-400'}`}>
+                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${s.group_id ? 'bg-teal-100 text-teal-700' : 'bg-emerald-100 text-emerald-700'}`}>
                                                       {s.group_id ? 'Group' : '1-on-1'}
                                                     </span>
-                                                    <span className={`text-sm flex-1 ${isPast ? 'text-slate-500' : 'text-white'}`}>{fmtDate(s.date)}</span>
-                                                    <span className="text-xs text-slate-500 font-mono">{fmtTime(s.start_time)}–{fmtTime(s.end_time)}</span>
+                                                    <span className={`text-sm flex-1 ${isPast ? 'text-gray-800' : 'text-gray-900'}`}>{fmtDate(s.date)}</span>
+                                                    <span className="text-xs text-gray-800 font-mono">{fmtTime(s.start_time)}–{fmtTime(s.end_time)}</span>
                                                     {isPast
                                                       ? checkedIn
-                                                        ? <span className="text-emerald-400 text-xs font-medium shrink-0">✓ In</span>
-                                                        : <span className="text-slate-600 text-xs shrink-0">— No show</span>
+                                                        ? <span className="text-emerald-600 text-xs font-medium shrink-0">✓ In</span>
+                                                        : <span className="text-gray-500 text-xs shrink-0">— No show</span>
                                                       : checkedIn
-                                                        ? <span className="text-emerald-400 text-xs font-medium shrink-0">✓ In</span>
-                                                        : <span className="text-slate-500 text-xs shrink-0">Upcoming</span>
+                                                        ? <span className="text-emerald-600 text-xs font-medium shrink-0">✓ In</span>
+                                                        : <span className="text-blue-600 text-xs shrink-0">Upcoming</span>
                                                     }
                                                   </div>
                                                 )
@@ -2206,10 +2297,10 @@ const [sessionForm,      setSessionForm]      = useState({
                 <button
                   key={iso}
                   onClick={() => setSelectedDate(iso)}
-                  className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-medium border transition-all text-center min-w-[72px] ${
+                  className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-medium border transition-all text-center min-w-[72px] ${
                     selectedDate === iso
-                      ? 'bg-brand-500 border-brand-500 text-white'
-                      : 'border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white'
+                      ? 'bg-black border-black text-white'
+                      : 'border-gray-300 text-gray-700 hover:border-black hover:text-black'
                   }`}
                 >
                   <div className="">{dowLabel}</div>
@@ -2229,7 +2320,7 @@ const [sessionForm,      setSessionForm]      = useState({
           {/* Calendar view */}
           <div className="card p-0 overflow-hidden">
             {loading ? (
-              <p className="text-slate-300 text-sm p-5">Loading schedule…</p>
+              <p className="text-gray-800 text-sm p-5">Loading schedule…</p>
             ) : (() => {
               const search         = memberSearch.toLowerCase().trim()
               const firstSlotMins  = slotsForDay.length ? toMins(slotsForDay[0]) : 0
@@ -2282,17 +2373,17 @@ const [sessionForm,      setSessionForm]      = useState({
               return (
                 <div className="flex">
                   {/* Left: time axis + free-court count */}
-                  <div className="flex-shrink-0 w-28 border-r border-court-light">
+                  <div className="flex-shrink-0 w-28 border-r border-gray-200">
                     {slotsForDay.map(slot => {
                       const free      = countFreeAtSlot(bookings, bookingViewSessions, bookingViewSocialSessions, slot)
-                      const freeColor = free === 0 ? 'text-red-400' : free <= 2 ? 'text-yellow-400' : 'text-emerald-400'
+                      const freeColor = free === 0 ? 'text-red-600' : free <= 2 ? 'text-amber-600' : 'text-emerald-600'
                       return (
                         <div
                           key={slot}
                           style={{ height: SLOT_H }}
-                          className="flex items-start pt-2.5 px-3 border-b border-court-light/30 last:border-0 gap-1"
+                          className="flex items-start pt-2.5 px-3 border-b border-gray-200/30 last:border-0 gap-1"
                         >
-                          <span className="text-[11px] text-slate-300 font-mono leading-none">{fmtTime(slot)}</span>
+                          <span className="text-[11px] text-gray-800 font-mono leading-none">{fmtTime(slot)}</span>
                           <span className={`ml-auto text-[11px] leading-none ${freeColor}`}>{free}/6</span>
                         </div>
                       )
@@ -2308,13 +2399,13 @@ const [sessionForm,      setSessionForm]      = useState({
                     {slotsForDay.map((slot, i) => (
                       <div
                         key={slot}
-                        className="absolute w-full border-t border-court-light/20"
+                        className="absolute w-full border-t border-gray-200/20"
                         style={{ top: i * SLOT_H }}
                       />
                     ))}
 
                     {laid.length === 0 && (
-                      <p className="absolute inset-0 flex items-center justify-center text-xs text-slate-700">
+                      <p className="absolute inset-0 flex items-center justify-center text-xs text-gray-800">
                         No bookings for this date.
                       </p>
                     )}
@@ -2336,28 +2427,28 @@ const [sessionForm,      setSessionForm]      = useState({
                           <div
                             key={ev.key}
                             style={{ position: 'absolute', top, height, left, width }}
-                            className="bg-brand-500/15 border border-brand-500/40 rounded-lg px-2.5 py-1.5 overflow-hidden flex flex-col"
+                            className="bg-blue-100 border border-blue-400 rounded-xl px-2.5 py-1.5 overflow-hidden flex flex-col"
                           >
-                            <p className="text-brand-300 text-xs truncate leading-none">{ev.user_name}</p>
-                            <p className="text-slate-300 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
+                            <p className="text-blue-900 text-xs truncate leading-none font-medium">{ev.user_name}</p>
+                            <p className="text-blue-700 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
                             <div className="mt-auto flex items-center justify-between gap-1">
                               {checkedIn ? (
                                 <button
                                   onClick={() => handleAdminUndoCheckIn('booking', ev.booking_group_id, ev.user_id)}
-                                  className="text-xs text-emerald-400 hover:text-red-400 leading-none transition-colors"
+                                  className="text-xs text-emerald-600 hover:text-red-600 leading-none transition-colors"
                                   title="Undo check-in"
                                 >✓ In</button>
                               ) : (
                                 <button
                                   onClick={() => handleAdminCheckIn('booking', ev.booking_group_id, ev.user_id)}
-                                  className="text-xs text-emerald-400 hover:text-emerald-300 text-left leading-none"
+                                  className="text-xs text-emerald-600 hover:text-emerald-800 text-left leading-none"
                                 >
                                   Check In
                                 </button>
                               )}
                               <button
                                 onClick={() => handleCancelBooking(ev.booking_group_id)}
-                                className="text-xs text-red-400 hover:text-red-300 leading-none"
+                                className="text-xs text-red-600 hover:text-red-800 leading-none"
                               >
                                 Cancel
                               </button>
@@ -2367,70 +2458,92 @@ const [sessionForm,      setSessionForm]      = useState({
                       }
 
                       if (ev.type === 'coaching') {
-                        const checkedIn = adminCheckIns.some(
+                        const ciRecord = adminCheckIns.find(
                           ci => ci.type === 'coaching' && ci.reference_id === String(ev.id) && ci.user_id === ev.student_id
                         )
+                        const checkedIn = !!ciRecord
+                        const isNoShow  = ciRecord?.no_show === true
+                        const isPast    = ev.date <= new Date().toISOString().slice(0, 10)
                         return (
                           <div
                             key={ev.key}
                             style={{ position: 'absolute', top, height, left, width }}
-                            className="bg-emerald-500/15 border border-emerald-500/40 rounded-lg px-2.5 py-1.5 flex flex-col overflow-hidden"
+                            className="bg-emerald-100 border border-emerald-400 rounded-xl px-2.5 py-1.5 flex flex-col overflow-hidden"
                           >
-                            <button
-                              onClick={() => checkedIn
-                                ? handleAdminUndoCheckIn('coaching', ev.id, ev.student_id)
-                                : handleAdminCheckIn('coaching', ev.id, ev.student_id)
-                              }
-                              className={`text-xs truncate leading-none text-left transition-colors ${checkedIn ? 'text-sky-400 hover:text-red-400' : 'text-emerald-300 hover:text-emerald-200'}`}
-                              title={checkedIn ? 'Undo check-in' : 'Check in'}
-                            >{checkedIn ? '✓ ' : ''}{ev.student_name}</button>
-                            <p className="text-slate-300 text-xs mt-1 leading-none">Coach: {ev.coach_name}</p>
-                            <p className="text-slate-300 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
-                            <div className="mt-auto flex items-center justify-end gap-1">
-                              <button onClick={() => setCalendarReschedule({ type: 'solo', ev, newDate: selectedDate, newStart: ev.start_time.slice(0,5), newEnd: ev.end_time.slice(0,5), saving: false, _slots: openTimeSlots })} className="text-xs text-sky-400 hover:text-sky-300 leading-none">Edit</button>
-                              <button onClick={() => handleCancelSession(ev.id)} className="text-xs text-red-400 hover:text-red-300 leading-none">Cancel</button>
+                            <p className={`text-xs truncate leading-none font-medium ${isNoShow ? 'text-red-500 line-through' : 'text-emerald-900'}`}>{ev.student_name}</p>
+                            <p className="text-emerald-700 text-xs mt-1 leading-none">Coach: {ev.coach_name}</p>
+                            <p className="text-emerald-700 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
+                            <div className="mt-auto flex items-center justify-between gap-1">
+                              {checkedIn ? (
+                                <button
+                                  onClick={() => handleAdminUndoCheckIn('coaching', ev.id, ev.student_id)}
+                                  className={`text-xs leading-none transition-colors hover:text-red-600 ${isNoShow ? 'text-red-400' : 'text-emerald-600'}`}
+                                  title="Undo"
+                                >{isNoShow ? '✗ No Show' : '✓ In'}</button>
+                              ) : isPast ? (
+                                <div className="flex items-center gap-1">
+                                  <button onClick={() => handleAdminCheckIn('coaching', ev.id, ev.student_id)} className="text-xs text-emerald-600 hover:text-emerald-800 leading-none">✓ In</button>
+                                  <span className="text-gray-300">|</span>
+                                  <button onClick={() => handleAdminNoShow(ev.id, ev.student_id)} className="text-xs text-red-400 hover:text-red-600 leading-none">✗ No Show</button>
+                                </div>
+                              ) : (
+                                <span />
+                              )}
+                              <div className="flex items-center gap-1">
+                                <button onClick={() => setCalendarReschedule({ type: 'solo', ev, newDate: selectedDate, newStart: ev.start_time.slice(0,5), newEnd: ev.end_time.slice(0,5), saving: false, _slots: openTimeSlots })} className="text-xs text-blue-600 hover:text-blue-800 leading-none">Edit</button>
+                                <button onClick={() => handleCancelSession(ev.id)} className="text-xs text-red-600 hover:text-red-800 leading-none">Cancel</button>
+                              </div>
                             </div>
                           </div>
                         )
                       }
 
                       if (ev.type === 'coaching_group') {
+                        const isPast = ev.date <= new Date().toISOString().slice(0, 10)
                         return (
                           <div
                             key={ev.key}
                             style={{ position: 'absolute', top, height, left, width }}
-                            className="bg-teal-500/15 border border-teal-500/40 rounded-lg px-2.5 py-1.5 flex flex-col overflow-hidden"
+                            className="bg-teal-100 border border-teal-400 rounded-xl px-2.5 py-1.5 flex flex-col overflow-hidden"
                           >
                             <div className="flex flex-wrap gap-x-2 gap-y-0.5">
                               {ev.student_names.map((name, i) => {
                                 const sid       = ev.student_ids[i]
                                 const sessionId = ev.session_ids[i]
-                                const ciIn = adminCheckIns.some(
+                                const ciRecord  = adminCheckIns.find(
                                   ci => ci.type === 'coaching' && ci.reference_id === String(sessionId) && ci.user_id === sid
                                 )
+                                const ciIn     = !!ciRecord
+                                const isNoShow = ciRecord?.no_show === true
                                 return (
-                                  <button
-                                    key={i}
-                                    onClick={() => ciIn
-                                      ? handleAdminUndoCheckIn('coaching', sessionId, sid)
-                                      : handleAdminCheckIn('coaching', sessionId, sid)
-                                    }
-                                    className={`text-xs leading-none text-left transition-colors ${ciIn ? 'text-sky-400 hover:text-red-400' : 'text-teal-300 hover:text-teal-200'}`}
-                                    title={ciIn ? 'Undo check-in' : 'Check in'}
-                                  >{ciIn ? '✓ ' : ''}{name}</button>
+                                  <div key={i} className="flex items-center gap-1">
+                                    <span className={`text-xs leading-none font-medium ${isNoShow ? 'text-red-400 line-through' : 'text-teal-900'}`}>{name}</span>
+                                    {ciIn ? (
+                                      <button
+                                        onClick={() => handleAdminUndoCheckIn('coaching', sessionId, sid)}
+                                        className={`text-[10px] leading-none transition-colors hover:text-red-600 ${isNoShow ? 'text-red-400' : 'text-emerald-600'}`}
+                                        title="Undo"
+                                      >{isNoShow ? '✗' : '✓'}</button>
+                                    ) : isPast ? (
+                                      <div className="flex items-center gap-0.5">
+                                        <button onClick={() => handleAdminCheckIn('coaching', sessionId, sid)} className="text-[10px] text-emerald-600 hover:text-emerald-800 leading-none" title="Check in">✓</button>
+                                        <button onClick={() => handleAdminNoShow(sessionId, sid)} className="text-[10px] text-red-400 hover:text-red-600 leading-none" title="No show">✗</button>
+                                      </div>
+                                    ) : null}
+                                  </div>
                                 )
                               })}
                             </div>
-                            <p className="text-slate-400 text-xs mt-0.5 leading-none">Coach: {ev.coach_name}</p>
-                            <p className="text-slate-300 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
+                            <p className="text-teal-700 text-xs mt-0.5 leading-none">Coach: {ev.coach_name}</p>
+                            <p className="text-teal-700 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
                             <div className="mt-auto flex items-center justify-end gap-1">
                               <button
                                 onClick={() => setCalendarReschedule({ type: 'group', ev, newDate: selectedDate, newStart: ev.start_time.slice(0,5), newEnd: ev.end_time.slice(0,5), saving: false, _slots: openTimeSlots })}
-                                className="text-xs text-sky-400 hover:text-sky-300 leading-none"
+                                className="text-xs text-blue-600 hover:text-blue-800 leading-none"
                               >Edit</button>
                               <button
                                 onClick={() => handleCancelTodayGroupSession(ev)}
-                                className="text-xs text-red-400 hover:text-red-300 leading-none"
+                                className="text-xs text-red-600 hover:text-red-800 leading-none"
                               >Cancel</button>
                             </div>
                           </div>
@@ -2445,23 +2558,23 @@ const [sessionForm,      setSessionForm]      = useState({
                         <div
                           key={ev.key}
                           style={{ position: 'absolute', top, height, left, width }}
-                          className="bg-violet-500/15 border border-violet-500/40 rounded-lg px-2.5 py-1.5 overflow-hidden flex flex-col"
+                          className="bg-violet-100 border border-violet-400 rounded-xl px-2.5 py-1.5 overflow-hidden flex flex-col"
                         >
-                          <p className="text-violet-300 text-xs truncate leading-none">{ev.title}</p>
-                          <p className="text-slate-300 text-xs mt-1 leading-none">{ev.num_courts} court{ev.num_courts !== 1 ? 's' : ''}</p>
-                          <p className="text-slate-300 text-xs mt-0.5 leading-none">{ev.participant_count}/{ev.max_players} players</p>
-                          <p className="text-slate-300 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
+                          <p className="text-violet-900 text-xs truncate leading-none font-medium">{ev.title}</p>
+                          <p className="text-violet-700 text-xs mt-1 leading-none">{ev.num_courts} court{ev.num_courts !== 1 ? 's' : ''}</p>
+                          <p className="text-violet-700 text-xs mt-0.5 leading-none">{ev.participant_count}/{ev.max_players} players</p>
+                          <p className="text-violet-700 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
                           {socialCheckinCount > 0 && (
-                            <p className="text-xs text-emerald-400 mt-0.5 leading-none">✓ {socialCheckinCount} checked in</p>
+                            <p className="text-xs text-emerald-600 mt-0.5 leading-none">✓ {socialCheckinCount} checked in</p>
                           )}
                           <div className="mt-auto flex items-center justify-end gap-2">
                             <button
                               onClick={() => setSocialCalendarEdit({ id: ev.id, title: ev.title, num_courts: ev.num_courts, max_players: ev.max_players, date: ev.date, start_time: ev.start_time.slice(0,5), end_time: ev.end_time.slice(0,5), saving: false })}
-                              className="text-xs text-sky-400 hover:text-sky-300 leading-none"
+                              className="text-xs text-blue-600 hover:text-blue-800 leading-none"
                             >Edit</button>
                             <button
                               onClick={() => handleCancelSocialSession(ev.id)}
-                              className="text-xs text-red-400 hover:text-red-300 leading-none"
+                              className="text-xs text-red-600 hover:text-red-800 leading-none"
                             >Cancel</button>
                           </div>
                         </div>
@@ -2478,25 +2591,6 @@ const [sessionForm,      setSessionForm]      = useState({
       {activeTab === 'Coaching' && (
         <div className="animate-fade-in space-y-6">
 
-          {/* ── Sub-tabs ── */}
-          <div className="flex gap-1 border-b border-court-light pb-0">
-            {[
-              { id: 'one-on-one', label: 'One-on-One' },
-              { id: 'group',     label: 'Group Coaching' },
-            ].map(t => (
-              <button
-                key={t.id}
-                onClick={() => setCoachingSubTab(t.id)}
-                className={`px-5 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-all ${
-                  coachingSubTab === t.id
-                    ? 'text-white border-brand-500 bg-brand-500/10'
-                    : 'text-slate-400 border-transparent hover:text-white hover:border-court-light'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
 
           {/* ── Date picker (shared) ── */}
           <div className="flex gap-2 overflow-x-auto pb-2 items-center">
@@ -2513,10 +2607,10 @@ const [sessionForm,      setSessionForm]      = useState({
                 <button key={iso} onClick={() => setCoachingDate(iso)}
                   className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-medium border transition-all text-center min-w-[72px] ${
                     coachingDate === iso
-                      ? 'bg-brand-500 border-brand-500 text-white'
+                      ? 'bg-brand-500 border-brand-500 text-gray-900'
                       : hasMatch
-                        ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 hover:border-emerald-400 hover:text-white'
-                        : 'border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white'
+                        ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 hover:border-emerald-400 hover:text-gray-900'
+                        : 'border-gray-200 text-gray-800 hover:border-brand-500/50 hover:text-gray-900'
                   }`}
                 >
                   <div>{dowLabel}</div>
@@ -2531,7 +2625,7 @@ const [sessionForm,      setSessionForm]      = useState({
               onChange={e => setCoachingDate(e.target.value)}
               title="Pick any date"
             />
-            {coachingSubTab === 'one-on-one' && (
+            {coachingSubTab !== 'hours' && (
               <button
                 onClick={() => { setShowSessionForm(v => !v); setShowGroupForm(false); setSessionSaved(false) }}
                 className="btn-primary text-sm flex-shrink-0 ml-auto"
@@ -2539,286 +2633,378 @@ const [sessionForm,      setSessionForm]      = useState({
                 {showSessionForm ? 'Cancel' : '+ Schedule Session'}
               </button>
             )}
-            {coachingSubTab === 'group' && (
-              <button
-                onClick={() => { setShowGroupForm(v => !v); setShowSessionForm(false) }}
-                className="btn-primary text-sm flex-shrink-0 ml-auto"
-              >
-                {showGroupForm ? 'Cancel' : '+ Schedule Group Session'}
-              </button>
-            )}
           </div>
 
-          {/* ══════════ ONE-ON-ONE sub-tab ══════════ */}
-          {coachingSubTab === 'one-on-one' && (
-            <div className="space-y-4">
-              {/* Schedule session form */}
-              {showSessionForm && (() => {
-                const formDow      = sessionForm.date ? new Date(sessionForm.date + 'T12:00:00').getDay() : null
-                const effectiveDows = sessionForm.selectedDays.length ? sessionForm.selectedDays : (formDow != null ? [formDow] : [])
-                const hasSat  = effectiveDows.includes(6)
-                const hasWkd  = effectiveDows.some(d => d !== 6)
-                const formSlots = hasSat && hasWkd ? ALL_SLOTS : hasSat ? SATURDAY_SLOTS : WEEKDAY_SLOTS
-                const formClosing = slotClosing(formSlots)
-                const endSlots  = [...formSlots, formClosing].filter(s => !sessionForm.start_time || toMins(s) > toMins(sessionForm.start_time))
-                return (
-                  <div className="card mb-2 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-slate-300 uppercase tracking-widest">New One-on-One Session</p>
-                      <button onClick={() => { setShowSessionForm(false); setSessionSaved(false) }}
-                        className="text-xs text-slate-400 hover:text-white">✕ Close</button>
-                    </div>
-                    {sessionSaved && (
-                      <div className="bg-emerald-500/15 border border-emerald-500/30 rounded-lg px-3 py-2 text-xs text-emerald-300">
-                        Session scheduled! Student/coach kept — pick another day to add a second session this week.
+          {/* ══════════ COMBINED SESSION FORM (one-on-one + group) ══════════ */}
+          {coachingSubTab !== 'hours' && showSessionForm && (() => {
+            const isGroup = coachingSubTab === 'group'
+            const activeForm = isGroup ? groupForm : sessionForm
+            const setActiveForm = isGroup ? setGroupForm : setSessionForm
+            const formDow = activeForm.date ? new Date(activeForm.date + 'T12:00:00').getDay() : null
+            const effectiveDows = activeForm.selectedDays.length ? activeForm.selectedDays : (formDow != null ? [formDow] : [])
+            const hasSat = effectiveDows.includes(6)
+            const hasWkd = effectiveDows.some(d => d !== 6)
+            const formSlots = hasSat && hasWkd ? ALL_SLOTS : hasSat ? SATURDAY_SLOTS : WEEKDAY_SLOTS
+            const formClosing = slotClosing(formSlots)
+            const endSlots = [...formSlots, formClosing].filter(s => !activeForm.start_time || toMins(s) > toMins(activeForm.start_time))
+            const selectedStudents = isGroup ? members.filter(m => groupForm.student_ids.includes(m.id)) : []
+            const filteredStudents = isGroup && groupStudentSearch
+              ? members.filter(m => !groupForm.student_ids.includes(m.id) && (m.name.toLowerCase().includes(groupStudentSearch.toLowerCase()) || m.email.toLowerCase().includes(groupStudentSearch.toLowerCase())))
+              : []
+            return (
+              <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-5 shadow-sm mb-2">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-widest">Schedule Coaching Session</h3>
+                  <button onClick={() => { setShowSessionForm(false); setSessionSaved(false) }} className="text-gray-400 hover:text-gray-700 transition-colors text-lg leading-none">✕</button>
+                </div>
+
+                {/* Type toggle */}
+                <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+                  <button onClick={() => setCoachingSubTab('one-on-one')}
+                    className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${!isGroup ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>
+                    1-on-1
+                  </button>
+                  <button onClick={() => setCoachingSubTab('group')}
+                    className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${isGroup ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>
+                    Group
+                  </button>
+                </div>
+                {isGroup && <p className="text-xs text-gray-500">Assign 2–5 students to one coach. They share a single court.</p>}
+
+                {/* Success banner */}
+                {sessionSaved && !isGroup && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-xs text-emerald-700">
+                    Session scheduled! Student/coach kept — pick another day to add a second session this week.
+                  </div>
+                )}
+
+                {/* Coach */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Coach</label>
+                  <select className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 bg-white focus:outline-none focus:border-black transition-colors"
+                    value={activeForm.coach_id} onChange={e => setActiveForm(f => ({ ...f, coach_id: e.target.value }))}>
+                    <option value="">Select coach…</option>
+                    {coaches.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+
+                {/* Student(s) */}
+                {!isGroup ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Student</label>
+                    <input type="text" className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-black transition-colors"
+                      placeholder="Search student name…" value={studentSearch}
+                      onChange={e => { setStudentSearch(e.target.value); setSessionForm(f => ({ ...f, student_id: '' })); setSessionStudentBalance(null) }}
+                    />
+                    {studentSearch && (
+                      <div className="mt-1 border border-gray-200 rounded-xl overflow-y-auto max-h-[160px] bg-white shadow-sm">
+                        {members.filter(m => m.name.toLowerCase().includes(studentSearch.toLowerCase()) || m.email.toLowerCase().includes(studentSearch.toLowerCase())).map(m => (
+                          <button key={m.id} type="button"
+                            onClick={async () => {
+                              setSessionForm(f => ({ ...f, student_id: String(m.id) }))
+                              setStudentSearch(m.name)
+                              try { const { data } = await coachingAPI.getHoursBalance(m.id); setSessionStudentBalance(data.soloBalance) } catch { setSessionStudentBalance(null) }
+                            }}
+                            className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors ${String(sessionForm.student_id) === String(m.id) ? 'bg-gray-50 text-gray-900 font-medium' : 'text-gray-700'}`}>
+                            {m.name}<span className="text-gray-400 text-xs ml-2">{m.email}</span>
+                          </button>
+                        ))}
                       </div>
                     )}
-                    <div>
-                      <label className="block text-xs text-slate-200 mb-1">Coach</label>
-                      <select className="input w-full" value={sessionForm.coach_id}
-                        onChange={e => setSessionForm(f => ({ ...f, coach_id: e.target.value }))}>
-                        <option value="">Select coach…</option>
-                        {coaches.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {sessionStudentBalance !== null && (
+                      <p className={`text-xs mt-1 ${sessionStudentBalance > 0 ? 'text-emerald-600' : 'text-red-600'}`}>Balance: {sessionStudentBalance.toFixed(1)} solo hrs</p>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Students ({selectedStudents.length}/5)</label>
+                    {selectedStudents.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {selectedStudents.map(m => (
+                          <span key={m.id} className="flex items-center gap-1 bg-gray-100 border border-gray-300 text-gray-800 text-xs px-3 py-1.5 rounded-full">
+                            {m.name}
+                            <button type="button" onClick={() => { setGroupForm(f => ({ ...f, student_ids: f.student_ids.filter(id => id !== m.id) })); setGroupStudentBalances(b => { const n = { ...b }; delete n[m.id]; return n }) }}
+                              className="ml-1 text-gray-400 hover:text-gray-700 leading-none">×</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {selectedStudents.length < 5 && (
+                      <input type="text" className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-black transition-colors"
+                        placeholder="Search to add a student…" value={groupStudentSearch} onChange={e => setGroupStudentSearch(e.target.value)} />
+                    )}
+                    {filteredStudents.length > 0 && (
+                      <div className="mt-1 border border-gray-200 rounded-xl overflow-y-auto max-h-[160px] bg-white shadow-sm">
+                        {filteredStudents.map(m => (
+                          <button key={m.id} type="button"
+                            onClick={async () => { setGroupForm(f => ({ ...f, student_ids: [...f.student_ids, m.id] })); setGroupStudentSearch(''); try { const { data } = await coachingAPI.getHoursBalance(m.id); setGroupStudentBalances(b => ({ ...b, [m.id]: data.groupBalance })) } catch {} }}
+                            className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                            {m.name}<span className="text-gray-400 text-xs ml-2">{m.email}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Starting week */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Starting week</label>
+                  <input type="date" className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 focus:outline-none focus:border-black transition-colors"
+                    value={activeForm.date} onChange={e => setActiveForm(f => ({ ...f, date: e.target.value, start_time: '', end_time: '' }))} />
+                </div>
+
+                {/* Days of week */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Days of week</label>
+                  <div className="flex gap-2 flex-wrap">
+                    {[{dow:1,label:'Mon'},{dow:2,label:'Tue'},{dow:3,label:'Wed'},{dow:6,label:'Sat'}].map(({dow,label}) => {
+                      const active = activeForm.selectedDays.includes(dow)
+                      return (
+                        <button key={dow} type="button"
+                          className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${active ? 'bg-black text-white border-black' : 'bg-white text-gray-700 border-gray-300 hover:border-gray-600'}`}
+                          onClick={() => setActiveForm(f => ({ ...f, selectedDays: active ? f.selectedDays.filter(d => d !== dow) : [...f.selectedDays, dow] }))}>
+                          {label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="mt-1.5 text-xs text-gray-400">Leave all unselected to use the starting-week date as-is.</p>
+                </div>
+
+                {/* Times */}
+                {effectiveDows.length > 1 ? (
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">Times per day</label>
+                    {effectiveDows.map(dow => {
+                      const dayLabel = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dow]
+                      const slots = dow === 6 ? SATURDAY_SLOTS : WEEKDAY_SLOTS
+                      const dt = activeForm.dayTimes[dow] || { start_time: '', end_time: '' }
+                      const eSlots = [...slots, slotClosing(slots)].filter(s => !dt.start_time || toMins(s) > toMins(dt.start_time))
+                      return (
+                        <div key={dow} className="flex gap-2 items-center">
+                          <span className="text-sm text-gray-600 w-8">{dayLabel}</span>
+                          <select className="border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 flex-1 focus:outline-none focus:border-black bg-white" value={dt.start_time}
+                            onChange={e => { const s = e.target.value; const autoEnd = slots.find(t => toMins(t) === toMins(s) + 60) ?? ''; setActiveForm(f => ({ ...f, dayTimes: { ...f.dayTimes, [dow]: { start_time: s, end_time: autoEnd } } })) }}>
+                            <option value="">Start…</option>
+                            {slots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
+                          </select>
+                          <select className="border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 flex-1 focus:outline-none focus:border-black bg-white" value={dt.end_time}
+                            onChange={e => setActiveForm(f => ({ ...f, dayTimes: { ...f.dayTimes, [dow]: { ...dt, end_time: e.target.value } } }))} disabled={!dt.start_time}>
+                            <option value="">End…</option>
+                            {eSlots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
+                          </select>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex gap-3">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Start Time</label>
+                      <select className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 bg-white focus:outline-none focus:border-black"
+                        value={activeForm.start_time}
+                        onChange={e => { const s = e.target.value; const autoEnd = formSlots.find(t => toMins(t) === toMins(s) + 60) ?? ''; setActiveForm(f => ({ ...f, start_time: s, end_time: autoEnd })) }}>
+                        <option value="">Select…</option>
+                        {formSlots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
                       </select>
                     </div>
-                    <div>
-                      <label className="block text-xs text-slate-200 mb-1">Student (Member)</label>
-                      <input type="text" className="input w-full" placeholder="Search student name…"
-                        value={studentSearch}
-                        onChange={e => {
-                          setStudentSearch(e.target.value)
-                          setSessionForm(f => ({ ...f, student_id: '' }))
-                          setSessionStudentBalance(null)
-                        }}
-                      />
-                      {studentSearch && (
-                        <div className="mt-1 border border-court-light rounded-lg overflow-y-auto max-h-[160px] bg-court">
-                          {members
-                            .filter(m => m.name.toLowerCase().includes(studentSearch.toLowerCase()) || m.email.toLowerCase().includes(studentSearch.toLowerCase()))
-                            .map(m => (
-                              <button key={m.id} type="button"
-                                onClick={async () => {
-                                  setSessionForm(f => ({ ...f, student_id: String(m.id) }))
-                                  setStudentSearch(m.name)
-                                  try {
-                                    const { data } = await coachingAPI.getHoursBalance(m.id)
-                                    setSessionStudentBalance(data.soloBalance)
-                                  } catch { setSessionStudentBalance(null) }
-                                }}
-                                className={`w-full text-left px-3 py-2 text-sm hover:bg-court-light/40 transition-colors ${String(sessionForm.student_id) === String(m.id) ? 'text-brand-300 bg-court-light/20' : 'text-slate-300'}`}
-                              >
-                                {m.name}<span className="text-slate-400 text-xs ml-2">{m.email}</span>
-                              </button>
-                            ))}
-                        </div>
-                      )}
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">End Time</label>
+                      <select className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 bg-white focus:outline-none focus:border-black"
+                        value={activeForm.end_time} onChange={e => setActiveForm(f => ({ ...f, end_time: e.target.value }))} disabled={!activeForm.start_time}>
+                        <option value="">Select…</option>
+                        {endSlots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
+                      </select>
                     </div>
-                    <div>
-                      <label className="block text-xs text-slate-200 mb-1">Starting week</label>
-                      <input type="date" className="input w-full" value={sessionForm.date}
-                        onChange={e => setSessionForm(f => ({ ...f, date: e.target.value, start_time: '', end_time: '' }))} />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-200 mb-1">Days of week</label>
-                      <div className="flex gap-2 flex-wrap">
-                        {[{dow:1,label:'Mon'},{dow:2,label:'Tue'},{dow:3,label:'Wed'},{dow:6,label:'Sat'}].map(({dow,label}) => {
-                          const active = sessionForm.selectedDays.includes(dow)
+                  </div>
+                )}
+
+                {/* Weeks */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Weeks (1 = one-off)</label>
+                  <input type="number" min={1} max={52} className="w-24 border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 focus:outline-none focus:border-black"
+                    value={activeForm.weeks} onChange={e => setActiveForm(f => ({ ...f, weeks: Number(e.target.value) }))} />
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Notes (optional)</label>
+                  <textarea className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-black resize-none h-20"
+                    placeholder="e.g. Focus on backhand technique" value={activeForm.notes}
+                    onChange={e => setActiveForm(f => ({ ...f, notes: e.target.value }))} />
+                </div>
+
+                {/* Hours preview */}
+                {activeForm.start_time && activeForm.end_time && (() => {
+                  const hrsPerSession = (toMins(activeForm.end_time) - toMins(activeForm.start_time)) / 60
+                  const numDays = activeForm.selectedDays.length || 1
+                  const total = hrsPerSession * activeForm.weeks * numDays
+                  return (
+                    <p className="text-sm text-gray-600">
+                      Will credit <span className="font-semibold text-gray-900">{total.toFixed(1)} hrs</span> to {isGroup ? 'each student' : 'student'}
+                      {' '}({hrsPerSession.toFixed(1)} hr × {activeForm.weeks} wk{activeForm.weeks > 1 ? 's' : ''}{numDays > 1 ? ` × ${numDays} days` : ''}). Deducted on attendance.
+                    </p>
+                  )
+                })()}
+
+                {/* Submit */}
+                <button
+                  onClick={isGroup ? handleCreateGroupSession : handleCreateSession}
+                  disabled={isGroup && groupForm.student_ids.length < 2}
+                  className="w-full bg-black hover:bg-gray-800 text-white rounded-xl py-3 text-sm font-medium tracking-wide transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {(() => {
+                    const numDays = activeForm.selectedDays.length || 1
+                    const total = activeForm.weeks * numDays
+                    return `Create ${isGroup ? 'Group ' : ''}Session${total > 1 ? ` (${total} sessions)` : ''}`
+                  })()}
+                </button>
+              </div>
+            )
+          })()}
+
+          {/* ══════════ COMBINED COACHING SESSIONS ══════════ */}
+          {coachingSubTab !== 'hours' && (
+            <div className="space-y-4">
+              {/* Search */}
+              <input type="text" placeholder="Search by student or coach name…"
+                value={coachingSearch} onChange={e => setCoachingSearch(e.target.value)}
+                className="input text-sm w-full max-w-sm"
+              />
+
+              {loading ? (
+                <p className="text-gray-800 text-sm">Loading sessions…</p>
+              ) : (() => {
+                const q = coachingSearch.toLowerCase()
+                const soloRows = coachingSessions.filter(s => {
+                  if (s.group_id) return false
+                  return !q || s.student_name?.toLowerCase().includes(q) || s.coach_name?.toLowerCase().includes(q)
+                }).map(s => ({ ...s, _type: 'solo' }))
+                const groupRows = groupSessions.filter(g =>
+                  !q || g.coach_name?.toLowerCase().includes(q) || g.student_names?.some(n => n.toLowerCase().includes(q))
+                ).map(g => ({ ...g, _type: 'group' }))
+                const allRows = [...soloRows, ...groupRows].sort((a, b) => {
+                  const coachCmp = (a.coach_name ?? '').localeCompare(b.coach_name ?? '')
+                  if (coachCmp !== 0) return coachCmp
+                  return (a.start_time ?? '').localeCompare(b.start_time ?? '')
+                })
+                if (allRows.length === 0) return (
+                  <p className="text-gray-800 text-sm">No coaching sessions on this date.</p>
+                )
+                return (
+                  <div className="card p-0 overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-300">
+                          {['Type', 'Student(s)', 'Coach', 'Time', 'Notes', 'Actions'].map(h => (
+                            <th key={h} className="sticky top-0 bg-gray-100 text-left px-5 py-3 text-xs text-gray-700 font-semibold uppercase tracking-wider">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allRows.map(row => {
+                        if (row._type === 'solo') { const s = row;
+                          const adminCI = s.admin_checked_in || adminCheckedIn.has(s.id)
+                          const bal = sessionBalances[s.student_id]
                           return (
-                            <button key={dow} type="button"
-                              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${active ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
-                              onClick={() => setSessionForm(f => ({
-                                ...f,
-                                selectedDays: active
-                                  ? f.selectedDays.filter(d => d !== dow)
-                                  : [...f.selectedDays, dow]
-                              }))}>
-                              {label}
-                            </button>
+                            <tr key={s.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50 transition-colors">
+                              <td className="px-5 py-3">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-100 text-blue-800 border border-blue-200 whitespace-nowrap">1-on-1</span>
+                              </td>
+                              <td className="px-5 py-3">
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => adminCI ? handleAdminUndoCheckInCoaching(s.id, s.student_id) : handleAdminCheckInCoaching(s.id, s.student_id)}
+                                    className={`font-medium transition-colors text-left text-sm ${adminCI ? 'text-emerald-600 hover:text-red-600' : 'text-gray-900 hover:text-emerald-700'}`}
+                                    title={adminCI ? 'Undo check-in' : 'Check in'}
+                                  >{adminCI ? '✓ ' : ''}{s.student_name}</button>
+                                  <button onClick={() => handleOpenMemberModal(s.student_id)} className="text-gray-400 hover:text-gray-700 flex-shrink-0">
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                                  </button>
+                                </div>
+                                {bal !== undefined && (
+                                  <span className={`text-[11px] font-mono ${bal.solo < 0 ? 'text-red-600' : bal.solo < 1 ? 'text-amber-600' : 'text-emerald-600'}`}>{bal.solo.toFixed(1)}h</span>
+                                )}
+                              </td>
+                              <td className="px-5 py-3">
+                                <button onClick={() => { const ci = coaches.find(c => c.id === s.coach_id); setCoachViewModal({ coach_id: s.coach_id, coach_name: s.coach_name, email: ci?.email, phone: ci?.phone }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}
+                                  className="text-gray-800 hover:text-blue-600 transition-colors text-left">{s.coach_name}</button>
+                              </td>
+                              <td className="px-5 py-3 text-gray-700 text-xs font-mono whitespace-nowrap">{fmtTime(s.start_time)} – {fmtTime(s.end_time)}</td>
+                              <td className="px-5 py-3 text-gray-600 text-xs max-w-[140px] truncate">{s.notes ?? '—'}</td>
+                              <td className="px-5 py-3">
+                                <button onClick={() => handleCancelSession(s.id)} className="text-xs text-red-600 hover:text-red-800 font-medium">Cancel</button>
+                              </td>
+                            </tr>
                           )
-                        })}
-                      </div>
-                      <p className="mt-1 text-xs text-slate-500">Leave all unselected to use the starting-week date as-is.</p>
-                    </div>
-                    {effectiveDows.length > 1 ? (
-                      <div className="space-y-2">
-                        <label className="block text-xs text-slate-200">Times per day</label>
-                        {effectiveDows.map(dow => {
-                          const dayLabel = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dow]
-                          const slots = dow === 6 ? SATURDAY_SLOTS : WEEKDAY_SLOTS
-                          const dt = sessionForm.dayTimes[dow] || { start_time: '', end_time: '' }
-                          const eSlots = [...slots, slotClosing(slots)].filter(s => !dt.start_time || toMins(s) > toMins(dt.start_time))
+                        } else { const g = row;
                           return (
-                            <div key={dow} className="flex gap-2 items-center">
-                              <span className="text-xs text-slate-400 w-8">{dayLabel}</span>
-                              <select className="input text-xs py-1 flex-1" value={dt.start_time}
-                                onChange={e => {
-                                  const s = e.target.value
-                                  const autoEnd = slots.find(t => toMins(t) === toMins(s) + 60) ?? ''
-                                  setSessionForm(f => ({ ...f, dayTimes: { ...f.dayTimes, [dow]: { start_time: s, end_time: autoEnd } } }))
-                                }}>
-                                <option value="">Start…</option>
-                                {slots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
-                              </select>
-                              <select className="input text-xs py-1 flex-1" value={dt.end_time}
-                                onChange={e => setSessionForm(f => ({ ...f, dayTimes: { ...f.dayTimes, [dow]: { ...dt, end_time: e.target.value } } }))}
-                                disabled={!dt.start_time}>
-                                <option value="">End…</option>
-                                {eSlots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
-                              </select>
-                            </div>
+                          <React.Fragment key={g.group_id}>
+                            <tr className="border-b border-gray-200 last:border-0 hover:bg-gray-50 transition-colors align-top">
+                              <td className="px-5 py-3">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-teal-100 text-teal-800 border border-teal-200 whitespace-nowrap">Group</span>
+                              </td>
+                              <td className="px-5 py-3">
+                                <div className="flex flex-col gap-1.5">
+                                  {g.student_names.map((name, i) => {
+                                    const sid = g.student_ids?.[i]
+                                    const bal = sid !== undefined ? sessionBalances[sid]?.group : undefined
+                                    return (
+                                      <button key={i} onClick={() => sid !== undefined && handleOpenMemberModal(sid)}
+                                        className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-full self-start border font-medium transition-opacity hover:opacity-70 ${
+                                          bal !== undefined && bal < 0 ? 'bg-red-50 text-red-700 border-red-200'
+                                          : bal !== undefined && bal < 1 ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                          : 'bg-gray-100 text-gray-700 border-gray-300'
+                                        }`}>
+                                        {name}{bal !== undefined && <span className="opacity-60 font-mono">{bal.toFixed(1)}h</span>}
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              </td>
+                              <td className="px-5 py-3">
+                                <button onClick={() => { const ci = coaches.find(c => c.id === g.coach_id); setCoachViewModal({ coach_id: g.coach_id, coach_name: g.coach_name, email: ci?.email, phone: ci?.phone }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}
+                                  className="text-gray-800 hover:text-blue-600 transition-colors text-left">{g.coach_name}</button>
+                              </td>
+                              <td className="px-5 py-3 text-gray-700 text-xs font-mono whitespace-nowrap">{fmtTime(g.start_time)} – {fmtTime(g.end_time)}</td>
+                              <td className="px-5 py-3 text-gray-600 text-xs max-w-[140px] truncate">{g.notes ?? '—'}</td>
+                              <td className="px-5 py-3">
+                                <div className="flex flex-col gap-1.5">
+                                  {g.student_names.map((name, i) => {
+                                    const sid = g.student_ids?.[i]; const sessionId = g.session_ids?.[i]
+                                    const adminCI = g.admin_checked_ins?.[i] === true || (sessionId !== undefined && adminCheckedIn.has(sessionId))
+                                    return (
+                                      <button key={i} onClick={() => adminCI ? handleAdminUndoCheckInCoaching(sessionId, sid) : handleAdminCheckInCoaching(sessionId, sid)}
+                                        className={`text-xs text-left transition-colors whitespace-nowrap truncate max-w-[140px] font-medium ${adminCI ? 'text-emerald-600 hover:text-red-600' : 'text-gray-700 hover:text-emerald-700'}`}
+                                        title={adminCI ? 'Undo check-in' : `Check in ${name}`}
+                                      >{adminCI ? '✓ ' : ''}{name}</button>
+                                    )
+                                  })}
+                                  <div className="flex gap-2 mt-0.5">
+                                    <button onClick={() => { setGroupEditModal(g); setGroupEditAddSearch(''); setGroupEditSessionDate(null); setGroupEditForm({ date: '', start_time: '', end_time: '' }); setGroupEditSelected(new Set()) }}
+                                      className="text-xs text-blue-600 hover:text-blue-800 font-medium">Edit</button>
+                                    <button onClick={() => handleCancelGroupSession(g.group_id)}
+                                      className="text-xs text-red-600 hover:text-red-800 font-medium">Cancel</button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          </React.Fragment>
                           )
+                        }
                         })}
-                      </div>
-                    ) : (
-                    <div className="flex gap-3">
-                      <div className="flex-1">
-                        <label className="block text-xs text-slate-200 mb-1">Start Time</label>
-                        <select className="input w-full" value={sessionForm.start_time}
-                          onChange={e => {
-                            const s = e.target.value
-                            const autoEnd = formSlots.find(t => toMins(t) === toMins(s) + 60) ?? ''
-                            setSessionForm(f => ({ ...f, start_time: s, end_time: autoEnd }))
-                          }}>
-                          <option value="">Select…</option>
-                          {formSlots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
-                        </select>
-                      </div>
-                      <div className="flex-1">
-                        <label className="block text-xs text-slate-200 mb-1">End Time</label>
-                        <select className="input w-full" value={sessionForm.end_time}
-                          onChange={e => setSessionForm(f => ({ ...f, end_time: e.target.value }))}
-                          disabled={!sessionForm.start_time}>
-                          <option value="">Select…</option>
-                          {endSlots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                    )}
-                    <div>
-                      <label className="block text-xs text-slate-200 mb-1">Recurring — N weeks (1 = one-off)</label>
-                      <input type="number" min={1} max={52} className="input w-32"
-                        value={sessionForm.weeks}
-                        onChange={e => setSessionForm(f => ({ ...f, weeks: Number(e.target.value) }))} />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-200 mb-1">Notes (optional)</label>
-                      <textarea className="input w-full h-20 resize-none" placeholder="e.g. Focus on backhand technique"
-                        value={sessionForm.notes}
-                        onChange={e => setSessionForm(f => ({ ...f, notes: e.target.value }))} />
-                    </div>
-                    {sessionForm.start_time && sessionForm.end_time && (() => {
-                      const hrsPerSession = (toMins(sessionForm.end_time) - toMins(sessionForm.start_time)) / 60
-                      const numDays = sessionForm.selectedDays.length || 1
-                      const total = hrsPerSession * sessionForm.weeks * numDays
-                      return (
-                        <p className="text-xs text-slate-400">
-                          Will credit <span className="font-medium text-white">{total.toFixed(1)} hrs</span> to student
-                          {' '}({hrsPerSession.toFixed(1)} hr × {sessionForm.weeks} week{sessionForm.weeks > 1 ? 's' : ''}{numDays > 1 ? ` × ${numDays} days` : ''}).
-                          Deducted each time they attend.
-                        </p>
-                      )
-                    })()}
-                    <button onClick={handleCreateSession} className="btn-primary text-sm">
-                      {(() => {
-                        const numDays = sessionForm.selectedDays.length || 1
-                        const total = sessionForm.weeks * numDays
-                        return `Create Session${total > 1 ? ` (${total} session${total > 1 ? 's' : ''})` : ''}`
-                      })()}
-                    </button>
+                      </tbody>
+                    </table>
                   </div>
                 )
               })()}
-
-              {/* Name search */}
-              <div>
-                <input type="text" placeholder="Search by student or coach name…"
-                  value={coachingSearch}
-                  onChange={e => setCoachingSearch(e.target.value)}
-                  className="input text-sm w-full max-w-sm"
-                />
-              </div>
-
-              {/* Sessions table */}
-              {loading ? (
-                <p className="text-slate-300 text-sm">Loading sessions…</p>
-              ) : coachingSessions.filter(s => !s.group_id).length === 0 ? (
-                <p className="text-slate-300 text-sm">No one-on-one sessions on this date.</p>
-              ) : (
-                <div className="card p-0 overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-court-light">
-                        {['Student', 'Coach', 'Time', 'Hours', 'Notes', 'Actions'].map(h => (
-                          <th key={h} className="text-left px-5 py-3 text-xs text-slate-300 uppercase tracking-wider">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {coachingSessions.filter(s => {
-                        if (s.group_id) return false
-                        const q = coachingSearch.toLowerCase()
-                        return !q || s.student_name?.toLowerCase().includes(q) || s.coach_name?.toLowerCase().includes(q)
-                      }).sort((a, b) => (a.coach_name ?? '').localeCompare(b.coach_name ?? '')).map(s => {
-                        const adminCI = s.admin_checked_in || adminCheckedIn.has(s.id)
-                        return (
-                          <tr key={s.id} className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors">
-                            <td className="px-5 py-3">
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => adminCI
-                                    ? handleAdminUndoCheckInCoaching(s.id, s.student_id)
-                                    : handleAdminCheckInCoaching(s.id, s.student_id)
-                                  }
-                                  className={`font-medium transition-colors text-left ${adminCI ? 'text-sky-400 hover:text-red-400' : 'text-white hover:text-emerald-300'}`}
-                                  title={adminCI ? 'Undo check-in' : 'Check in'}
-                                >{adminCI ? '✓ ' : ''}{s.student_name}</button>
-                                <button onClick={() => handleOpenMemberModal(s.student_id)}
-                                  className="text-slate-600 hover:text-brand-400 transition-colors flex-shrink-0" title="View member">
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                                </button>
-                              </div>
-                              <p className="text-slate-400 text-xs">{s.student_email}</p>
-                            </td>
-                            <td className="px-5 py-3">
-                              <button onClick={() => { const ci = coaches.find(c => c.id === s.coach_id); setCoachViewModal({ coach_id: s.coach_id, coach_name: s.coach_name, email: ci?.email, phone: ci?.phone }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}
-                                className="text-slate-300 hover:text-sky-400 transition-colors text-left">
-                                {s.coach_name}
-                              </button>
-                            </td>
-                            <td className="px-5 py-3 text-slate-300 text-xs font-mono whitespace-nowrap">
-                              {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
-                            </td>
-                            <td className="px-5 py-3 text-xs font-mono">
-                              {sessionBalances[s.student_id] !== undefined ? (
-                                <span className={sessionBalances[s.student_id].solo < 0 ? 'text-red-400' : sessionBalances[s.student_id].solo < 1 ? 'text-amber-400' : 'text-emerald-400'}>
-                                  {sessionBalances[s.student_id].solo.toFixed(1)}h
-                                </span>
-                              ) : <span className="text-slate-600">—</span>}
-                            </td>
-                            <td className="px-5 py-3 text-slate-400 text-xs max-w-[160px] truncate">{s.notes ?? '—'}</td>
-                            <td className="px-5 py-3">
-                              <div className="flex items-center gap-3">
-                                <button onClick={() => handleCancelSession(s.id)}
-                                  className="text-xs text-red-400 hover:text-red-300 font-medium">
-                                  Cancel
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </div>
           )}
 
-          {/* ══════════ GROUP COACHING sub-tab ══════════ */}
-          {coachingSubTab === 'group' && (
-            <div className="space-y-4">
-              {/* Group session form */}
-              {showGroupForm && (() => {
+          {/* dead group form stub */}
+          {false && (() => {
                 const formDow      = groupForm.date ? new Date(groupForm.date + 'T12:00:00').getDay() : null
                 const effectiveDows = groupForm.selectedDays.length ? groupForm.selectedDays : (formDow != null ? [formDow] : [])
                 const hasSat  = effectiveDows.includes(6)
@@ -2836,11 +3022,11 @@ const [sessionForm,      setSessionForm]      = useState({
                   : []
                 return (
                   <div className="card mb-2 space-y-4">
-                    <p className="text-xs text-slate-300 uppercase tracking-widest">New Group Coaching Session</p>
-                    <p className="text-xs text-slate-400">Assign 2–5 students to one coach. They share a single court.</p>
+                    <p className="text-xs text-gray-800 uppercase tracking-widest">New Group Coaching Session</p>
+                    <p className="text-xs text-gray-800">Assign 2–5 students to one coach. They share a single court.</p>
 
                     <div>
-                      <label className="block text-xs text-slate-200 mb-1">Coach</label>
+                      <label className="block text-xs text-gray-800 mb-1">Coach</label>
                       <select className="input w-full" value={groupForm.coach_id}
                         onChange={e => setGroupForm(f => ({ ...f, coach_id: e.target.value }))}>
                         <option value="">Select coach…</option>
@@ -2849,7 +3035,7 @@ const [sessionForm,      setSessionForm]      = useState({
                     </div>
 
                     <div>
-                      <label className="block text-xs text-slate-200 mb-1">
+                      <label className="block text-xs text-gray-800 mb-1">
                         Students ({selectedStudents.length}/5 selected)
                       </label>
                       {/* Selected chips */}
@@ -2858,7 +3044,7 @@ const [sessionForm,      setSessionForm]      = useState({
                           {selectedStudents.map(m => {
                             const bal = groupStudentBalances[m.id]
                             return (
-                              <span key={m.id} className="flex items-center gap-1 bg-brand-500/20 border border-brand-500/40 text-brand-300 text-xs px-2.5 py-1 rounded-full">
+                              <span key={m.id} className="flex items-center gap-1 bg-brand-500/20 border border-brand-500/40 text-gray-800 text-xs px-2.5 py-1 rounded-full">
                                 {m.name}
                                 <button
                                   type="button"
@@ -2881,7 +3067,7 @@ const [sessionForm,      setSessionForm]      = useState({
                         />
                       )}
                       {filteredStudents.length > 0 && (
-                        <div className="mt-1 border border-court-light rounded-lg overflow-y-auto max-h-[160px] bg-court">
+                        <div className="mt-1 border border-gray-200 rounded-lg overflow-y-auto max-h-[160px] bg-court">
                           {filteredStudents.map(m => (
                             <button key={m.id} type="button"
                               onClick={async () => {
@@ -2892,9 +3078,9 @@ const [sessionForm,      setSessionForm]      = useState({
                                   setGroupStudentBalances(b => ({ ...b, [m.id]: data.groupBalance }))
                                 } catch {}
                               }}
-                              className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-court-light/40 transition-colors"
+                              className="w-full text-left px-3 py-2 text-sm text-gray-800 hover:bg-gray-100 transition-colors"
                             >
-                              {m.name}<span className="text-slate-400 text-xs ml-2">{m.email}</span>
+                              {m.name}<span className="text-gray-800 text-xs ml-2">{m.email}</span>
                             </button>
                           ))}
                         </div>
@@ -2902,19 +3088,19 @@ const [sessionForm,      setSessionForm]      = useState({
                     </div>
 
                     <div>
-                      <label className="block text-xs text-slate-200 mb-1">Starting week</label>
+                      <label className="block text-xs text-gray-800 mb-1">Starting week</label>
                       <input type="date" className="input w-full" value={groupForm.date}
                         onChange={e => setGroupForm(f => ({ ...f, date: e.target.value, start_time: '', end_time: '' }))} />
                     </div>
 
                     <div>
-                      <label className="block text-xs text-slate-200 mb-1">Days of week</label>
+                      <label className="block text-xs text-gray-800 mb-1">Days of week</label>
                       <div className="flex gap-2 flex-wrap">
                         {[{dow:1,label:'Mon'},{dow:2,label:'Tue'},{dow:3,label:'Wed'},{dow:6,label:'Sat'}].map(({dow,label}) => {
                           const active = groupForm.selectedDays.includes(dow)
                           return (
                             <button key={dow} type="button"
-                              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${active ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+                              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${active ? 'bg-emerald-600 text-gray-900' : 'bg-slate-700 text-gray-800 hover:bg-slate-600'}`}
                               onClick={() => setGroupForm(f => ({
                                 ...f,
                                 selectedDays: active
@@ -2926,12 +3112,12 @@ const [sessionForm,      setSessionForm]      = useState({
                           )
                         })}
                       </div>
-                      <p className="mt-1 text-xs text-slate-500">Leave all unselected to use the starting-week date as-is.</p>
+                      <p className="mt-1 text-xs text-gray-800">Leave all unselected to use the starting-week date as-is.</p>
                     </div>
 
                     {effectiveDows.length > 1 ? (
                       <div className="space-y-2">
-                        <label className="block text-xs text-slate-200">Times per day</label>
+                        <label className="block text-xs text-gray-800">Times per day</label>
                         {effectiveDows.map(dow => {
                           const dayLabel = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dow]
                           const slots = dow === 6 ? SATURDAY_SLOTS : WEEKDAY_SLOTS
@@ -2939,7 +3125,7 @@ const [sessionForm,      setSessionForm]      = useState({
                           const eSlots = [...slots, slotClosing(slots)].filter(s => !dt.start_time || toMins(s) > toMins(dt.start_time))
                           return (
                             <div key={dow} className="flex gap-2 items-center">
-                              <span className="text-xs text-slate-400 w-8">{dayLabel}</span>
+                              <span className="text-xs text-gray-800 w-8">{dayLabel}</span>
                               <select className="input text-xs py-1 flex-1" value={dt.start_time}
                                 onChange={e => {
                                   const s = e.target.value
@@ -2962,7 +3148,7 @@ const [sessionForm,      setSessionForm]      = useState({
                     ) : (
                     <div className="flex gap-3">
                       <div className="flex-1">
-                        <label className="block text-xs text-slate-200 mb-1">Start Time</label>
+                        <label className="block text-xs text-gray-800 mb-1">Start Time</label>
                         <select className="input w-full" value={groupForm.start_time}
                           onChange={e => {
                             const s = e.target.value
@@ -2974,7 +3160,7 @@ const [sessionForm,      setSessionForm]      = useState({
                         </select>
                       </div>
                       <div className="flex-1">
-                        <label className="block text-xs text-slate-200 mb-1">End Time</label>
+                        <label className="block text-xs text-gray-800 mb-1">End Time</label>
                         <select className="input w-full" value={groupForm.end_time}
                           onChange={e => {
                             setGroupForm(f => ({ ...f, end_time: e.target.value }))
@@ -2988,14 +3174,14 @@ const [sessionForm,      setSessionForm]      = useState({
                     )}
 
                     <div>
-                      <label className="block text-xs text-slate-200 mb-1">Recurring — N weeks (1 = one-off)</label>
+                      <label className="block text-xs text-gray-800 mb-1">Recurring — N weeks (1 = one-off)</label>
                       <input type="number" min={1} max={52} className="input w-32"
                         value={groupForm.weeks}
                         onChange={e => setGroupForm(f => ({ ...f, weeks: Number(e.target.value) }))} />
                     </div>
 
                     <div>
-                      <label className="block text-xs text-slate-200 mb-1">Notes (optional)</label>
+                      <label className="block text-xs text-gray-800 mb-1">Notes (optional)</label>
                       <textarea className="input w-full h-20 resize-none" placeholder="e.g. Beginner footwork drills"
                         value={groupForm.notes}
                         onChange={e => setGroupForm(f => ({ ...f, notes: e.target.value }))} />
@@ -3013,8 +3199,8 @@ const [sessionForm,      setSessionForm]      = useState({
                         return sum + (toMins(t.end_time) - toMins(t.start_time)) / 60 * groupForm.weeks
                       }, 0)
                       return (
-                        <p className="text-xs text-slate-400">
-                          Will credit <span className="font-medium text-white">{total.toFixed(1)} hrs</span> to each student
+                        <p className="text-xs text-gray-800">
+                          Will credit <span className="font-medium text-gray-900">{total.toFixed(1)} hrs</span> to each student
                           {numDays > 1 ? ` (${numDays} days/week × ${groupForm.weeks} week${groupForm.weeks > 1 ? 's' : ''})` : ` (${groupForm.weeks} week${groupForm.weeks > 1 ? 's' : ''})`}.
                           Deducted each time they attend.
                         </p>
@@ -3028,108 +3214,13 @@ const [sessionForm,      setSessionForm]      = useState({
                 )
               })()}
 
-              {/* Group sessions table */}
-              {loading ? (
-                <p className="text-slate-300 text-sm">Loading group sessions…</p>
-              ) : groupSessions.length === 0 ? (
-                <p className="text-slate-300 text-sm">No group coaching sessions on this date.</p>
-              ) : (
-                <div className="card p-0 overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-court-light">
-                        {['Students / Hours', 'Coach', 'Time', 'Notes', 'Actions'].map(h => (
-                          <th key={h} className="text-left px-5 py-3 text-xs text-slate-300 uppercase tracking-wider">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {groupSessions.map(g => (
-                        <React.Fragment key={g.group_id}>
-                          <tr className="border-b border-court-light/50 last:border-0 hover:bg-court-light/30 transition-colors align-top">
-                            <td className="px-5 py-3">
-                              <div className="flex flex-col gap-1.5">
-                                {g.student_names.map((name, i) => {
-                                  const sid = g.student_ids?.[i]
-                                  const bal = sid !== undefined ? sessionBalances[sid]?.group : undefined
-                                  return (
-                                    <button
-                                      key={i}
-                                      onClick={() => sid !== undefined && handleOpenMemberModal(sid)}
-                                      className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full transition-opacity hover:opacity-70 self-start ${
-                                        bal !== undefined && bal < 0
-                                          ? 'bg-red-500/15 text-red-300'
-                                          : bal !== undefined && bal < 1
-                                            ? 'bg-amber-500/15 text-amber-300'
-                                            : 'bg-brand-500/15 text-brand-300'
-                                      }`}>
-                                      {name}
-                                      {bal !== undefined && (
-                                        <span className="opacity-70">{bal.toFixed(1)}h</span>
-                                      )}
-                                    </button>
-                                  )
-                                })}
-                              </div>
-                            </td>
-                            <td className="px-5 py-3 align-top">
-                              <button onClick={() => { const ci = coaches.find(c => c.id === g.coach_id); setCoachViewModal({ coach_id: g.coach_id, coach_name: g.coach_name, email: ci?.email, phone: ci?.phone }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}
-                                className="text-slate-300 hover:text-sky-400 transition-colors text-left">
-                                {g.coach_name}
-                              </button>
-                            </td>
-                            <td className="px-5 py-3 text-slate-300 text-xs font-mono whitespace-nowrap align-top">
-                              {fmtTime(g.start_time)} – {fmtTime(g.end_time)}
-                            </td>
-
-                            <td className="px-5 py-3 text-slate-400 text-xs max-w-[140px] truncate align-top">{g.notes ?? '—'}</td>
-                            <td className="px-5 py-3 align-top">
-                              <div className="flex flex-col gap-1.5">
-                                {g.student_names.map((name, i) => {
-                                  const sid       = g.student_ids?.[i]
-                                  const sessionId = g.session_ids?.[i]
-                                  const adminCI = g.admin_checked_ins?.[i] === true || (sessionId !== undefined && adminCheckedIn.has(sessionId))
-                                  return (
-                                    <button
-                                      key={i}
-                                      onClick={() => adminCI
-                                        ? handleAdminUndoCheckInCoaching(sessionId, sid)
-                                        : handleAdminCheckInCoaching(sessionId, sid)
-                                      }
-                                      className={`text-xs text-left transition-colors whitespace-nowrap w-[150px] truncate ${adminCI ? 'text-sky-400 hover:text-red-400' : 'text-slate-400 hover:text-emerald-300'}`}
-                                      title={adminCI ? 'Undo check-in' : 'Check in'}
-                                    >{adminCI ? '✓ ' : ''}{name}</button>
-                                  )
-                                })}
-                                <div className="flex items-center gap-2 mt-0.5">
-                                  <button
-                                    onClick={() => { setGroupEditModal(g); setGroupEditAddSearch(''); setGroupEditSessionDate(null); setGroupEditForm({ date: '', start_time: '', end_time: '' }); setGroupEditSelected(new Set()) }}
-                                    className="text-xs text-sky-400 hover:text-sky-300 font-medium">
-                                    Edit
-                                  </button>
-                                  <button onClick={() => handleCancelGroupSession(g.group_id)}
-                                    className="text-xs text-red-400 hover:text-red-300 font-medium">
-                                    Cancel
-                                  </button>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        </React.Fragment>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* ── Hours sub-tab ── */}
           {coachingSubTab === 'hours' && (
             <div className="space-y-6">
               {/* Student search */}
               <div className="card space-y-4">
-                <h3 className="text-sm font-semibold text-slate-200">Student Hours Balance</h3>
+                <h3 className="text-sm font-normal text-gray-800">Student Hours Balance</h3>
                 <div className="flex gap-2">
                   <input
                     className="input flex-1"
@@ -3158,14 +3249,14 @@ const [sessionForm,      setSessionForm]      = useState({
 
                 {/* Suggestions */}
                 {hoursStudentSearch && (
-                  <ul className="divide-y divide-court-light max-h-40 overflow-y-auto rounded-lg border border-court-light">
+                  <ul className="divide-y divide-court-light max-h-40 overflow-y-auto rounded-lg border border-gray-200">
                     {members
                       .filter(m => m.name?.toLowerCase().includes(hoursStudentSearch.toLowerCase()))
                       .slice(0, 8)
                       .map(m => (
                         <li key={m.id}>
                           <button
-                            className="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-court-light transition-colors"
+                            className="w-full text-left px-3 py-2 text-sm text-gray-800 hover:bg-gray-100 transition-colors"
                             onClick={async () => {
                               setHoursStudentSearch(m.name)
                               setHoursLoading(true)
@@ -3188,29 +3279,29 @@ const [sessionForm,      setSessionForm]      = useState({
               {hoursTarget && (
                 <div className="card space-y-4">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-white">{hoursTarget.name}</p>
+                    <p className="text-sm font-normal text-gray-900">{hoursTarget.name}</p>
                   </div>
                   {/* Split balance display */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-court rounded-lg p-3 text-center">
-                      <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">1-on-1</p>
-                      <p className={`text-2xl font-bold ${(hoursTarget.soloBalance ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      <p className="text-[10px] text-gray-800 uppercase tracking-wide mb-1">1-on-1</p>
+                      <p className={`text-2xl font-normal ${(hoursTarget.soloBalance ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                         {(hoursTarget.soloBalance ?? 0).toFixed(2)}
                       </p>
-                      <p className="text-xs text-slate-500 mt-0.5">hrs</p>
+                      <p className="text-xs text-gray-800 mt-0.5">hrs</p>
                     </div>
                     <div className="bg-court rounded-lg p-3 text-center">
-                      <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">Group</p>
-                      <p className={`text-2xl font-bold ${(hoursTarget.groupBalance ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
+                      <p className="text-[10px] text-gray-800 uppercase tracking-wide mb-1">Group</p>
+                      <p className={`text-2xl font-normal ${(hoursTarget.groupBalance ?? 0) >= 0 ? 'text-teal-600' : 'text-red-400'}`}>
                         {(hoursTarget.groupBalance ?? 0).toFixed(2)}
                       </p>
-                      <p className="text-xs text-slate-500 mt-0.5">hrs</p>
+                      <p className="text-xs text-gray-800 mt-0.5">hrs</p>
                     </div>
                   </div>
 
                   {/* Manual adjustment form */}
-                  <div className="border-t border-court-light pt-4 space-y-2">
-                    <p className="text-xs text-slate-400">Manual adjustment</p>
+                  <div className="border-t border-gray-200 pt-4 space-y-2">
+                    <p className="text-xs text-gray-800">Manual adjustment</p>
                     <div className="flex gap-2">
                       <select
                         className="input w-28 text-sm"
@@ -3257,11 +3348,11 @@ const [sessionForm,      setSessionForm]      = useState({
 
                   {/* Ledger */}
                   {hoursTarget.ledger?.length > 0 && (
-                    <div className="border-t border-court-light pt-4">
-                      <p className="text-xs text-slate-400 mb-2">Recent transactions</p>
+                    <div className="border-t border-gray-200 pt-4">
+                      <p className="text-xs text-gray-800 mb-2">Recent transactions</p>
                       <table className="w-full text-sm">
                         <thead>
-                          <tr className="text-xs text-slate-400 text-left">
+                          <tr className="text-xs text-gray-800 text-left">
                             <th className="py-1 pr-4">Date</th>
                             <th className="py-1 pr-3">Type</th>
                             <th className="py-1 pr-4">Hours</th>
@@ -3271,18 +3362,18 @@ const [sessionForm,      setSessionForm]      = useState({
                         <tbody className="divide-y divide-court-light">
                           {hoursTarget.ledger.map(entry => (
                             <tr key={entry.id}>
-                              <td className="py-1.5 pr-4 text-slate-400 whitespace-nowrap">
+                              <td className="py-1.5 pr-4 text-gray-800 whitespace-nowrap">
                                 {new Date(entry.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
                               </td>
                               <td className="py-1.5 pr-3">
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${entry.session_type === 'group' ? 'bg-teal-500/15 text-teal-400' : 'bg-emerald-500/15 text-emerald-400'}`}>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${entry.session_type === 'group' ? 'bg-teal-500/15 text-teal-600' : 'bg-emerald-100 text-emerald-700'}`}>
                                   {entry.session_type === 'group' ? 'Group' : '1-on-1'}
                                 </span>
                               </td>
                               <td className={`py-1.5 pr-4 font-mono font-medium ${parseFloat(entry.delta) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                                 {parseFloat(entry.delta) >= 0 ? '+' : ''}{parseFloat(entry.delta).toFixed(2)}
                               </td>
-                              <td className="py-1.5 text-slate-300">{entry.note || '—'}</td>
+                              <td className="py-1.5 text-gray-800">{entry.note || '—'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -3300,20 +3391,20 @@ const [sessionForm,      setSessionForm]      = useState({
       {/* ── Pay Report tab ───────────────────────────────────────────────── */}
       {activeTab === 'Pay Report' && (
         <div className="animate-fade-in space-y-6">
-          <p className="text-xs text-slate-300">
-            Sessions count only when <span className="text-white">an admin checks in</span> the student. Self check-ins by students or coaches do not count toward pay.
+          <p className="text-xs text-gray-800">
+            Sessions count only when <span className="text-gray-900">an admin checks in</span> the student. Self check-ins by students or coaches do not count toward pay.
           </p>
 
           {/* Date range picker */}
           <div className="card">
             <div className="flex items-end gap-4 flex-wrap">
               <div>
-                <label className="block text-xs text-slate-200 mb-1">From</label>
+                <label className="block text-xs text-gray-800 mb-1">From</label>
                 <input type="date" className="input" value={payFrom}
                   onChange={e => setPayFrom(e.target.value)} />
               </div>
               <div>
-                <label className="block text-xs text-slate-200 mb-1">To</label>
+                <label className="block text-xs text-gray-800 mb-1">To</label>
                 <input type="date" className="input" value={payTo}
                   onChange={e => setPayTo(e.target.value)} />
               </div>
@@ -3330,16 +3421,16 @@ const [sessionForm,      setSessionForm]      = useState({
           {/* Report results */}
           {payReport !== null && (
             payReport.length === 0 ? (
-              <p className="text-slate-300 text-sm">No confirmed coaching sessions in this period.</p>
+              <p className="text-gray-800 text-sm">No confirmed coaching sessions in this period.</p>
             ) : (
               <div className="space-y-6">
                 {payReport.map(coach => {
                   const weeks = groupByWeek(coach.sessions)
                   return (
                     <div key={coach.coach_id} className="card p-0 overflow-hidden">
-                      <div className="flex items-center justify-between px-5 py-3 border-b border-court-light bg-court-light/20">
+                      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 bg-gray-100/20">
                         <div>
-                          <p className="text-white">{coach.coach_name}</p>
+                          <p className="text-gray-900">{coach.coach_name}</p>
                           {!coach.has_account && (
                             <p className="text-[10px] text-yellow-500 mt-0.5">
                               No linked account — coach check-in unavailable; sessions will not count
@@ -3348,41 +3439,41 @@ const [sessionForm,      setSessionForm]      = useState({
                         </div>
                         <div className="text-right">
                           <p className="text-sm text-emerald-400">{coach.counted} counted</p>
-                          <p className="text-xs text-slate-500">{coach.total} total sessions</p>
+                          <p className="text-xs text-gray-800">{coach.total} total sessions</p>
                         </div>
                       </div>
                       {weeks.map(week => (
                         <div key={week.weekStart}>
-                          <div className="flex items-center justify-between px-5 py-2 bg-court-light/10 border-b border-court-light/40">
-                            <p className="text-xs text-slate-400">
+                          <div className="flex items-center justify-between px-5 py-2 bg-gray-100/10 border-b border-gray-200/40">
+                            <p className="text-xs text-gray-800">
                               Week of {new Date(week.weekStart + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
                             </p>
-                            <p className="text-xs text-slate-500">
+                            <p className="text-xs text-gray-800">
                               <span className="text-emerald-400">{week.counted}</span>{' '}/ {week.total} counted
                             </p>
                           </div>
                           <table className="w-full text-sm">
                             <tbody>
                               {week.sessions.map(s => (
-                                <tr key={s.session_id} className={`border-b border-court-light/30 last:border-0 ${s.counted ? '' : 'opacity-50'}`}>
-                                  <td className="px-5 py-2.5 text-slate-300 text-xs whitespace-nowrap">
+                                <tr key={s.session_id} className={`border-b border-gray-200/30 last:border-0 ${s.counted ? '' : 'opacity-50'}`}>
+                                  <td className="px-5 py-2.5 text-gray-800 text-xs whitespace-nowrap">
                                     {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
                                   </td>
-                                  <td className="px-5 py-2.5 text-white text-xs">
+                                  <td className="px-5 py-2.5 text-gray-900 text-xs">
                                     {s.student_name}
-                                    {s.is_group && <span className="ml-1.5 text-[10px] bg-teal-500/15 text-teal-400 px-1.5 py-0.5 rounded-full">Group</span>}
+                                    {s.is_group && <span className="ml-1.5 text-[10px] bg-teal-500/15 text-teal-600 px-1.5 py-0.5 rounded-full">Group</span>}
                                   </td>
-                                  <td className="px-5 py-2.5 text-slate-300 text-xs font-mono whitespace-nowrap">
+                                  <td className="px-5 py-2.5 text-gray-800 text-xs font-mono whitespace-nowrap">
                                     {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
                                   </td>
                                   <td className="px-3 py-2.5 text-xs whitespace-nowrap">
                                     {s.admin_checked_in
                                       ? <span className="text-sky-400">Admin ✓</span>
-                                      : <span className="text-slate-500">Not checked in</span>
+                                      : <span className="text-gray-800">Not checked in</span>
                                     }
                                   </td>
                                   <td className="px-3 py-2.5 text-xs">
-                                    {s.counted ? <span className="text-emerald-400">Counted</span> : <span className="text-slate-400">Not counted</span>}
+                                    {s.counted ? <span className="text-emerald-400">Counted</span> : <span className="text-gray-800">Not counted</span>}
                                   </td>
                                 </tr>
                               ))}
@@ -3407,10 +3498,10 @@ const [sessionForm,      setSessionForm]      = useState({
           <div>
             {showSocialForm && (
               <div className="card mb-6 space-y-4">
-                <p className="text-xs text-slate-300 uppercase tracking-widest">New Social Play Session</p>
+                <p className="text-xs text-gray-800 uppercase tracking-widest">New Social Play Session</p>
 
                 <div>
-                  <label className="block text-xs text-slate-200 mb-1">Title (optional — default: "Social Play")</label>
+                  <label className="block text-xs text-gray-800 mb-1">Title (optional — default: "Social Play")</label>
                   <input
                     type="text" className="input w-full" placeholder="e.g. Saturday Casual"
                     value={socialForm.title}
@@ -3419,7 +3510,7 @@ const [sessionForm,      setSessionForm]      = useState({
                 </div>
 
                 <div>
-                  <label className="block text-xs text-slate-200 mb-1">Description (optional)</label>
+                  <label className="block text-xs text-gray-800 mb-1">Description (optional)</label>
                   <textarea
                     className="input w-full h-20 resize-none" placeholder="Any notes for members…"
                     value={socialForm.description}
@@ -3428,7 +3519,7 @@ const [sessionForm,      setSessionForm]      = useState({
                 </div>
 
                 <div>
-                  <label className="block text-xs text-slate-200 mb-1">Number of Courts</label>
+                  <label className="block text-xs text-gray-800 mb-1">Number of Courts</label>
                   <select
                     className="input w-full"
                     value={socialForm.num_courts}
@@ -3441,7 +3532,7 @@ const [sessionForm,      setSessionForm]      = useState({
                 </div>
 
                 <div>
-                  <label className="block text-xs text-slate-200 mb-1">Date</label>
+                  <label className="block text-xs text-gray-800 mb-1">Date</label>
                   <input
                     type="date" className="input w-full" value={socialForm.date}
                     onChange={e => setSocialForm(f => ({ ...f, date: e.target.value }))}
@@ -3461,7 +3552,7 @@ const [sessionForm,      setSessionForm]      = useState({
                   return (
                     <div className="flex gap-3">
                       <div className="flex-1">
-                        <label className="block text-xs text-slate-200 mb-1">Start Time</label>
+                        <label className="block text-xs text-gray-800 mb-1">Start Time</label>
                         <select
                           className="input w-full"
                           value={socialForm.start_time}
@@ -3472,7 +3563,7 @@ const [sessionForm,      setSessionForm]      = useState({
                         </select>
                       </div>
                       <div className="flex-1">
-                        <label className="block text-xs text-slate-200 mb-1">End Time</label>
+                        <label className="block text-xs text-gray-800 mb-1">End Time</label>
                         <select
                           className="input w-full"
                           value={socialForm.end_time}
@@ -3489,7 +3580,7 @@ const [sessionForm,      setSessionForm]      = useState({
 
                 <div className="flex gap-4 items-end">
                   <div>
-                    <label className="block text-xs text-slate-200 mb-1">Max Players</label>
+                    <label className="block text-xs text-gray-800 mb-1">Max Players</label>
                     <input
                       type="number" min={2} max={50} className="input w-32"
                       value={socialForm.max_players}
@@ -3497,7 +3588,7 @@ const [sessionForm,      setSessionForm]      = useState({
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-200 mb-1">Repeat (weeks)</label>
+                    <label className="block text-xs text-gray-800 mb-1">Repeat (weeks)</label>
                     <input
                       type="number" min={1} max={52} className="input w-24"
                       value={socialForm.weeks}
@@ -3516,7 +3607,7 @@ const [sessionForm,      setSessionForm]      = useState({
           {/* Date filter */}
           {!loading && (
             <div className="flex items-center gap-3 mb-2">
-              <label className="text-sm text-slate-400">Filter by date</label>
+              <label className="text-sm text-gray-800">Filter by date</label>
               <input
                 type="date"
                 value={socialDateFilter}
@@ -3526,7 +3617,7 @@ const [sessionForm,      setSessionForm]      = useState({
               {socialDateFilter && (
                 <button
                   onClick={() => { setSocialDateFilter(''); setSocialPage(0) }}
-                  className="text-sm text-slate-400 hover:text-white transition-colors"
+                  className="text-sm text-gray-800 hover:text-gray-900 transition-colors"
                 >
                   Clear
                 </button>
@@ -3564,9 +3655,9 @@ const [sessionForm,      setSessionForm]      = useState({
             const totalPages = Math.ceil(filtered.length / 3)
             const pageSlice  = filtered.slice(socialPage * 3, socialPage * 3 + 3)
             return loading ? (
-              <p className="text-slate-300 text-sm">Loading sessions…</p>
+              <p className="text-gray-800 text-sm">Loading sessions…</p>
             ) : filtered.length === 0 ? (
-              <p className="text-slate-300 text-sm">{socialDateFilter ? 'No sessions on this date.' : 'No upcoming social play sessions.'}</p>
+              <p className="text-gray-800 text-sm">{socialDateFilter ? 'No sessions on this date.' : 'No upcoming social play sessions.'}</p>
             ) : (
               <div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -3596,7 +3687,7 @@ const [sessionForm,      setSessionForm]      = useState({
                               />
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="text-xs text-slate-400">Max players</span>
+                              <span className="text-xs text-gray-800">Max players</span>
                               <input
                                 type="number"
                                 min="1"
@@ -3606,14 +3697,14 @@ const [sessionForm,      setSessionForm]      = useState({
                               />
                             </div>
                             <div className="flex items-center gap-2">
-                              <button onClick={() => handleSaveDetails(s.id)} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">Save</button>
-                              <button onClick={() => setEditingDetails(prev => { const n = { ...prev }; delete n[s.id]; return n })} className="text-xs text-slate-400 hover:text-slate-200">✕</button>
+                              <button onClick={() => handleSaveDetails(s.id)} className="text-xs text-emerald-400 hover:text-emerald-600 font-medium">Save</button>
+                              <button onClick={() => setEditingDetails(prev => { const n = { ...prev }; delete n[s.id]; return n })} className="text-xs text-gray-800 hover:text-gray-800">✕</button>
                             </div>
                           </div>
                         ) : (
                           <>
                             <div className="flex items-center gap-2">
-                              <p className="text-white text-base">{s.title}</p>
+                              <p className="text-gray-900 text-base">{s.title}</p>
                               {s.recurrence_id && (
                                 <span className="text-[10px] uppercase tracking-widest text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded-full font-medium">
                                   Recurring
@@ -3621,7 +3712,7 @@ const [sessionForm,      setSessionForm]      = useState({
                               )}
                             </div>
                             <div className="flex items-center gap-2 mt-0.5">
-                              <p className="text-xs text-slate-300 font-medium">
+                              <p className="text-xs text-gray-800 font-medium">
                                 {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
                               </p>
                               <button
@@ -3632,7 +3723,7 @@ const [sessionForm,      setSessionForm]      = useState({
                               </button>
                             </div>
                             {s.description && (
-                              <p className="text-sm text-slate-300 mt-1">{s.description}</p>
+                              <p className="text-sm text-gray-800 mt-1">{s.description}</p>
                             )}
                           </>
                         )}
@@ -3657,19 +3748,19 @@ const [sessionForm,      setSessionForm]      = useState({
 
                     {/* Courts adjuster */}
                     <div className="flex items-center gap-3">
-                      <span className="text-xs text-slate-300 font-medium w-20">Courts</span>
+                      <span className="text-xs text-gray-800 font-medium w-20">Courts</span>
                       <button
                         onClick={() => handleCourtChange(s.id, -1)}
                         disabled={s.num_courts <= 1}
-                        className="w-7 h-7 rounded border border-court-light text-slate-200 hover:border-brand-500/60 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
+                        className="w-7 h-7 rounded border border-gray-200 text-gray-800 hover:border-brand-500/60 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
                       >
                         −
                       </button>
-                      <span className="text-white w-4 text-center">{s.num_courts}</span>
+                      <span className="text-gray-900 w-4 text-center">{s.num_courts}</span>
                       <button
                         onClick={() => handleCourtChange(s.id, +1)}
                         disabled={s.num_courts >= 6}
-                        className="w-7 h-7 rounded border border-court-light text-slate-200 hover:border-brand-500/60 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
+                        className="w-7 h-7 rounded border border-gray-200 text-gray-800 hover:border-brand-500/60 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
                       >
                         +
                       </button>
@@ -3677,7 +3768,7 @@ const [sessionForm,      setSessionForm]      = useState({
 
                     {/* Time adjuster */}
                     <div className="flex items-center gap-3">
-                      <span className="text-xs text-slate-300 font-medium w-20">Time</span>
+                      <span className="text-xs text-gray-800 font-medium w-20">Time</span>
                       {timeEdit ? (
                         <>
                           <input
@@ -3686,7 +3777,7 @@ const [sessionForm,      setSessionForm]      = useState({
                             value={timeEdit.start_time}
                             onChange={e => setEditingTimes(prev => ({ ...prev, [s.id]: { ...prev[s.id], start_time: e.target.value } }))}
                           />
-                          <span className="text-slate-300 text-xs">–</span>
+                          <span className="text-gray-800 text-xs">–</span>
                           <input
                             type="time"
                             className="input py-1 px-2 text-xs w-28"
@@ -3695,20 +3786,20 @@ const [sessionForm,      setSessionForm]      = useState({
                           />
                           <button
                             onClick={() => handleSaveTime(s.id)}
-                            className="text-xs text-emerald-400 hover:text-emerald-300 font-medium"
+                            className="text-xs text-emerald-400 hover:text-emerald-600 font-medium"
                           >
                             Save
                           </button>
                           <button
                             onClick={() => setEditingTimes(prev => { const n = { ...prev }; delete n[s.id]; return n })}
-                            className="text-xs text-slate-400 hover:text-slate-200"
+                            className="text-xs text-gray-800 hover:text-gray-800"
                           >
                             ✕
                           </button>
                         </>
                       ) : (
                         <>
-                          <span className="text-white text-sm font-mono font-medium">
+                          <span className="text-gray-900 text-sm font-mono font-medium">
                             {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
                           </span>
                           <button
@@ -3726,13 +3817,13 @@ const [sessionForm,      setSessionForm]      = useState({
 
                     {/* Participant count + names */}
                     <div>
-                      <div className="flex justify-between text-xs text-slate-300 mb-1.5 font-medium">
+                      <div className="flex justify-between text-xs text-gray-800 mb-1.5 font-medium">
                         <span>
                           {s.online_count ?? s.participant_count} / {s.max_players} online
-                          {s.walkin_count > 0 && <span className="text-slate-400"> · {s.walkin_count} walk-in</span>}
+                          {s.walkin_count > 0 && <span className="text-gray-800"> · {s.walkin_count} walk-in</span>}
                         </span>
                       </div>
-                      <div className="h-1.5 bg-court-dark rounded-full overflow-hidden mb-2">
+                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mb-2">
                         <div
                           className={`h-full rounded-full ${(s.online_count ?? s.participant_count) / s.max_players >= 0.9 ? 'bg-red-500' : 'bg-brand-500'}`}
                           style={{ width: `${Math.min(Math.round((s.online_count ?? s.participant_count) / s.max_players * 100), 100)}%` }}
@@ -3758,20 +3849,20 @@ const [sessionForm,      setSessionForm]      = useState({
                               {picker.userId && (
                                 <button
                                   onClick={() => handleSocialAddMember(s.id, picker.userId)}
-                                  className="text-xs text-emerald-400 hover:text-emerald-300 font-medium whitespace-nowrap"
+                                  className="text-xs text-emerald-400 hover:text-emerald-600 font-medium whitespace-nowrap"
                                 >Add</button>
                               )}
                               <button
                                 onClick={() => handleSocialAddWalkin(s.id)}
-                                className="text-xs text-slate-400 hover:text-white font-medium whitespace-nowrap border border-slate-600 hover:border-slate-400 rounded px-2 py-1 transition-colors"
+                                className="text-xs text-gray-800 hover:text-gray-900 font-medium whitespace-nowrap border border-slate-600 hover:border-slate-400 rounded px-2 py-1 transition-colors"
                               >+ Walk-in</button>
                             </div>
                             {suggestions.length > 0 && (
-                              <div className="absolute z-10 left-0 right-0 mt-1 bg-court-dark border border-court-light rounded-lg shadow-lg overflow-hidden">
+                              <div className="absolute z-10 left-0 right-0 mt-1 bg-gray-100 border border-gray-200 rounded-lg shadow-lg overflow-hidden">
                                 {suggestions.map(m => (
                                   <button
                                     key={m.id}
-                                    className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-court-light transition-colors"
+                                    className="w-full text-left px-3 py-2 text-xs text-gray-800 hover:bg-gray-100 transition-colors"
                                     onClick={() => setAddingMember(prev => ({ ...prev, [s.id]: { query: m.name, userId: m.id } }))}
                                   >{m.name}</button>
                                 ))}
@@ -3784,11 +3875,11 @@ const [sessionForm,      setSessionForm]      = useState({
                       {s.participants.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {s.participants.map(p => (
-                            <span key={p.id} className={`text-xs rounded-full px-2.5 py-0.5 flex items-center gap-1 ${p.is_walkin ? 'bg-slate-700 text-slate-400' : 'bg-court-light text-slate-300'}`}>
+                            <span key={p.id} className={`text-xs rounded-full px-2.5 py-0.5 flex items-center gap-1 ${p.is_walkin ? 'bg-slate-700 text-gray-800' : 'bg-gray-100 text-gray-800'}`}>
                               {p.name}
                               <button
                                 onClick={() => handleSocialRemoveMember(s.id, p.id)}
-                                className="text-slate-500 hover:text-red-400 transition-colors leading-none"
+                                className="text-gray-800 hover:text-red-400 transition-colors leading-none"
                               >×</button>
                             </span>
                           ))}
@@ -3806,17 +3897,17 @@ const [sessionForm,      setSessionForm]      = useState({
                     <button
                       onClick={() => setSocialPage(p => Math.max(0, p - 1))}
                       disabled={socialPage === 0}
-                      className="w-9 h-9 flex items-center justify-center rounded-lg border border-court-light text-slate-300 hover:border-brand-500/60 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-800 hover:border-brand-500/60 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
                       </svg>
                     </button>
-                    <span className="text-sm text-slate-400">{socialPage + 1} / {totalPages}</span>
+                    <span className="text-sm text-gray-800">{socialPage + 1} / {totalPages}</span>
                     <button
                       onClick={() => setSocialPage(p => Math.min(totalPages - 1, p + 1))}
                       disabled={socialPage === totalPages - 1}
-                      className="w-9 h-9 flex items-center justify-center rounded-lg border border-court-light text-slate-300 hover:border-brand-500/60 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-800 hover:border-brand-500/60 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
@@ -3835,7 +3926,7 @@ const [sessionForm,      setSessionForm]      = useState({
       {activeTab === 'Analytics' && (
         <div className="animate-fade-in space-y-8">
           {analyticsLoading ? (
-            <p className="text-slate-400 text-sm">Loading analytics…</p>
+            <p className="text-gray-800 text-sm">Loading analytics…</p>
           ) : !analyticsData ? null : (() => {
             const { memberGrowth, slotPopularity, attendance } = analyticsData
 
@@ -3870,17 +3961,17 @@ const [sessionForm,      setSessionForm]      = useState({
                     { label: 'Busiest Slot', value: popularSlot ? `${DAY_LABELS[popularSlot.dow]} ${fmtTime(popularSlot.slot + ':00')}` : '—', color: 'text-yellow-400' },
                   ].map(c => (
                     <div key={c.label} className="card text-center py-5">
-                      <p className={`text-2xl font-bold ${c.color}`}>{c.value}</p>
-                      <p className="text-xs text-slate-400 mt-1">{c.label}</p>
+                      <p className={`text-2xl font-normal ${c.color}`}>{c.value}</p>
+                      <p className="text-xs text-gray-800 mt-1">{c.label}</p>
                     </div>
                   ))}
                 </div>
 
                 {/* ── Member growth chart ────────────────────────────────── */}
                 <div className="card">
-                  <p className="text-sm text-white mb-4">New Members — Last 12 Weeks</p>
+                  <p className="text-sm text-gray-900 mb-4">New Members — Last 12 Weeks</p>
                   {memberGrowth.length === 0 ? (
-                    <p className="text-slate-400 text-xs">No data yet.</p>
+                    <p className="text-gray-800 text-xs">No data yet.</p>
                   ) : (
                     <ResponsiveContainer width="100%" height={200}>
                       <LineChart data={memberGrowth} margin={{ top: 4, right: 8, bottom: 4, left: -20 }}>
@@ -3900,36 +3991,36 @@ const [sessionForm,      setSessionForm]      = useState({
 
                 {/* ── Slot popularity heatmap ────────────────────────────── */}
                 <div className="card overflow-x-auto">
-                  <p className="text-sm text-white mb-4">Activity by Day &amp; Time Slot</p>
+                  <p className="text-sm text-gray-900 mb-4">Activity by Day &amp; Time Slot</p>
                   {slotPopularity.length === 0 ? (
-                    <p className="text-slate-400 text-xs">No activity data yet.</p>
+                    <p className="text-gray-800 text-xs">No activity data yet.</p>
                   ) : (
                     <table className="text-xs w-full min-w-[400px]">
                       <thead>
                         <tr>
-                          <th className="text-left text-slate-400 pr-3 py-1 font-normal w-12">Time</th>
+                          <th className="text-left text-gray-800 pr-3 py-1 font-normal w-12">Time</th>
                           {DAYS_ORDER.map(d => (
-                            <th key={d} className="text-slate-400 font-normal py-1 text-center w-12">{DAY_LABELS[d]}</th>
+                            <th key={d} className="text-gray-800 font-normal py-1 text-center w-12">{DAY_LABELS[d]}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {allSlots.map(slot => (
                           <tr key={slot}>
-                            <td className="text-slate-400 pr-3 py-0.5 font-mono">{fmtTime(slot + ':00')}</td>
+                            <td className="text-gray-800 pr-3 py-0.5 font-mono">{fmtTime(slot + ':00')}</td>
                             {DAYS_ORDER.map(d => {
                               const cell = slotPopularity.find(r => r.dow === d && r.slot === slot)
                               const count = cell?.count ?? 0
                               const intensity = count / heatmapMax
                               const bg = count === 0
-                                ? 'bg-court-dark'
+                                ? 'bg-gray-100'
                                 : intensity > 0.66 ? 'bg-brand-500'
                                 : intensity > 0.33 ? 'bg-brand-500/50'
                                 : 'bg-brand-500/20'
                               return (
                                 <td key={d} className="py-0.5 text-center">
                                   <div
-                                    className={`mx-auto w-9 h-7 rounded flex items-center justify-center text-[10px] font-medium ${bg} ${count > 0 ? 'text-white' : 'text-slate-600'}`}
+                                    className={`mx-auto w-9 h-7 rounded flex items-center justify-center text-[10px] font-medium ${bg} ${count > 0 ? 'text-gray-900' : 'text-gray-800'}`}
                                     title={count > 0 ? `${DAY_LABELS[d]} ${slot} — ${count} activities` : ''}
                                   >
                                     {count > 0 ? count : ''}
@@ -3947,7 +4038,7 @@ const [sessionForm,      setSessionForm]      = useState({
                 {/* ── Member attendance ──────────────────────────────────── */}
                 <div className="card">
                   <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
-                    <p className="text-sm text-white">Member Attendance</p>
+                    <p className="text-sm text-gray-900">Member Attendance</p>
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
@@ -3960,7 +4051,7 @@ const [sessionForm,      setSessionForm]      = useState({
                         <button
                           key={f}
                           onClick={() => setAttendanceFilter(f)}
-                          className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${attendanceFilter === f ? 'border-brand-500 text-brand-400 bg-brand-500/10' : 'border-court-light text-slate-400 hover:text-white'}`}
+                          className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${attendanceFilter === f ? 'border-brand-500 text-brand-400 bg-brand-500/10' : 'border-gray-200 text-gray-800 hover:text-gray-900'}`}
                         >
                           {f.charAt(0).toUpperCase() + f.slice(1)}
                         </button>
@@ -3970,36 +4061,36 @@ const [sessionForm,      setSessionForm]      = useState({
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="border-b border-court-light">
+                        <tr className="border-b border-gray-200">
                           {['Member', 'Joined', 'Activities', 'Last Active', 'Status'].map(h => (
-                            <th key={h} className="text-left px-3 py-2 text-xs text-slate-400 uppercase tracking-wider">{h}</th>
+                            <th key={h} className="text-left px-3 py-2 text-xs text-gray-800 uppercase tracking-wider">{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {filteredAttendance.length === 0 ? (
-                          <tr><td colSpan={5} className="text-center text-slate-400 text-xs py-6">No members found.</td></tr>
+                          <tr><td colSpan={5} className="text-center text-gray-800 text-xs py-6">No members found.</td></tr>
                         ) : filteredAttendance.map(m => (
-                          <tr key={m.id} className="border-b border-court-light/30 last:border-0 hover:bg-court-light/10 transition-colors">
+                          <tr key={m.id} className="border-b border-gray-200/30 last:border-0 hover:bg-gray-100/10 transition-colors">
                             <td className="px-3 py-3">
-                              <p className="text-white text-xs font-medium">{m.name}</p>
-                              <p className="text-slate-500 text-[10px]">{m.email}</p>
+                              <p className="text-gray-900 text-xs font-medium">{m.name}</p>
+                              <p className="text-gray-800 text-[10px]">{m.email}</p>
                             </td>
-                            <td className="px-3 py-3 text-slate-400 text-xs whitespace-nowrap">
+                            <td className="px-3 py-3 text-gray-800 text-xs whitespace-nowrap">
                               {new Date(m.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}
                             </td>
                             <td className="px-3 py-3">
-                              <span className={`text-sm font-bold ${m.total_activities > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              <span className={`text-sm font-normal ${m.total_activities > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                                 {m.total_activities}
                               </span>
                             </td>
-                            <td className="px-3 py-3 text-slate-400 text-xs whitespace-nowrap">
+                            <td className="px-3 py-3 text-gray-800 text-xs whitespace-nowrap">
                               {m.last_active
                                 ? new Date(m.last_active + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
                                 : '—'}
                             </td>
                             <td className="px-3 py-3">
-                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${m.total_activities > 0 ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}>
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${m.total_activities > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-500/15 text-red-400'}`}>
                                 {m.total_activities > 0 ? 'Active' : 'Never Active'}
                               </span>
                             </td>
@@ -4015,6 +4106,11 @@ const [sessionForm,      setSessionForm]      = useState({
         </div>
       )}
 
+      {/* ── Homepage Cards ───────────────────────────────────────────────── */}
+      {activeTab === 'Homepage' && (
+        <HomepageCardsTab />
+      )}
+
       {/* ── Calendar Reschedule Modal ─────────────────────────────────────── */}
       {calendarReschedule && (() => {
         const { ev, newDate, newStart, newEnd } = calendarReschedule
@@ -4024,21 +4120,21 @@ const [sessionForm,      setSessionForm]      = useState({
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
                onClick={e => { if (e.target === e.currentTarget) setCalendarReschedule(null) }}>
-            <div className="bg-court-mid border border-court-light rounded-xl w-full max-w-sm p-5 space-y-4">
+            <div className="bg-gray-50 border border-gray-200 rounded-xl w-full max-w-sm p-5 space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-white text-sm font-normal">Reschedule — {label}</h2>
-                <button onClick={() => setCalendarReschedule(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+                <h2 className="text-gray-900 text-sm font-normal">Reschedule — {label}</h2>
+                <button onClick={() => setCalendarReschedule(null)} className="text-gray-800 hover:text-gray-900 text-xl leading-none">✕</button>
               </div>
               <div className="space-y-3">
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Date</label>
+                  <label className="block text-xs text-gray-800 mb-1">Date</label>
                   <input type="date" className="input w-full"
                     value={newDate}
                     onChange={e => setCalendarReschedule(prev => ({ ...prev, newDate: e.target.value }))} />
                 </div>
                 <div className="flex gap-3">
                   <div className="flex-1">
-                    <label className="block text-xs text-slate-400 mb-1">Start</label>
+                    <label className="block text-xs text-gray-800 mb-1">Start</label>
                     <select className="input w-full"
                       value={newStart}
                       onChange={e => { const ns = e.target.value; const pm = toMins(ns)+60; const auto = `${String(Math.floor(pm/60)).padStart(2,'0')}:${String(pm%60).padStart(2,'0')}`; const slots = calendarReschedule._slots ?? []; const ends = slots.filter(t => toMins(t) > toMins(ns)); const ne = ends.includes(auto) ? auto : (ends[0] ?? ns); setCalendarReschedule(prev => ({ ...prev, newStart: ns, newEnd: ne })) }}>
@@ -4046,7 +4142,7 @@ const [sessionForm,      setSessionForm]      = useState({
                     </select>
                   </div>
                   <div className="flex-1">
-                    <label className="block text-xs text-slate-400 mb-1">End</label>
+                    <label className="block text-xs text-gray-800 mb-1">End</label>
                     <select className="input w-full"
                       value={newEnd}
                       onChange={e => setCalendarReschedule(prev => ({ ...prev, newEnd: e.target.value }))}>
@@ -4073,38 +4169,38 @@ const [sessionForm,      setSessionForm]      = useState({
         return (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
                onClick={e => { if (e.target === e.currentTarget) { setMemberModal(null); setMemberModalEditId(null); setMemberModalSelected(new Set()) } }}>
-            <div className="bg-court-mid border border-court-light rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="bg-gray-50 border border-gray-200 rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
               {/* Header */}
-              <div className="flex items-start justify-between px-6 py-4 border-b border-court-light shrink-0">
+              <div className="flex items-start justify-between px-6 py-4 border-b border-gray-200 shrink-0">
                 <div>
-                  <h2 className="text-white font-medium text-lg">{member.name}</h2>
-                  <p className="text-slate-400 text-sm mt-0.5">{member.email}{member.phone ? ` · ${member.phone}` : ''}</p>
+                  <h2 className="text-gray-900 font-medium text-lg">{member.name}</h2>
+                  <p className="text-gray-800 text-sm mt-0.5">{member.email}{member.phone ? ` · ${member.phone}` : ''}</p>
                   <div className="flex gap-2 mt-2">
                     <span className={`badge border text-xs ${
-                      member.role === 'admin' ? 'bg-brand-500/10 text-brand-400 border-brand-500/30'
-                      : member.role === 'coach' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                      : 'bg-court-light text-slate-400 border-court-light'}`}>
+                      member.role === 'admin' ? 'bg-gray-100 text-gray-800 border-gray-400'
+                      : member.role === 'coach' ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                      : 'bg-gray-100 text-gray-800 border-gray-200'}`}>
                       {member.role}
                     </span>
                     {soloBalance !== undefined && soloBalance !== 0 && (
-                      <span className={`badge border text-xs ${soloBalance > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-red-500/10 text-red-400 border-red-500/30'}`}>
+                      <span className={`badge border text-xs ${soloBalance > 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-red-500/10 text-red-400 border-red-500/30'}`}>
                         1-on-1: {soloBalance.toFixed(1)} hrs
                       </span>
                     )}
                     {groupBalance !== undefined && groupBalance !== 0 && (
-                      <span className={`badge border text-xs ${groupBalance > 0 ? 'bg-teal-500/10 text-teal-400 border-teal-500/30' : 'bg-red-500/10 text-red-400 border-red-500/30'}`}>
+                      <span className={`badge border text-xs ${groupBalance > 0 ? 'bg-teal-500/10 text-teal-600 border-teal-500/30' : 'bg-red-500/10 text-red-400 border-red-500/30'}`}>
                         Group: {groupBalance.toFixed(1)} hrs
                       </span>
                     )}
                   </div>
                 </div>
-                <button onClick={() => { setMemberModal(null); setMemberModalEditId(null); setMemberModalSelected(new Set()) }} className="text-slate-400 hover:text-white text-xl leading-none mt-1">✕</button>
+                <button onClick={() => { setMemberModal(null); setMemberModalEditId(null); setMemberModalSelected(new Set()) }} className="text-gray-800 hover:text-gray-900 text-xl leading-none mt-1">✕</button>
               </div>
 
               {/* Scrollable body */}
               <div className="overflow-y-auto flex-1 px-6 py-4 space-y-6">
                 {memberModalLoading ? (
-                  <p className="text-slate-400 text-sm">Loading activities…</p>
+                  <p className="text-gray-800 text-sm">Loading activities…</p>
                 ) : memberModal.error ? (
                   <p className="text-red-400 text-sm">{memberModal.error}</p>
                 ) : (() => {
@@ -4146,18 +4242,18 @@ const [sessionForm,      setSessionForm]      = useState({
                   return (
                     <>
                       {/* Tab bar */}
-                      <div className="flex gap-1 border-b border-court-light -mx-6 px-6 mb-4">
+                      <div className="flex gap-1 border-b border-gray-200 -mx-6 px-6 mb-4">
                         {[['upcoming', 'Upcoming', upcomingItems.length], ['past', 'Past', pastItems.length]].map(([id, label, count]) => (
                           <button key={id} onClick={() => { setMemberModalTab(id); setMemberModalEditId(null); setMemberModalSelected(new Set()) }}
                             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                              memberModalTab === id ? 'border-brand-500 text-brand-400' : 'border-transparent text-slate-500 hover:text-slate-300'
+                              memberModalTab === id ? 'border-brand-500 text-brand-400' : 'border-transparent text-gray-800 hover:text-gray-800'
                             }`}>
                             {label}
                             {count > 0 && <span className="ml-1.5 text-xs opacity-60">{count}</span>}
                           </button>
                         ))}
                         {memberModalTab === 'upcoming' && upcomingCoaching.length > 1 && memberModalSelected.size === 0 && (
-                          <button className="ml-auto text-xs text-slate-400 hover:text-white pb-2"
+                          <button className="ml-auto text-xs text-gray-800 hover:text-gray-900 pb-2"
                             onClick={() => setMemberModalSelected(allUpcomingSelected ? new Set() : new Set(upcomingCoaching.map(s => s.id)))}>
                             {allUpcomingSelected ? 'Deselect all' : 'Select all coaching'}
                           </button>
@@ -4165,7 +4261,7 @@ const [sessionForm,      setSessionForm]      = useState({
                       </div>
 
                       {items.length === 0 ? (
-                        <p className="text-slate-500 text-sm">No sessions.</p>
+                        <p className="text-gray-800 text-sm">No sessions.</p>
                       ) : (
                         <div className="space-y-1.5">
                           {(() => {
@@ -4179,8 +4275,8 @@ const [sessionForm,      setSessionForm]      = useState({
                                     <div key={item._key} className="flex items-center justify-between rounded-lg px-4 py-2.5 bg-court">
                                       <div className="flex items-center gap-2 min-w-0 flex-wrap">
                                         <span className="text-[10px] bg-brand-500/15 text-brand-400 px-1.5 py-0.5 rounded shrink-0">Booking</span>
-                                        <span className="text-sm font-medium text-white">{fmtDate(item.date)}</span>
-                                        <span className="text-slate-400 text-sm">{fmtTime(item.start_time)}–{fmtTime(item.end_time)}</span>
+                                        <span className="text-sm font-medium text-gray-900">{fmtDate(item.date)}</span>
+                                        <span className="text-gray-800 text-sm">{fmtTime(item.start_time)}–{fmtTime(item.end_time)}</span>
                                       </div>
                                       {memberModalTab === 'upcoming' && (
                                         <button className="text-xs text-red-400 hover:text-red-300 ml-4 shrink-0"
@@ -4198,17 +4294,17 @@ const [sessionForm,      setSessionForm]      = useState({
                                     <div key={item._key} className="rounded-lg bg-court px-4 py-2.5 space-y-2">
                                       <div className="flex items-center gap-2">
                                         <span className="text-[10px] bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded shrink-0">Teaching</span>
-                                        <span className="text-sm font-medium text-white">{fmtDate(item.date)}</span>
-                                        <span className="text-slate-400 text-sm">{fmtTime(item.start_time)}–{fmtTime(item.end_time)}</span>
-                                        {item.notes && <span className="text-slate-500 text-xs">· {item.notes}</span>}
+                                        <span className="text-sm font-medium text-gray-900">{fmtDate(item.date)}</span>
+                                        <span className="text-gray-800 text-sm">{fmtTime(item.start_time)}–{fmtTime(item.end_time)}</span>
+                                        {item.notes && <span className="text-gray-800 text-xs">· {item.notes}</span>}
                                       </div>
                                       <div className="flex flex-wrap gap-2 pl-1">
                                         {item.students.map(st => (
-                                          <div key={st.id} className="flex items-center gap-1.5 bg-court-light/40 rounded px-2.5 py-1">
-                                            <span className="text-xs text-slate-200">{st.name}</span>
+                                          <div key={st.id} className="flex items-center gap-1.5 bg-gray-100/40 rounded px-2.5 py-1">
+                                            <span className="text-xs text-gray-800">{st.name}</span>
                                             {st.checked_in
                                               ? <span className="text-[10px] text-emerald-400 font-medium">✓</span>
-                                              : <span className="text-[10px] text-slate-500">—</span>}
+                                              : <span className="text-[10px] text-gray-800">—</span>}
                                           </div>
                                         ))}
                                       </div>
@@ -4218,8 +4314,8 @@ const [sessionForm,      setSessionForm]      = useState({
                                     <div key={item._key} className="flex items-center justify-between rounded-lg px-4 py-2.5 bg-court">
                                       <div className="flex items-center gap-2 min-w-0 flex-wrap">
                                         <span className="text-[10px] bg-violet-500/15 text-violet-400 px-1.5 py-0.5 rounded shrink-0">Social</span>
-                                        <span className="text-sm font-medium text-white">{fmtDate(item.date)}</span>
-                                        <span className="text-slate-400 text-sm">{fmtTime(item.start_time)}–{fmtTime(item.end_time)}</span>
+                                        <span className="text-sm font-medium text-gray-900">{fmtDate(item.date)}</span>
+                                        <span className="text-gray-800 text-sm">{fmtTime(item.start_time)}–{fmtTime(item.end_time)}</span>
                                       </div>
                                       {memberModalTab === 'upcoming' && (
                                         <button className="text-xs text-red-400 hover:text-red-300 ml-4 shrink-0"
@@ -4236,21 +4332,21 @@ const [sessionForm,      setSessionForm]      = useState({
                                   return null
                                 })}
                                 {oneOnOneItems.length > 0 && (
-                                  <div className="rounded-lg border border-court-light/50 overflow-hidden">
+                                  <div className="rounded-lg border border-gray-300 overflow-hidden">
                                     <button
-                                      className="w-full flex items-center justify-between px-4 py-2.5 bg-court hover:bg-court-light/20 transition-colors"
+                                      className="w-full flex items-center justify-between px-4 py-2.5 bg-court hover:bg-gray-100/20 transition-colors"
                                       onClick={() => setMemberModalCoachingExpanded(p => !p)}>
                                       <div className="flex items-center gap-2">
-                                        <span className="text-[10px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded">Coaching</span>
-                                        <span className="text-sm text-slate-300">{oneOnOneItems.length} session{oneOnOneItems.length !== 1 ? 's' : ''}</span>
+                                        <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">Coaching</span>
+                                        <span className="text-sm text-gray-800">{oneOnOneItems.length} session{oneOnOneItems.length !== 1 ? 's' : ''}</span>
                                         {[...new Set(oneOnOneItems.map(i => i.coach_name).filter(Boolean))].map(n => (
-                                          <span key={n} className="text-xs text-slate-400">· {n}</span>
+                                          <span key={n} className="text-xs text-gray-800">· {n}</span>
                                         ))}
                                       </div>
-                                      <span className="text-slate-500 text-xs">{memberModalCoachingExpanded ? '▲' : '▼'}</span>
+                                      <span className="text-gray-800 text-xs">{memberModalCoachingExpanded ? '▲' : '▼'}</span>
                                     </button>
                                     {memberModalCoachingExpanded && (
-                                      <div className="border-t border-court-light/40 divide-y divide-court-light/30">
+                                      <div className="border-t border-gray-200/40 divide-y divide-court-light/30">
                                         {oneOnOneItems.map(item => {
                                           const isEditing  = memberModalEditId === item.id
                               const isSelected = memberModalSelected.has(item.id)
@@ -4265,17 +4361,19 @@ const [sessionForm,      setSessionForm]      = useState({
                                         onChange={e => setMemberModalSelected(prev => { const n = new Set(prev); e.target.checked ? n.add(item.id) : n.delete(item.id); return n })} />
                                     )}
                                     <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-                                      <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${item.group_id ? 'bg-teal-500/15 text-teal-400' : 'bg-emerald-500/15 text-emerald-400'}`}>{item.group_id ? 'Group' : 'Coaching'}</span>
-                                      <span className="text-sm font-medium text-white">{fmtDate(item.date)}</span>
-                                      <span className="text-slate-400 text-sm">{item.coach_name} · {fmtTime(item.start_time)}–{fmtTime(item.end_time)}</span>
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${item.group_id ? 'bg-teal-500/15 text-teal-600' : 'bg-emerald-100 text-emerald-700'}`}>{item.group_id ? 'Group' : 'Coaching'}</span>
+                                      <span className="text-sm font-medium text-gray-900">{fmtDate(item.date)}</span>
+                                      <span className="text-gray-800 text-sm">{item.coach_name} · {fmtTime(item.start_time)}–{fmtTime(item.end_time)}</span>
                                       {(item.checked_in || adminCheckedIn.has(item.id))
-                                        ? <span className="text-emerald-400 text-xs font-medium">✓ Checked in</span>
-                                        : memberModalTab === 'past' && <span className="text-slate-600 text-xs">Not checked in</span>}
-                                      {item.notes && <span className="text-slate-500 text-xs w-full">{item.notes}</span>}
+                                        ? item.no_show
+                                          ? <span className="text-red-400 text-xs font-medium">✗ No Show</span>
+                                          : <span className="text-emerald-400 text-xs font-medium">✓ Checked in</span>
+                                        : memberModalTab === 'past' && <span className="text-gray-400 text-xs">Not checked in</span>}
+                                      {item.notes && <span className="text-gray-800 text-xs w-full">{item.notes}</span>}
                                     </div>
                                     {memberModalTab === 'upcoming' && memberModalSelected.size === 0 && (
                                       <div className="flex gap-3 shrink-0">
-                                        <button className={`text-xs ${isEditing ? 'text-slate-400 hover:text-white' : 'text-sky-400 hover:text-sky-300'}`}
+                                        <button className={`text-xs ${isEditing ? 'text-gray-800 hover:text-gray-900' : 'text-sky-400 hover:text-sky-300'}`}
                                           onClick={() => {
                                             if (isEditing) { setMemberModalEditId(null) } else {
                                               setMemberModalEditId(item.id)
@@ -4313,15 +4411,15 @@ const [sessionForm,      setSessionForm]      = useState({
                                   </div>
                                   {/* Inline edit form */}
                                   {isEditing && memberModalSelected.size === 0 && (
-                                    <div className="px-4 pb-3 border-t border-court-light/40 space-y-2 pt-2">
+                                    <div className="px-4 pb-3 border-t border-gray-200/40 space-y-2 pt-2">
                                       <div className="flex gap-2 flex-wrap">
                                         <div>
-                                          <label className="block text-xs text-slate-400 mb-1">New date</label>
+                                          <label className="block text-xs text-gray-800 mb-1">New date</label>
                                           <input type="date" className="input text-xs py-1" value={memberModalEditForm.date}
                                             onChange={e => setMemberModalEditForm(f => ({ ...f, date: e.target.value }))} />
                                         </div>
                                         <div>
-                                          <label className="block text-xs text-slate-400 mb-1">Start time</label>
+                                          <label className="block text-xs text-gray-800 mb-1">Start time</label>
                                           <select className="input text-xs py-1" value={memberModalEditForm.start_time}
                                             onChange={e => { const st = e.target.value; const et = st ? (ALL_SLOTS.find(sl => toMins(sl) === toMins(st) + 60) ?? '') : ''; setMemberModalEditForm(f => ({ ...f, start_time: st, end_time: et })) }}>
                                             <option value="">Keep same</option>
@@ -4329,7 +4427,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                           </select>
                                         </div>
                                         <div>
-                                          <label className="block text-xs text-slate-400 mb-1">End time</label>
+                                          <label className="block text-xs text-gray-800 mb-1">End time</label>
                                           <select className="input text-xs py-1" value={memberModalEditForm.end_time}
                                             onChange={e => setMemberModalEditForm(f => ({ ...f, end_time: e.target.value }))}
                                             disabled={!memberModalEditForm.start_time}>
@@ -4400,21 +4498,21 @@ const [sessionForm,      setSessionForm]      = useState({
                                   </div>
                                 )}
                                 {groupItems.length > 0 && (
-                                  <div className="rounded-lg border border-court-light/50 overflow-hidden">
+                                  <div className="rounded-lg border border-gray-300 overflow-hidden">
                                     <button
-                                      className="w-full flex items-center justify-between px-4 py-2.5 bg-court hover:bg-court-light/20 transition-colors"
+                                      className="w-full flex items-center justify-between px-4 py-2.5 bg-court hover:bg-gray-100/20 transition-colors"
                                       onClick={() => setMemberModalGroupExpanded(p => !p)}>
                                       <div className="flex items-center gap-2">
-                                        <span className="text-[10px] bg-teal-500/15 text-teal-400 px-1.5 py-0.5 rounded">Group</span>
-                                        <span className="text-sm text-slate-300">{groupItems.length} session{groupItems.length !== 1 ? 's' : ''}</span>
+                                        <span className="text-[10px] bg-teal-500/15 text-teal-600 px-1.5 py-0.5 rounded">Group</span>
+                                        <span className="text-sm text-gray-800">{groupItems.length} session{groupItems.length !== 1 ? 's' : ''}</span>
                                         {[...new Set(groupItems.map(i => i.coach_name).filter(Boolean))].map(n => (
-                                          <span key={n} className="text-xs text-slate-400">· {n}</span>
+                                          <span key={n} className="text-xs text-gray-800">· {n}</span>
                                         ))}
                                       </div>
-                                      <span className="text-slate-500 text-xs">{memberModalGroupExpanded ? '▲' : '▼'}</span>
+                                      <span className="text-gray-800 text-xs">{memberModalGroupExpanded ? '▲' : '▼'}</span>
                                     </button>
                                     {memberModalGroupExpanded && (
-                                      <div className="border-t border-court-light/40 divide-y divide-court-light/30">
+                                      <div className="border-t border-gray-200/40 divide-y divide-court-light/30">
                                         {groupItems.map(item => {
                                           const isEditing = memberModalEditId === item.id
                                           const isSelected = memberModalSelected.has(item.id)
@@ -4426,13 +4524,15 @@ const [sessionForm,      setSessionForm]      = useState({
                                                     onChange={e => setMemberModalSelected(prev => { const n = new Set(prev); e.target.checked ? n.add(item.id) : n.delete(item.id); return n })} />
                                                 )}
                                                 <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-                                                  <span className="text-[10px] bg-teal-500/15 text-teal-400 px-1.5 py-0.5 rounded shrink-0">Group</span>
-                                                  <span className="text-sm font-medium text-white">{fmtDate(item.date)}</span>
-                                                  <span className="text-slate-400 text-sm">{item.coach_name} · {fmtTime(item.start_time)}–{fmtTime(item.end_time)}</span>
+                                                  <span className="text-[10px] bg-teal-500/15 text-teal-600 px-1.5 py-0.5 rounded shrink-0">Group</span>
+                                                  <span className="text-sm font-medium text-gray-900">{fmtDate(item.date)}</span>
+                                                  <span className="text-gray-800 text-sm">{item.coach_name} · {fmtTime(item.start_time)}–{fmtTime(item.end_time)}</span>
                                                   {(item.checked_in || adminCheckedIn.has(item.id))
-                                                    ? <span className="text-emerald-400 text-xs font-medium">✓ Checked in</span>
-                                                    : memberModalTab === 'past' && <span className="text-slate-600 text-xs">Not checked in</span>}
-                                                  {item.notes && <span className="text-slate-500 text-xs w-full">{item.notes}</span>}
+                                                    ? item.no_show
+                                                      ? <span className="text-red-400 text-xs font-medium">✗ No Show</span>
+                                                      : <span className="text-emerald-400 text-xs font-medium">✓ Checked in</span>
+                                                    : memberModalTab === 'past' && <span className="text-gray-400 text-xs">Not checked in</span>}
+                                                  {item.notes && <span className="text-gray-800 text-xs w-full">{item.notes}</span>}
                                                 </div>
                                               </div>
                                             </div>
@@ -4460,13 +4560,13 @@ const [sessionForm,      setSessionForm]      = useState({
                           <p className="text-sky-300 text-sm font-medium">{memberModalSelected.size} session{memberModalSelected.size > 1 ? 's' : ''} selected</p>
                           <div className="flex gap-2 flex-wrap items-end">
                             <div>
-                              <label className="block text-xs text-slate-400 mb-1">Shift by days</label>
+                              <label className="block text-xs text-gray-800 mb-1">Shift by days</label>
                               <input type="number" className="input text-xs py-1 w-24" placeholder="0"
                                 value={memberModalBulkForm.offsetDays}
                                 onChange={e => setMemberModalBulkForm(f => ({ ...f, offsetDays: e.target.value }))} />
                             </div>
                             <div>
-                              <label className="block text-xs text-slate-400 mb-1">New start time</label>
+                              <label className="block text-xs text-gray-800 mb-1">New start time</label>
                               <select className="input text-xs py-1" value={memberModalBulkForm.start_time}
                                 onChange={e => { const st = e.target.value; const et = st ? (bulkValidSlots.find(sl => toMins(sl) === toMins(st) + 60) ?? '') : ''; setMemberModalBulkForm(f => ({ ...f, start_time: st, end_time: et })) }}>
                                 <option value="">Keep same</option>
@@ -4474,7 +4574,7 @@ const [sessionForm,      setSessionForm]      = useState({
                               </select>
                             </div>
                             <div>
-                              <label className="block text-xs text-slate-400 mb-1">New end time</label>
+                              <label className="block text-xs text-gray-800 mb-1">New end time</label>
                               <select className="input text-xs py-1" value={memberModalBulkForm.end_time}
                                 onChange={e => setMemberModalBulkForm(f => ({ ...f, end_time: e.target.value }))}
                                 disabled={!memberModalBulkForm.start_time}>
@@ -4561,16 +4661,16 @@ const [sessionForm,      setSessionForm]      = useState({
       {coachModal && (() => {
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="bg-court-mid border border-court-light rounded-xl w-full max-w-md p-6 space-y-5">
+            <div className="bg-gray-50 border border-gray-200 rounded-xl w-full max-w-md p-6 space-y-5">
               <div className="flex items-center justify-between">
-                <h2 className="text-white">Make Coach — {coachModal.name}</h2>
-                <button onClick={() => setCoachModal(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+                <h2 className="text-gray-900">Make Coach — {coachModal.name}</h2>
+                <button onClick={() => setCoachModal(null)} className="text-gray-800 hover:text-gray-900 text-xl leading-none">✕</button>
               </div>
 
               {/* Start / End dates (both optional) */}
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className="block text-xs text-slate-400 mb-1">Start Date (optional)</label>
+                  <label className="block text-xs text-gray-800 mb-1">Start Date (optional)</label>
                   <input
                     type="date"
                     className="input w-full"
@@ -4579,7 +4679,7 @@ const [sessionForm,      setSessionForm]      = useState({
                   />
                 </div>
                 <div className="flex-1">
-                  <label className="block text-xs text-slate-400 mb-1">End Date (optional)</label>
+                  <label className="block text-xs text-gray-800 mb-1">End Date (optional)</label>
                   <input
                     type="date"
                     className="input w-full"
@@ -4592,7 +4692,7 @@ const [sessionForm,      setSessionForm]      = useState({
 
               {/* Bio */}
               <div>
-                <label className="block text-xs text-slate-400 mb-1">Bio (optional)</label>
+                <label className="block text-xs text-gray-800 mb-1">Bio (optional)</label>
                 <textarea
                   className="input w-full h-20 resize-none"
                   placeholder="Short coach bio…"
@@ -4603,7 +4703,7 @@ const [sessionForm,      setSessionForm]      = useState({
 
               {/* Resume drag-and-drop */}
               <div>
-                <label className="block text-xs text-slate-400 mb-1">Resume (PDF, optional)</label>
+                <label className="block text-xs text-gray-800 mb-1">Resume (PDF, optional)</label>
                 <div
                   onDragOver={e => { e.preventDefault(); setCoachDragging(true) }}
                   onDragLeave={() => setCoachDragging(false)}
@@ -4615,14 +4715,14 @@ const [sessionForm,      setSessionForm]      = useState({
                     else alert('Please drop a PDF file.')
                   }}
                   className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
-                    coachDragging ? 'border-brand-400 bg-brand-500/10' : 'border-court-light hover:border-slate-500'
+                    coachDragging ? 'border-brand-400 bg-brand-500/10' : 'border-gray-200 hover:border-slate-500'
                   }`}
                   onClick={() => document.getElementById('coach-resume-input').click()}
                 >
                   {coachForm.resume ? (
                     <p className="text-sm text-emerald-400">{coachForm.resume.name}</p>
                   ) : (
-                    <p className="text-sm text-slate-500">Drag & drop a PDF here, or click to browse</p>
+                    <p className="text-sm text-gray-800">Drag & drop a PDF here, or click to browse</p>
                   )}
                   <input
                     id="coach-resume-input"
@@ -4672,10 +4772,33 @@ const [sessionForm,      setSessionForm]      = useState({
           return Object.values(map).map(g => ({ ...g, students: [...g.students].sort(), dates: g.dates.sort() }))
         }
 
-        const upcoming = collapseSeries(coachSessions.filter(s => s.date?.slice(0, 10) >= todayISO))
-          .sort((a, b) => a.dates[0] < b.dates[0] ? -1 : 1)
-        const past     = collapseSeries(coachSessions.filter(s => s.date?.slice(0, 10) <  todayISO))
-          .sort((a, b) => a.dates[a.dates.length - 1] > b.dates[b.dates.length - 1] ? -1 : 1)
+        // Merge solo series by student so multi-day-per-week packages appear as one row
+        function packageSeries(collapsed) {
+          const map = {}
+          for (const series of collapsed) {
+            if (series.group_id) {
+              map[series.seriesKey] = { ...series, packageKey: series.seriesKey, seriesList: [series], isGroup: true }
+            } else {
+              const key = `student_${series.student_id}`
+              if (!map[key]) map[key] = { packageKey: key, student_id: series.student_id, student_name: series.students[0] ?? '', seriesList: [], totalCount: 0, checkedInCount: 0, isGroup: false }
+              map[key].seriesList.push(series)
+              map[key].totalCount += series.totalCount
+              map[key].checkedInCount += series.checkedInCount
+            }
+          }
+          return Object.values(map).map(pkg => {
+            const allDates = pkg.seriesList.flatMap(s => s.dates).sort()
+            return { ...pkg, firstDate: allDates[0], lastDate: allDates[allDates.length - 1] }
+          })
+        }
+        function dayAbbr(dateStr) {
+          return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(dateStr + 'T12:00:00').getDay()]
+        }
+
+        const upcoming = packageSeries(collapseSeries(coachSessions.filter(s => s.date?.slice(0, 10) >= todayISO)))
+          .sort((a, b) => a.firstDate < b.firstDate ? -1 : 1)
+        const past     = packageSeries(collapseSeries(coachSessions.filter(s => s.date?.slice(0, 10) <  todayISO)))
+          .sort((a, b) => a.lastDate > b.lastDate ? -1 : 1)
         const tab      = coachViewExpanded.has('past') ? 'past' : 'upcoming'
         const items    = tab === 'upcoming' ? upcoming : past
 
@@ -4684,27 +4807,27 @@ const [sessionForm,      setSessionForm]      = useState({
         return (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
                onClick={() => { setCoachViewModal(null); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}>
-            <div className="bg-court-mid border border-court-light rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+            <div className="bg-gray-50 border border-gray-200 rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
                  onClick={e => e.stopPropagation()}>
               {/* Header */}
-              <div className="flex items-start justify-between px-6 py-4 border-b border-court-light shrink-0">
+              <div className="flex items-start justify-between px-6 py-4 border-b border-gray-200 shrink-0">
                 <div>
-                  <h2 className="text-white font-medium text-lg">{coachViewModal.coach_name}</h2>
-                  <p className="text-slate-400 text-sm mt-0.5">
+                  <h2 className="text-gray-900 font-medium text-lg">{coachViewModal.coach_name}</h2>
+                  <p className="text-gray-800 text-sm mt-0.5">
                     {[coachViewModal.email, coachViewModal.phone, `${totalStudents} student${totalStudents !== 1 ? 's' : ''}`].filter(Boolean).join(' · ')}
                   </p>
                 </div>
                 <button onClick={() => { setCoachViewModal(null); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}
-                  className="text-slate-400 hover:text-white text-xl leading-none mt-1">✕</button>
+                  className="text-gray-800 hover:text-gray-900 text-xl leading-none mt-1">✕</button>
               </div>
 
               {/* Tabs */}
-              <div className="flex gap-1 border-b border-court-light px-6">
+              <div className="flex gap-1 border-b border-gray-200 px-6">
                 {[['upcoming', 'Upcoming', upcoming.length], ['past', 'Past', past.length]].map(([id, label, count]) => (
                   <button key={id}
                     onClick={() => { setCoachViewExpanded(id === 'past' ? new Set(['past']) : new Set()); setCoachSeriesExpanded(new Set()) }}
                     className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                      tab === id ? 'border-brand-500 text-brand-400' : 'border-transparent text-slate-500 hover:text-slate-300'
+                      tab === id ? 'border-brand-500 text-brand-400' : 'border-transparent text-gray-800 hover:text-gray-800'
                     }`}>
                     {label}{count > 0 && <span className="ml-1.5 text-xs opacity-60">{count}</span>}
                   </button>
@@ -4714,74 +4837,105 @@ const [sessionForm,      setSessionForm]      = useState({
               {/* Session list */}
               <div className="overflow-y-auto flex-1 px-6 py-4 space-y-1">
                 {items.length === 0 ? (
-                  <p className="text-slate-500 text-sm">No {tab} sessions.</p>
-                ) : items.map((s, i) => {
-                  const firstDate    = s.dates[0]
-                  const lastDate     = s.dates[s.dates.length - 1]
-                  const isMulti      = s.dates.length > 1
-                  const seriesAllPast = lastDate < todayISO
-                  const isExpanded   = coachSeriesExpanded.has(s.seriesKey)
-                  const dateLabel    = isMulti
-                    ? `${fmtDate(firstDate)} – ${fmtDate(lastDate)}`
-                    : fmtDate(firstDate)
-
-                  // Build per-date sub-rows for expanded view
-                  const dateMap = {}
-                  for (const r of s.rawSessions) {
-                    const d = r.date?.slice(0, 10)
-                    if (!dateMap[d]) dateMap[d] = { date: d, students: [], checkedCount: 0, total: 0 }
-                    dateMap[d].students.push(r.student_name)
-                    dateMap[d].total++
-                    if (r.admin_checked_in || adminCheckedIn.has(r.id)) dateMap[d].checkedCount++
-                  }
-                  const dateRows = Object.values(dateMap).sort((a, b) =>
-                    tab === 'past' ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)
-                  )
+                  <p className="text-gray-800 text-sm">No {tab} sessions.</p>
+                ) : items.map((pkg, i) => {
+                  const pkgAllPast   = pkg.lastDate < todayISO
+                  const isMultiDate  = pkg.totalCount > 1
+                  const isExpandable = isMultiDate
+                  const isExpanded   = coachSeriesExpanded.has(pkg.packageKey)
+                  const dateLabel    = pkg.firstDate === pkg.lastDate
+                    ? fmtDate(pkg.firstDate)
+                    : `${fmtDate(pkg.firstDate)} – ${fmtDate(pkg.lastDate)}`
+                  const nameLabel    = pkg.isGroup
+                    ? pkg.seriesList[0].students.join(', ')
+                    : pkg.student_name
 
                   return (
-                    <div key={i} className="border-b border-court-light/30 last:border-0">
-                      {/* Series header row */}
+                    <div key={pkg.packageKey} className="border-b border-gray-200/30 last:border-0">
+                      {/* Package header row */}
                       <button
-                        onClick={() => setCoachSeriesExpanded(prev => {
-                          const next = new Set(prev)
-                          next.has(s.seriesKey) ? next.delete(s.seriesKey) : next.add(s.seriesKey)
-                          return next
-                        })}
-                        className="w-full flex items-center gap-3 py-2.5 text-left hover:bg-court-light/20 rounded transition-colors">
-                        <span className={`text-[10px] px-2 py-0.5 rounded font-medium uppercase tracking-wide shrink-0 ${
-                          s.group_id ? 'bg-teal-500/15 text-teal-400' : 'bg-emerald-500/15 text-emerald-400'
-                        }`}>{s.group_id ? 'Group' : 'Coaching'}</span>
-                        <span className={`text-sm flex-1 min-w-0 ${seriesAllPast ? 'text-slate-400' : 'text-white'}`}>
-                          {dateLabel} · {s.students.join(', ')}
-                          {isMulti && <span className="text-xs text-slate-500 ml-1.5">({s.totalCount})</span>}
-                        </span>
-                        <span className="text-xs text-slate-500 font-mono shrink-0">{fmtTime(s.start_time)}–{fmtTime(s.end_time)}</span>
+                        onClick={() => {
+                          if (!isExpandable) return
+                          setCoachSeriesExpanded(prev => {
+                            const next = new Set(prev)
+                            next.has(pkg.packageKey) ? next.delete(pkg.packageKey) : next.add(pkg.packageKey)
+                            return next
+                          })
+                        }}
+                        className="w-full flex items-center gap-3 py-3 text-left hover:bg-gray-100/30 rounded-lg transition-colors px-2 -mx-2">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-normal uppercase tracking-wide shrink-0 ${
+                          pkg.isGroup ? 'bg-teal-100 text-teal-700' : 'bg-emerald-100 text-emerald-700'
+                        }`}>{pkg.isGroup ? 'Group' : '1-on-1'}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-medium leading-snug ${pkgAllPast ? 'text-gray-500' : 'text-gray-900'}`}>
+                            {nameLabel}
+                            {isMultiDate && <span className="text-xs font-normal text-gray-400 ml-1.5">({pkg.totalCount} sessions)</span>}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-0.5">{dateLabel}</p>
+                        </div>
+                        {/* Time slots — one per series */}
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          {pkg.seriesList.map((sr, si) => (
+                            <div key={si} className="flex items-center gap-1.5">
+                              <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-medium">{dayAbbr(sr.dates[0])}</span>
+                              <span className="text-xs text-gray-600">{fmtTime(sr.start_time)} – {fmtTime(sr.end_time)}</span>
+                            </div>
+                          ))}
+                        </div>
                         {tab === 'past' && (
-                          s.checkedInCount > 0
-                            ? <span className="text-emerald-400 text-xs shrink-0 ml-2">✓ {s.checkedInCount}/{s.totalCount}</span>
-                            : <span className="text-slate-600 text-xs shrink-0 ml-2">No show</span>
+                          pkg.checkedInCount > 0
+                            ? <span className="text-emerald-500 text-xs shrink-0">✓ {pkg.checkedInCount}/{pkg.totalCount}</span>
+                            : <span className="text-gray-400 text-xs shrink-0">No show</span>
                         )}
-                        {isMulti && (
-                          <span className="text-slate-500 text-xs ml-1">{isExpanded ? '▲' : '▼'}</span>
+                        {isExpandable && (
+                          <span className="text-gray-400 text-xs">{isExpanded ? '▲' : '▼'}</span>
                         )}
                       </button>
 
-                      {/* Expanded per-date rows */}
+                      {/* Expanded: per-series date rows */}
                       {isExpanded && (
-                        <div className="ml-4 mb-2 space-y-0.5">
-                          {dateRows.map(dr => (
-                            <div key={dr.date} className="flex items-center gap-3 py-1.5 pl-3 border-l border-court-light/40">
-                              <span className={`text-xs flex-1 ${dr.date < todayISO ? 'text-slate-500' : 'text-slate-300'}`}>
-                                {fmtDate(dr.date)}
-                                {s.group_id && <span className="text-slate-600 ml-1.5">· {dr.students.join(', ')}</span>}
-                              </span>
-                              {dr.date < todayISO && (
-                                dr.checkedCount > 0
-                                  ? <span className="text-emerald-400 text-xs shrink-0">✓ {dr.checkedCount > 1 ? `${dr.checkedCount}/${dr.total}` : 'In'}</span>
-                                  : <span className="text-slate-600 text-xs shrink-0">No show</span>
-                              )}
-                            </div>
-                          ))}
+                        <div className="mb-3 mx-2 rounded-lg border border-gray-100 overflow-hidden divide-y divide-gray-100">
+                          {pkg.seriesList.map((sr, si) => {
+                            const dateMap = {}
+                            for (const r of sr.rawSessions) {
+                              const d = r.date?.slice(0, 10)
+                              if (!dateMap[d]) dateMap[d] = { date: d, students: [], checkedCount: 0, total: 0 }
+                              dateMap[d].students.push(r.student_name)
+                              dateMap[d].total++
+                              if (r.admin_checked_in || adminCheckedIn.has(r.id)) dateMap[d].checkedCount++
+                            }
+                            const dateRows = Object.values(dateMap).sort((a, b) =>
+                              tab === 'past' ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)
+                            )
+                            return (
+                              <div key={si}>
+                                {pkg.seriesList.length > 1 && (
+                                  <div className="flex items-center gap-1.5 px-3 py-2 bg-gray-50">
+                                    <span className="text-[10px] bg-white border border-gray-200 text-gray-500 px-1.5 py-0.5 rounded font-normal">{dayAbbr(sr.dates[0])}</span>
+                                    <span className="text-xs text-gray-500">{fmtTime(sr.start_time)} – {fmtTime(sr.end_time)}</span>
+                                  </div>
+                                )}
+                                {dateRows.map(dr => {
+                                  const isPast = dr.date < todayISO
+                                  return (
+                                    <div key={dr.date} className="flex items-center gap-3 px-3 py-2">
+                                      <span className={`text-xs flex-1 ${isPast ? 'text-gray-500' : 'text-gray-700'}`}>
+                                        {fmtDate(dr.date)}
+                                        {pkg.isGroup && <span className="text-gray-400 ml-1.5">· {dr.students.join(', ')}</span>}
+                                      </span>
+                                      {isPast ? (
+                                        dr.checkedCount > 0
+                                          ? <span className="text-emerald-500 text-xs shrink-0 font-medium">✓ Checked in{dr.checkedCount > 1 ? ` (${dr.checkedCount}/${dr.total})` : ''}</span>
+                                          : <span className="text-red-400 text-xs shrink-0">No show</span>
+                                      ) : (
+                                        <span className="text-gray-300 text-xs shrink-0">Upcoming</span>
+                                      )}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )
+                          })}
                         </div>
                       )}
                     </div>
@@ -4805,28 +4959,28 @@ const [sessionForm,      setSessionForm]      = useState({
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
             onClick={e => { if (e.target === e.currentTarget) setSoloEditModal(null) }}>
-            <div className="bg-court-dark border border-court-light rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="bg-gray-100 border border-gray-200 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
               {/* Header */}
-              <div className="p-6 pb-4 border-b border-court-light flex items-center justify-between shrink-0">
+              <div className="p-6 pb-4 border-b border-gray-200 flex items-center justify-between shrink-0">
                 <div>
-                  <h2 className="text-white">Edit Sessions</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <h2 className="text-gray-900">Edit Sessions</h2>
+                  <p className="text-xs text-gray-800 mt-0.5">
                     {s0.student_name} · Coach: {s0.coach_name} · {sorted.length} upcoming session{sorted.length !== 1 ? 's' : ''}
                   </p>
                 </div>
-                <button onClick={() => setSoloEditModal(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+                <button onClick={() => setSoloEditModal(null)} className="text-gray-800 hover:text-gray-900 text-xl leading-none">✕</button>
               </div>
 
               <div className="overflow-y-auto flex-1 p-6">
                 {sorted.length === 0 ? (
-                  <p className="text-slate-400 text-sm">No upcoming sessions in this series.</p>
+                  <p className="text-gray-800 text-sm">No upcoming sessions in this series.</p>
                 ) : (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between mb-1">
-                      <h3 className="text-sm text-slate-200">Upcoming Sessions</h3>
+                      <h3 className="text-sm text-gray-800">Upcoming Sessions</h3>
                       <div className="flex items-center gap-2">
                         <button
-                          className="text-xs text-slate-400 hover:text-white transition-colors"
+                          className="text-xs text-gray-800 hover:text-gray-900 transition-colors"
                           onClick={() => {
                             if (soloEditSelected.size === sorted.length) setSoloEditSelected(new Set())
                             else setSoloEditSelected(new Set(sorted.map(s => s.id)))
@@ -4858,10 +5012,10 @@ const [sessionForm,      setSessionForm]      = useState({
                             className="w-4 h-4 accent-red-500 shrink-0 cursor-pointer"
                           />
                           <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-                            <span className="text-sm text-white">{fmtDate(s.date?.slice(0, 10))}</span>
-                            <span className="text-slate-400 text-xs font-mono">{fmtTime(s.start_time)}–{fmtTime(s.end_time)}</span>
-                            {checkedIn && <span className="text-[10px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded">Checked in</span>}
-                            {s.notes && <span className="text-[10px] text-slate-500 truncate max-w-[160px]">{s.notes}</span>}
+                            <span className="text-sm text-gray-900">{fmtDate(s.date?.slice(0, 10))}</span>
+                            <span className="text-gray-800 text-xs font-mono">{fmtTime(s.start_time)}–{fmtTime(s.end_time)}</span>
+                            {checkedIn && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">Checked in</span>}
+                            {s.notes && <span className="text-[10px] text-gray-800 truncate max-w-[160px]">{s.notes}</span>}
                           </div>
                           {!isSelected && (
                             <button
@@ -4884,7 +5038,7 @@ const [sessionForm,      setSessionForm]      = useState({
                 )}
               </div>
 
-              <div className="p-4 border-t border-court-light shrink-0 flex justify-end">
+              <div className="p-4 border-t border-gray-200 shrink-0 flex justify-end">
                 <button onClick={() => setSoloEditModal(null)} className="btn-secondary text-sm">Close</button>
               </div>
             </div>
@@ -4910,14 +5064,14 @@ const [sessionForm,      setSessionForm]      = useState({
         const sample = dateMap[uniqueDates[0]]?.[0] ?? g
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="bg-court-dark border border-court-light rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="bg-gray-100 border border-gray-200 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
               {/* Fixed header */}
-              <div className="p-6 pb-4 border-b border-court-light flex items-center justify-between shrink-0">
+              <div className="p-6 pb-4 border-b border-gray-200 flex items-center justify-between shrink-0">
                 <div>
-                  <h2 className="text-white">Edit Group Session</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">{fmtTime(g.start_time)} – {fmtTime(g.end_time)} · Coach: {g.coach_name}</p>
+                  <h2 className="text-gray-900">Edit Group Session</h2>
+                  <p className="text-xs text-gray-800 mt-0.5">{fmtTime(g.start_time)} – {fmtTime(g.end_time)} · Coach: {g.coach_name}</p>
                 </div>
-                <button onClick={() => setGroupEditModal(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+                <button onClick={() => setGroupEditModal(null)} className="text-gray-800 hover:text-gray-900 text-xl leading-none">✕</button>
               </div>
 
               <div className="overflow-y-auto flex-1 p-6 space-y-6">
@@ -4925,10 +5079,10 @@ const [sessionForm,      setSessionForm]      = useState({
                 {uniqueDates.length > 0 && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <h3 className="text-sm text-slate-200">Upcoming Sessions</h3>
+                      <h3 className="text-sm text-gray-800">Upcoming Sessions</h3>
                       <div className="flex items-center gap-2">
                         <button
-                          className="text-xs text-slate-400 hover:text-white transition-colors"
+                          className="text-xs text-gray-800 hover:text-gray-900 transition-colors"
                           onClick={() => {
                             if (groupEditSelected.size === uniqueDates.length) setGroupEditSelected(new Set())
                             else setGroupEditSelected(new Set(uniqueDates))
@@ -4963,9 +5117,9 @@ const [sessionForm,      setSessionForm]      = useState({
                               className="w-4 h-4 accent-red-500 shrink-0 cursor-pointer"
                             />
                             <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-                              <span className="text-[10px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded shrink-0">Group</span>
-                              <span className="text-sm text-white">{fmtDate(date)}</span>
-                              <span className="text-slate-400 text-sm">{g.coach_name} · {fmtTime(rep.start_time)}–{fmtTime(rep.end_time)}</span>
+                              <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded shrink-0">Group</span>
+                              <span className="text-sm text-gray-900">{fmtDate(date)}</span>
+                              <span className="text-gray-800 text-sm">{g.coach_name} · {fmtTime(rep.start_time)}–{fmtTime(rep.end_time)}</span>
                             </div>
                             <div className="flex items-center gap-3 shrink-0">
                               {!isEditing && !isSelected && (
@@ -4977,7 +5131,7 @@ const [sessionForm,      setSessionForm]      = useState({
                               )}
                               {!isSelected && (
                                 <button
-                                  className={`text-xs ${isEditing ? 'text-slate-400 hover:text-white' : 'text-sky-400 hover:text-sky-300'}`}
+                                  className={`text-xs ${isEditing ? 'text-gray-800 hover:text-gray-900' : 'text-sky-400 hover:text-sky-300'}`}
                                   onClick={() => {
                                     if (isEditing) { setGroupEditSessionDate(null) } else {
                                       setGroupEditSessionDate(date)
@@ -4991,7 +5145,7 @@ const [sessionForm,      setSessionForm]      = useState({
                           </div>
                           {/* Per-student rows */}
                           {!isEditing && !isSelected && (
-                            <div className="px-4 pb-2 space-y-1 border-t border-court-light/30 pt-2">
+                            <div className="px-4 pb-2 space-y-1 border-t border-gray-200/30 pt-2">
                               {dateMap[date].map(s => {
                                 const leaveCount = (g.group_leave_map ?? {})[String(s.student_id)] ?? 0
                                 const leaveUsed = leaveCount >= 2
@@ -5001,7 +5155,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                 return (
                                   <div key={s.id} className="flex items-center justify-between gap-2">
                                     <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                                      <span className="text-xs text-slate-400">{s.student_name}</span>
+                                      <span className="text-xs text-gray-800">{s.student_name}</span>
                                       {rescheduled && (
                                         <span className="text-[10px] bg-sky-500/15 text-sky-400 px-1.5 py-0.5 rounded shrink-0">
                                           {fmtTime(sStart)}–{fmtTime(sEnd)}
@@ -5017,7 +5171,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                       <button
                                         disabled={leaveUsed}
                                         title={leaveUsed ? 'Student has already used their leave for this series' : 'Cancel this session (records a leave)'}
-                                        className={`text-xs ${leaveUsed ? 'text-slate-600 cursor-not-allowed' : 'text-amber-400 hover:text-amber-300'}`}
+                                        className={`text-xs ${leaveUsed ? 'text-gray-800 cursor-not-allowed' : 'text-amber-400 hover:text-amber-300'}`}
                                         onClick={() => !leaveUsed && handleCancelStudentOnDate(s)}>
                                         {leaveUsed ? 'No leaves left' : 'Leave'}
                                       </button>
@@ -5054,12 +5208,12 @@ const [sessionForm,      setSessionForm]      = useState({
                                           onChange={e => setDateAddSearch(prev => ({ ...prev, [date]: e.target.value }))}
                                         />
                                         <button
-                                          className="text-xs text-slate-400 hover:text-white"
+                                          className="text-xs text-gray-800 hover:text-gray-900"
                                           onClick={() => setDateAddSearch(prev => { const n = { ...prev }; delete n[date]; return n })}>
                                           ✕
                                         </button>
                                         {search && (
-                                          <ul className="w-full mt-1 divide-y divide-court-light max-h-32 overflow-y-auto rounded-lg border border-court-light bg-court-dark">
+                                          <ul className="w-full mt-1 divide-y divide-court-light max-h-32 overflow-y-auto rounded-lg border border-gray-200 bg-gray-100">
                                             {members
                                               .filter(m => m.name?.toLowerCase().includes(search.toLowerCase()) && !alreadyInGroup.has(m.id))
                                               .slice(0, 6)
@@ -5067,7 +5221,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                                 <li key={m.id}>
                                                   <button
                                                     disabled={dateAddSaving}
-                                                    className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-court-light/40"
+                                                    className="w-full text-left px-3 py-2 text-xs text-gray-800 hover:bg-gray-100"
                                                     onClick={() => {
                                                       if (!window.confirm(`Add ${m.name} to all sessions from ${fmtDate(date)} onwards? Their hours balance will be updated.`)) return
                                                       handleGroupEditAddStudentFromDate(date, m.id)
@@ -5087,15 +5241,15 @@ const [sessionForm,      setSessionForm]      = useState({
                           )}
                           {/* Inline edit form */}
                           {isEditing && (
-                            <div className="px-4 pb-3 border-t border-court-light/40 space-y-2 pt-2">
+                            <div className="px-4 pb-3 border-t border-gray-200/40 space-y-2 pt-2">
                               <div className="flex gap-2 flex-wrap">
                                 <div>
-                                  <label className="block text-xs text-slate-400 mb-1">New date</label>
+                                  <label className="block text-xs text-gray-800 mb-1">New date</label>
                                   <input type="date" className="input text-xs py-1" value={groupEditForm.date}
                                     onChange={e => setGroupEditForm(f => ({ ...f, date: e.target.value }))} />
                                 </div>
                                 <div>
-                                  <label className="block text-xs text-slate-400 mb-1">Start time</label>
+                                  <label className="block text-xs text-gray-800 mb-1">Start time</label>
                                   <select className="input text-xs py-1" value={groupEditForm.start_time}
                                     onChange={e => { const st = e.target.value; const et = st ? (ALL_SLOTS.find(sl => toMins(sl) === toMins(st) + 60) ?? '') : ''; setGroupEditForm(f => ({ ...f, start_time: st, end_time: et })) }}>
                                     <option value="">Keep same</option>
@@ -5103,7 +5257,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                   </select>
                                 </div>
                                 <div>
-                                  <label className="block text-xs text-slate-400 mb-1">End time</label>
+                                  <label className="block text-xs text-gray-800 mb-1">End time</label>
                                   <select className="input text-xs py-1" value={groupEditForm.end_time}
                                     onChange={e => setGroupEditForm(f => ({ ...f, end_time: e.target.value }))}
                                     disabled={!groupEditForm.start_time}>
@@ -5136,12 +5290,12 @@ const [sessionForm,      setSessionForm]      = useState({
                   </div>
                 )}
                 {uniqueDates.length === 0 && (
-                  <p className="text-slate-500 text-sm">No upcoming sessions.</p>
+                  <p className="text-gray-800 text-sm">No upcoming sessions.</p>
                 )}
               </div>
 
               {/* Fixed footer */}
-              <div className="p-4 border-t border-court-light shrink-0 flex justify-end">
+              <div className="p-4 border-t border-gray-200 shrink-0 flex justify-end">
                 <button onClick={() => setGroupEditModal(null)} className="btn-secondary text-sm">Close</button>
               </div>
             </div>
@@ -5155,21 +5309,21 @@ const [sessionForm,      setSessionForm]      = useState({
         const allSlots = [...WEEKDAY_SLOTS, ...SATURDAY_SLOTS].filter((v, i, a) => a.indexOf(v) === i).sort()
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="bg-court-mid border border-court-light rounded-xl w-full max-w-2xl p-6 space-y-5 max-h-[90vh] flex flex-col">
+            <div className="bg-gray-50 border border-gray-200 rounded-xl w-full max-w-2xl p-6 space-y-5 max-h-[90vh] flex flex-col">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-white">Reschedule Sessions</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">{rescheduleModal.studentName}</p>
+                  <h2 className="text-gray-900">Reschedule Sessions</h2>
+                  <p className="text-xs text-gray-800 mt-0.5">{rescheduleModal.studentName}</p>
                 </div>
-                <button onClick={() => setRescheduleModal(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+                <button onClick={() => setRescheduleModal(null)} className="text-gray-800 hover:text-gray-900 text-xl leading-none">✕</button>
               </div>
 
               {/* Optional new time for "Move from here" */}
-              <div className="bg-court-light/30 rounded-lg p-3 space-y-2">
-                <p className="text-xs text-slate-400">New time for remaining sessions (optional — leave blank to keep current time)</p>
+              <div className="bg-gray-100/30 rounded-lg p-3 space-y-2">
+                <p className="text-xs text-gray-800">New time for remaining sessions (optional — leave blank to keep current time)</p>
                 <div className="flex gap-3">
                   <div className="flex-1">
-                    <label className="text-xs text-slate-500 block mb-1">Start time</label>
+                    <label className="text-xs text-gray-800 block mb-1">Start time</label>
                     <select className="input w-full text-sm" value={rescheduleTime.start_time}
                       onChange={e => setRescheduleTime(f => ({
                         ...f,
@@ -5181,7 +5335,7 @@ const [sessionForm,      setSessionForm]      = useState({
                     </select>
                   </div>
                   <div className="flex-1">
-                    <label className="text-xs text-slate-500 block mb-1">End time</label>
+                    <label className="text-xs text-gray-800 block mb-1">End time</label>
                     <select className="input w-full text-sm" value={rescheduleTime.end_time}
                       onChange={e => setRescheduleTime(f => ({ ...f, end_time: e.target.value }))}
                       disabled={!rescheduleTime.start_time}>
@@ -5197,9 +5351,9 @@ const [sessionForm,      setSessionForm]      = useState({
               <div className="overflow-y-auto flex-1 -mx-2 px-2">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-court-light">
+                    <tr className="border-b border-gray-200">
                       {['', '#', 'Current Date', 'Time', 'New Date', 'Actions'].map(h => (
-                        <th key={h} className="text-left px-3 py-2 text-xs text-slate-400 uppercase tracking-wider">{h}</th>
+                        <th key={h} className="text-left px-3 py-2 text-xs text-gray-800 uppercase tracking-wider">{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -5209,7 +5363,7 @@ const [sessionForm,      setSessionForm]      = useState({
                       const newDate   = rescheduleDates[s.id] ?? ''
                       const isChecked = rescheduleSelected.has(s.id)
                       return (
-                        <tr key={s.id} className={`border-b border-court-light/40 last:border-0 ${isPast ? 'opacity-40' : ''} ${isChecked ? 'bg-brand-500/5' : ''}`}>
+                        <tr key={s.id} className={`border-b border-gray-200/40 last:border-0 ${isPast ? 'opacity-40' : ''} ${isChecked ? 'bg-brand-500/5' : ''}`}>
                           <td className="pl-3 py-2.5">
                             {!isPast && (
                               <input type="checkbox" checked={isChecked}
@@ -5220,13 +5374,13 @@ const [sessionForm,      setSessionForm]      = useState({
                                 })} />
                             )}
                           </td>
-                          <td className="px-3 py-2.5 text-slate-500 text-xs">{i + 1}</td>
+                          <td className="px-3 py-2.5 text-gray-800 text-xs">{i + 1}</td>
                           <td className="px-3 py-2.5">
-                            <p className="text-white text-xs font-medium">
+                            <p className="text-gray-900 text-xs font-medium">
                               {new Date(s.date + 'T12:00:00Z').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
                             </p>
                           </td>
-                          <td className="px-3 py-2.5 text-slate-400 text-xs font-mono whitespace-nowrap">
+                          <td className="px-3 py-2.5 text-gray-800 text-xs font-mono whitespace-nowrap">
                             {fmtTime(s.start_time)}–{fmtTime(s.end_time)}
                           </td>
                           <td className="px-3 py-2.5">
@@ -5264,7 +5418,7 @@ const [sessionForm,      setSessionForm]      = useState({
                 </table>
               </div>
 
-              <div className="flex items-center justify-between pt-1 border-t border-court-light">
+              <div className="flex items-center justify-between pt-1 border-t border-gray-200">
                 <div className="flex items-center gap-3">
                   {rescheduleSelected.size > 0 && (
                     <button
@@ -5275,7 +5429,7 @@ const [sessionForm,      setSessionForm]      = useState({
                     </button>
                   )}
                   <button
-                    className="text-xs text-slate-500 hover:text-slate-300"
+                    className="text-xs text-gray-800 hover:text-gray-800"
                     onClick={() => {
                       const upcomingIds = rescheduleModal.sessions
                         .filter(s => s.date?.slice(0, 10) >= todayISO)
@@ -5310,36 +5464,36 @@ const [sessionForm,      setSessionForm]      = useState({
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
             onClick={f => { if (f.target === f.currentTarget) setSocialCalendarEdit(null) }}>
-            <div className="bg-court-dark border border-court-light rounded-2xl shadow-2xl w-full max-w-sm">
-              <div className="p-5 pb-4 border-b border-court-light flex items-center justify-between">
-                <h2 className="text-white text-base">Edit Social Play</h2>
-                <button onClick={() => setSocialCalendarEdit(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+            <div className="bg-gray-100 border border-gray-200 rounded-2xl shadow-2xl w-full max-w-sm">
+              <div className="p-5 pb-4 border-b border-gray-200 flex items-center justify-between">
+                <h2 className="text-gray-900 text-base">Edit Social Play</h2>
+                <button onClick={() => setSocialCalendarEdit(null)} className="text-gray-800 hover:text-gray-900 text-xl leading-none">✕</button>
               </div>
               <div className="p-5 space-y-4">
                 {/* Title */}
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">Name</label>
+                  <label className="text-xs text-gray-800 block mb-1">Name</label>
                   <input type="text" className="input w-full text-sm"
                     value={e.title}
                     onChange={f => setSocialCalendarEdit(prev => ({ ...prev, title: f.target.value }))} />
                 </div>
                 {/* Date */}
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">Date</label>
+                  <label className="text-xs text-gray-800 block mb-1">Date</label>
                   <input type="date" className="input w-full text-sm"
                     value={e.date}
                     onChange={f => setSocialCalendarEdit(prev => ({ ...prev, date: f.target.value }))} />
                 </div>
                 {/* Time */}
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">Time</label>
+                  <label className="text-xs text-gray-800 block mb-1">Time</label>
                   <div className="flex items-center gap-2">
                     <select className="input flex-1 text-sm"
                       value={e.start_time}
                       onChange={f => { const ns = f.target.value; setSocialCalendarEdit(prev => ({ ...prev, start_time: ns, end_time: autoEnd(ns) })) }}>
                       {allSlots.slice(0,-1).map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
                     </select>
-                    <span className="text-slate-400 text-xs">–</span>
+                    <span className="text-gray-800 text-xs">–</span>
                     <select className="input flex-1 text-sm"
                       value={e.end_time}
                       onChange={f => setSocialCalendarEdit(prev => ({ ...prev, end_time: f.target.value }))}>
@@ -5350,13 +5504,13 @@ const [sessionForm,      setSessionForm]      = useState({
                 {/* Courts + Max players */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">Courts</label>
+                    <label className="text-xs text-gray-800 block mb-1">Courts</label>
                     <input type="number" min="1" max="6" className="input w-full text-sm"
                       value={e.num_courts}
                       onChange={f => setSocialCalendarEdit(prev => ({ ...prev, num_courts: f.target.value }))} />
                   </div>
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">Max players</label>
+                    <label className="text-xs text-gray-800 block mb-1">Max players</label>
                     <input type="number" min="1" className="input w-full text-sm"
                       value={e.max_players}
                       onChange={f => setSocialCalendarEdit(prev => ({ ...prev, max_players: f.target.value }))} />
@@ -5372,6 +5526,7 @@ const [sessionForm,      setSessionForm]      = useState({
         )
       })()}
 
-    </div>
+    
+      </div>
   )
 }

@@ -26,37 +26,40 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="page-wrapper py-10 px-4 max-w-4xl mx-auto">
+    <div className="bg-white min-h-screen pt-24 pb-16 px-4 max-w-2xl mx-auto">
+
       {/* Header */}
-      <div className="flex items-center gap-5 mb-10">
-        <div className="w-20 h-20 rounded-full bg-brand-500/20 flex items-center justify-center text-3xl font-display text-brand-400">
+      <div className="flex items-center gap-5 mb-10 pb-8 border-b border-gray-300">
+        <div className="w-16 h-16 rounded-full bg-black flex items-center justify-center text-2xl font-display text-white">
           {user?.name?.[0]?.toUpperCase() ?? 'U'}
         </div>
         <div>
-          <h1 className="font-display text-4xl text-white tracking-wider">{user?.name ?? 'Player'}</h1>
-          <p className="text-slate-500 text-sm mt-0.5">{user?.email}</p>
-          <span className="badge bg-brand-500/10 text-brand-400 border border-brand-500/30 mt-2 capitalize">
+          <h1 className="font-display text-2xl font-normal text-black">{user?.name ?? 'Player'}</h1>
+          <p className="text-gray-700 text-sm mt-0.5">{user?.email}</p>
+          <span className="inline-block text-[10px] tracking-widest uppercase border border-gray-300 text-gray-700 px-2 py-0.5 mt-2 capitalize">
             {user?.role ?? 'Member'}
           </span>
         </div>
       </div>
 
-      <form onSubmit={handleProfileSave} className="card max-w-lg space-y-5 animate-fade-in">
+      {/* Form */}
+      <form onSubmit={handleProfileSave} className="space-y-5">
         <FormInput id="name"  name="name"  label="Full Name"     value={form.name}  onChange={handleChange} />
         <FormInput id="email" name="email" label="Email Address" type="email" value={form.email} onChange={handleChange} />
         <FormInput id="phone" name="phone" label="Phone"         type="tel"  value={form.phone} onChange={handleChange} />
         <div>
-          <label className="text-sm font-medium text-slate-300 block mb-1.5">Bio</label>
+          <label className="text-sm font-normal text-gray-700 block mb-1.5">Bio</label>
           <textarea
             name="bio" rows={3} value={form.bio} onChange={handleChange}
             placeholder="Tell us about your playing style…"
-            className="input-field resize-none"
+            className="w-full bg-white border border-gray-300 px-4 py-2.5 text-black placeholder-gray-400 focus:outline-none focus:border-black transition-all duration-200 resize-none"
           />
         </div>
-        <button type="submit" disabled={saving} className="btn-primary">
+        <button type="submit" disabled={saving} className="btn-primary w-full">
           {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Changes'}
         </button>
       </form>
+
     </div>
   )
 }

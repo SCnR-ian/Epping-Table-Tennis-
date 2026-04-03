@@ -10,7 +10,7 @@ export default function FormInput({
   return (
     <div className={`flex flex-col gap-1.5 ${className}`}>
       {label && (
-        <label htmlFor={id} className="text-sm font-medium text-slate-300">
+        <label htmlFor={id} className="text-sm font-normal text-gray-700">
           {label}
           {props.required && <span className="text-brand-500 ml-1">*</span>}
         </label>

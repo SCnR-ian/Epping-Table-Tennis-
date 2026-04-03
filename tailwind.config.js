@@ -5,26 +5,26 @@ export default {
     extend: {
       colors: {
         brand: {
-          50:  '#fff7ed',
-          100: '#ffedd5',
-          200: '#fed7aa',
-          300: '#fdba74',
-          400: '#fb923c',
-          500: '#f97316',   // primary orange
-          600: '#ea580c',
-          700: '#c2410c',
-          800: '#9a3412',
-          900: '#7c2d12',
+          50:  '#faf8f2',
+          100: '#f0ead8',
+          200: '#ddd0a8',
+          300: '#c9b478',
+          400: '#b89a52',
+          500: '#9a7e3a',   // warm gold
+          600: '#7d6530',
+          700: '#634e25',
+          800: '#4a3a1c',
+          900: '#322813',
         },
         court: {
-          dark:  '#0f172a',  // deep navy
+          dark:  '#0f172a',
           mid:   '#1e293b',
           light: '#334155',
-          accent:'#0ea5e9',  // sky blue
+          accent:'#0ea5e9',
         },
       },
       fontFamily: {
-        display: ['"Bebas Neue"', 'cursive'],
+        display: ['"Kanit"', 'sans-serif'],
         body:    ['"DM Sans"', 'sans-serif'],
       },
       backgroundImage: {

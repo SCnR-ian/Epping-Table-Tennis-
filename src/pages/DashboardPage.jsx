@@ -21,8 +21,6 @@ function toISO(d) {
   return `${y}-${m}-${day}`
 }
 
-// ── Calendar constants ──────────────────────────────────────────────────────
-
 const CAL_DAYS = [
   { label: 'Monday',    short: 'Mon', dow: 1 },
   { label: 'Tuesday',   short: 'Tue', dow: 2 },
@@ -30,14 +28,13 @@ const CAL_DAYS = [
   { label: 'Saturday',  short: 'Sat', dow: 6 },
 ]
 
-const CHECKIN_DOWS = [1, 2, 3, 6] // Mon, Tue, Wed, Sat
+const CHECKIN_DOWS = [1, 2, 3, 6]
 
-const ROW_H = 34          // px per 30-min slot
-const CAL_START = 720     // 12:00 in minutes
-const CAL_END   = 1260    // 21:00 in minutes
-const SLOT_COUNT = (CAL_END - CAL_START) / 30  // 18 slots
+const ROW_H = 34
+const CAL_START = 720
+const CAL_END   = 1260
+const SLOT_COUNT = (CAL_END - CAL_START) / 30
 
-// Build time-slot metadata once
 const TIME_SLOTS = Array.from({ length: SLOT_COUNT }, (_, i) => {
   const mins = CAL_START + i * 30
   const h = Math.floor(mins / 60)
@@ -48,7 +45,6 @@ const TIME_SLOTS = Array.from({ length: SLOT_COUNT }, (_, i) => {
   }
 })
 
-// Rolling 4-week window starting from the current Monday.
 function getRollingWeeks() {
   const d = new Date()
   d.setHours(0, 0, 0, 0)
@@ -69,7 +65,6 @@ function getRollingWeeks() {
   return weeks
 }
 
-// Format a week's date range label, e.g. "Mar 10 – 16" or "Mar 28 – Apr 3"
 function fmtWeekRange(weekDates) {
   const mon = weekDates[1]
   const sat = weekDates[6]
@@ -80,7 +75,11 @@ function fmtWeekRange(weekDates) {
   return `${monStr} – ${satStr}`
 }
 
-// ── Component ───────────────────────────────────────────────────────────────
+const EVENT_STYLES = {
+  student: { bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700' },
+  coach:   { bg: 'bg-sky-50 border-sky-200',         text: 'text-sky-700'     },
+  social:  { bg: 'bg-violet-50 border-violet-200',   text: 'text-violet-700'  },
+}
 
 export default function DashboardPage() {
   const { user } = useAuth()
@@ -89,16 +88,13 @@ export default function DashboardPage() {
   const [socialSessions,   setSocialSessions]   = useState([])
   const [checkedIn,        setCheckedIn]        = useState(new Set())
   const [hoursBalance,     setHoursBalance]     = useState(null)
-
   const [loadingData,      setLoadingData]      = useState(false)
 
-  // Check-in day picker — default to today if it's a club day, else Monday of current week
   const todayDow = new Date().getDay() || 7
   const defaultDow = CHECKIN_DOWS.includes(todayDow) ? todayDow : 1
   const [selectedCheckInDay, setSelectedCheckInDay] = useState(defaultDow)
   const [activeTab, setActiveTab] = useState('checkin')
 
-  // Rolling weeks for calendar
   const weeks          = useMemo(() => getRollingWeeks(), [])
   const [selectedWeek, setSelectedWeek] = useState(0)
   const autoJumped     = useRef(false)
@@ -132,7 +128,6 @@ export default function DashboardPage() {
     return () => { cancelled = true }
   }, [user?.id])
 
-  // Once data loads, jump to the week containing the nearest upcoming event
   useEffect(() => {
     if (autoJumped.current) return
     const today = toISO(new Date())
@@ -150,12 +145,9 @@ export default function DashboardPage() {
     }
   }, [coachingSessions, coachSessions, socialSessions, weeks])
 
-
   const currentWeekDates = weeks[selectedWeek] ?? weeks[0]
   const todayISO         = toISO(new Date())
-
-  // Activities for the selected check-in day (always from current week)
-  const checkInDateISO = useMemo(() => toISO(weeks[0][selectedCheckInDay]), [weeks, selectedCheckInDay])
+  const checkInDateISO   = useMemo(() => toISO(weeks[0][selectedCheckInDay]), [weeks, selectedCheckInDay])
 
   const dayActivities = useMemo(() => {
     const acts = []
@@ -178,7 +170,6 @@ export default function DashboardPage() {
     return acts.sort((a, b) => a.time.localeCompare(b.time))
   }, [coachingSessions, coachSessions, checkInDateISO])
 
-  // Collect all events for a given date ISO string
   function getEvents(dateISO) {
     const events = []
     coachingSessions
@@ -193,28 +184,29 @@ export default function DashboardPage() {
     return events
   }
 
-  const EVENT_STYLES = {
-    student: { bg: 'bg-emerald-500/15 border-emerald-500/40', text: 'text-emerald-300' },
-    coach:   { bg: 'bg-sky-500/15 border-sky-500/40',         text: 'text-sky-300'     },
-    social:  { bg: 'bg-violet-500/15 border-violet-500/40',   text: 'text-violet-300'  },
-  }
-
   return (
-    <div className="page-wrapper py-8 px-4 max-w-4xl mx-auto">
+    <div className="bg-white min-h-screen pt-24 pb-16 px-4 max-w-3xl mx-auto">
+
+      {/* Greeting */}
+      {user?.name && (
+        <p className="text-xs tracking-[0.3em] uppercase text-gray-800 mb-6">
+          Welcome back, {user.name.split(' ')[0]}
+        </p>
+      )}
 
       {/* Tab bar */}
-      <div className="flex gap-1 mb-6 border-b border-court-light">
+      <div className="flex gap-8 mb-8 border-b border-gray-300">
         {[
-          { id: 'checkin',  label: 'Check-In' },
+          { id: 'checkin',  label: 'My Day' },
           { id: 'schedule', label: 'My Schedule' },
         ].map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            className={`pb-3 text-sm border-b-2 -mb-px transition-colors ${
               activeTab === tab.id
-                ? 'border-brand-500 text-white'
-                : 'border-transparent text-slate-400 hover:text-white'
+                ? 'border-black text-black'
+                : 'border-transparent text-gray-700 hover:text-black'
             }`}
           >
             {tab.label}
@@ -222,37 +214,37 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* ── Tab 1: Check-In + Sessions Left ─────────────────────────────── */}
+      {/* ── Tab 1: My Day ────────────────────────────────────────────────── */}
       {activeTab === 'checkin' && (
-        <div className="space-y-6 animate-fade-in">
+        <div className="space-y-6">
 
           {/* Coaching hours balance */}
           {hoursBalance !== null && (
-            <div className="card">
-              <h3 className="text-sm font-normal text-white mb-4">Coaching Hours</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-court-mid rounded-lg p-3 text-center">
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">1-on-1</p>
-                  <p className={`font-display text-3xl tracking-wider leading-none ${(hoursBalance.solo ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            <div className="border border-gray-300 rounded-xl p-6">
+              <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 mb-4">Coaching Hours</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="text-center py-4 border border-gray-300 rounded-lg">
+                  <p className="text-[10px] tracking-widest uppercase text-gray-800 mb-2">1-on-1</p>
+                  <p className={`font-display text-4xl font-normal leading-none ${(hoursBalance.solo ?? 0) >= 0 ? 'text-black' : 'text-red-500'}`}>
                     {(hoursBalance.solo ?? 0).toFixed(1)}
                   </p>
-                  <p className="text-xs text-slate-500 mt-1">hrs remaining</p>
+                  <p className="text-xs text-gray-700 mt-2">hrs remaining</p>
                 </div>
-                <div className="bg-court-mid rounded-lg p-3 text-center">
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">Group</p>
-                  <p className={`font-display text-3xl tracking-wider leading-none ${(hoursBalance.group ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
+                <div className="text-center py-4 border border-gray-300 rounded-lg">
+                  <p className="text-[10px] tracking-widest uppercase text-gray-800 mb-2">Group</p>
+                  <p className={`font-display text-4xl font-normal leading-none ${(hoursBalance.group ?? 0) >= 0 ? 'text-black' : 'text-red-500'}`}>
                     {(hoursBalance.group ?? 0).toFixed(1)}
                   </p>
-                  <p className="text-xs text-slate-500 mt-1">hrs remaining</p>
+                  <p className="text-xs text-gray-700 mt-2">hrs remaining</p>
                 </div>
               </div>
             </div>
           )}
 
           {/* Check-In */}
-          <div className="card">
-            <h3 className="text-sm font-normal text-white mb-3">Check-In</h3>
-            <div className="flex gap-1.5 mb-4">
+          <div className="border border-gray-300 rounded-xl p-6">
+            <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 mb-4">Check-In</p>
+            <div className="flex gap-2 mb-5">
               {CHECKIN_DOWS.map(dow => {
                 const date    = weeks[0][dow]
                 const dateISO = toISO(date)
@@ -263,40 +255,38 @@ export default function DashboardPage() {
                   <button
                     key={dow}
                     onClick={() => setSelectedCheckInDay(dow)}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all relative flex flex-col items-center leading-tight ${
+                    className={`relative flex-1 py-2 text-xs border transition-colors flex flex-col items-center gap-0.5 ${
                       selectedCheckInDay === dow
-                        ? 'bg-brand-500 border-brand-500 text-white'
-                        : 'border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white'
+                        ? 'bg-black border-black text-white'
+                        : 'border-gray-400 text-gray-700 hover:border-black hover:text-black'
                     }`}
                   >
-                    <span>{dayLabel}</span>
-                    <span className={`text-xs ${selectedCheckInDay === dow ? 'text-white/80' : 'text-slate-500'}`}>{dateNum}</span>
-                    {isToday && <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+                    <span className="uppercase tracking-wide">{dayLabel}</span>
+                    <span className="text-xs opacity-70">{dateNum}</span>
+                    {isToday && <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-black" />}
                   </button>
                 )
               })}
             </div>
             {dayActivities.length === 0 ? (
-              <p className="text-sm text-slate-500">No sessions scheduled.</p>
+              <p className="text-sm text-gray-700">No sessions scheduled.</p>
             ) : (
-              <div className="divide-y divide-court-light">
+              <div className="divide-y divide-gray-300">
                 {dayActivities.map(act => {
                   const key     = `${act.type}:${act.refId}`
                   const done    = checkedIn.has(key)
-                  const isToday = act.date === todayISO
                   return (
-                    <div key={key} className="py-2.5 first:pt-0 last:pb-0">
+                    <div key={key} className="py-3 first:pt-0 last:pb-0">
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="text-sm text-white truncate">{act.title}</p>
-                          <p className="text-sm text-slate-400 truncate">{act.subtitle}</p>
-                          <p className="text-sm text-slate-500">{act.time}</p>
+                          <p className="text-sm text-black">{act.title}</p>
+                          <p className="text-sm text-gray-800">{act.subtitle}</p>
+                          <p className="text-xs text-gray-700 mt-0.5">{act.time}</p>
                         </div>
-                        {done ? (
-                          <span className="text-xs text-emerald-400 flex-shrink-0">✓ Checked In</span>
-                        ) : (
-                          <span className="text-xs text-slate-600 flex-shrink-0">Upcoming</span>
-                        )}
+                        {done
+                          ? <span className="text-xs text-black flex-shrink-0">✓ Checked In</span>
+                          : <span className="text-xs text-gray-700 flex-shrink-0">Upcoming</span>
+                        }
                       </div>
                     </div>
                   )
@@ -306,76 +296,76 @@ export default function DashboardPage() {
           </div>
 
           {/* Quick Links */}
-          <div className="card">
-            <h3 className="text-sm font-normal text-white mb-3">Quick Links</h3>
-            <nav className="space-y-1">
-              {[['Profile Settings', '/profile'], ['Social Play', '/social-play']].map(([label, to]) => (
-                <Link key={to} to={to} className="flex items-center justify-between py-2 text-sm text-slate-400 hover:text-white border-b border-court-light last:border-0 transition-colors">
-                  {label}
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
-                  </svg>
-                </Link>
-              ))}
-            </nav>
+          <div className="border border-gray-300 rounded-xl overflow-hidden">
+            {[['Profile Settings', '/profile'], ['Social Play', '/play']].map(([label, to]) => (
+              <Link
+                key={to}
+                to={to}
+                className="flex items-center justify-between px-6 py-4 text-sm text-gray-700 hover:text-black border-b border-gray-300 last:border-0 transition-colors"
+              >
+                {label}
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
+                </svg>
+              </Link>
+            ))}
           </div>
+
         </div>
       )}
 
-      {/* ── Tab 2: Weekly Schedule ───────────────────────────────────────── */}
+      {/* ── Tab 2: My Schedule ───────────────────────────────────────────── */}
       {activeTab === 'schedule' && (
-        <div className="animate-fade-in">
+        <div>
 
           {/* Week selector */}
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex gap-1.5 flex-wrap">
-              {weeks.map((weekDates, i) => {
-                const hasEvents = Object.values(weekDates).some(date => {
-                  const iso = toISO(date)
-                  return coachingSessions.some(s => s.date?.slice(0, 10) === iso)
-                    || coachSessions.some(s => s.date?.slice(0, 10) === iso)
-                    || socialSessions.some(s => s.date?.slice(0, 10) === iso)
-                })
-                return (
-                  <button
-                    key={i}
-                    onClick={() => { setSelectedWeek(i); autoJumped.current = true }}
-                    className={`relative px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${
-                      selectedWeek === i
-                        ? 'bg-brand-500 border-brand-500 text-white'
-                        : 'border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white'
-                    }`}
-                  >
-                    {fmtWeekRange(weekDates)}
-                    {hasEvents && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" />}
-                  </button>
-                )
-              })}
-            </div>
+          <div className="flex gap-2 flex-wrap mb-5">
+            {weeks.map((weekDates, i) => {
+              const hasEvents = Object.values(weekDates).some(date => {
+                const iso = toISO(date)
+                return coachingSessions.some(s => s.date?.slice(0, 10) === iso)
+                  || coachSessions.some(s => s.date?.slice(0, 10) === iso)
+                  || socialSessions.some(s => s.date?.slice(0, 10) === iso)
+              })
+              return (
+                <button
+                  key={i}
+                  onClick={() => { setSelectedWeek(i); autoJumped.current = true }}
+                  className={`relative px-4 py-1.5 text-xs border transition-colors ${
+                    selectedWeek === i
+                      ? 'bg-black border-black text-white'
+                      : 'border-gray-400 text-gray-700 hover:border-black hover:text-black'
+                  }`}
+                >
+                  {fmtWeekRange(weekDates)}
+                  {hasEvents && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-black" />}
+                </button>
+              )
+            })}
           </div>
 
-          {/* Calendar card */}
-          <div className="card p-0 overflow-hidden">
-            <div className="grid border-b border-court-light" style={{ gridTemplateColumns: '52px repeat(4, 1fr)' }}>
+          {/* Calendar */}
+          <div className="border border-gray-300 rounded-xl overflow-hidden">
+            <div className="grid border-b border-gray-300" style={{ gridTemplateColumns: '52px repeat(4, 1fr)' }}>
               <div />
               {CAL_DAYS.map(({ short, dow }) => {
                 const date    = currentWeekDates[dow]
                 const dateISO = toISO(date)
                 const isToday = dateISO === todayISO
                 return (
-                  <div key={dow} className={`py-2.5 text-center border-l border-court-light ${isToday ? 'bg-brand-500/10' : ''}`}>
-                    <p className={`text-xs font-normal uppercase tracking-wide ${isToday ? 'text-brand-400' : 'text-slate-500'}`}>{short}</p>
-                    <p className={`text-base font-normal leading-tight ${isToday ? 'text-brand-300' : 'text-white'}`}>{date.getDate()}</p>
-                    <p className="text-xs text-slate-600">{date.toLocaleDateString('en-AU', { month: 'short' })}</p>
+                  <div key={dow} className={`py-2.5 text-center border-l border-gray-300 ${isToday ? 'bg-gray-50' : ''}`}>
+                    <p className={`text-[10px] uppercase tracking-widest ${isToday ? 'text-black' : 'text-gray-700'}`}>{short}</p>
+                    <p className={`text-base font-normal leading-tight ${isToday ? 'text-black' : 'text-gray-700'}`}>{date.getDate()}</p>
+                    <p className="text-[10px] text-gray-700">{date.toLocaleDateString('en-AU', { month: 'short' })}</p>
                   </div>
                 )
               })}
             </div>
             <div className="grid" style={{ gridTemplateColumns: '52px repeat(4, 1fr)' }}>
-              <div className="border-r border-court-light/30">
+              <div className="border-r border-gray-300">
                 {TIME_SLOTS.map(({ mins, label }) => (
                   <div key={mins} style={{ height: ROW_H }} className="flex items-start justify-end pr-1.5 pt-0.5">
-                    {label && <span className="text-xs text-slate-600 leading-none whitespace-nowrap">{label}</span>}
+                    {label && <span className="text-[10px] text-gray-700 leading-none whitespace-nowrap">{label}</span>}
                   </div>
                 ))}
               </div>
@@ -386,13 +376,13 @@ export default function DashboardPage() {
                 const events  = getEvents(dateISO)
                 const totalH  = SLOT_COUNT * ROW_H
                 return (
-                  <div key={dow} className={`relative border-l border-court-light overflow-hidden ${isToday ? 'bg-brand-500/[0.04]' : ''}`} style={{ height: totalH }}>
+                  <div key={dow} className={`relative border-l border-gray-300 overflow-hidden ${isToday ? 'bg-gray-50/50' : ''}`} style={{ height: totalH }}>
                     {TIME_SLOTS.map(({ mins }) => (
-                      <div key={mins} className="absolute left-0 right-0 border-b border-court-light/20" style={{ top: (mins - CAL_START) / 30 * ROW_H, height: ROW_H }} />
+                      <div key={mins} className="absolute left-0 right-0 border-b border-gray-50" style={{ top: (mins - CAL_START) / 30 * ROW_H, height: ROW_H }} />
                     ))}
                     {loadingData && (
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-xs text-slate-700 animate-pulse">loading</span>
+                        <span className="text-xs text-gray-300 animate-pulse">loading</span>
                       </div>
                     )}
                     {events.map(({ id, type, data }) => {
@@ -403,10 +393,10 @@ export default function DashboardPage() {
                       const { bg, text } = EVENT_STYLES[type]
                       const title = type === 'student' ? `w/ ${data.coach_name}` : type === 'coach' ? `→ ${data.student_name}` : data.title || 'Social Play'
                       return (
-                        <div key={id} className={`absolute left-0.5 right-0.5 rounded border ${bg} ${text} text-xs leading-tight overflow-hidden`} style={{ top: top + 1, height }} title={`${title} · ${fmtTime(data.start_time)}–${fmtTime(data.end_time)}`}>
+                        <div key={id} className={`absolute left-0.5 right-0.5 border ${bg} ${text} text-xs leading-tight overflow-hidden`} style={{ top: top + 1, height }} title={`${title} · ${fmtTime(data.start_time)}–${fmtTime(data.end_time)}`}>
                           <div className="p-1 h-full flex flex-col justify-between">
                             <p className="font-normal truncate">{title}</p>
-                            {height > 38 && <p className="opacity-70 truncate">{fmtTime(data.start_time)}</p>}
+                            {height > 38 && <p className="opacity-60 truncate">{fmtTime(data.start_time)}</p>}
                           </div>
                         </div>
                       )
@@ -418,18 +408,19 @@ export default function DashboardPage() {
           </div>
 
           {/* Legend */}
-          <div className="flex gap-5 mt-2.5">
+          <div className="flex gap-6 mt-3">
             {[
-              { label: 'Coaching Session', color: 'bg-emerald-500/60' },
-              { label: 'Teaching Session', color: 'bg-sky-500/60' },
-              { label: 'Social Play',      color: 'bg-violet-500/60' },
+              { label: 'Coaching Session', color: 'bg-emerald-200' },
+              { label: 'Teaching Session', color: 'bg-sky-200' },
+              { label: 'Social Play',      color: 'bg-violet-200' },
             ].map(({ label, color }) => (
               <div key={label} className="flex items-center gap-1.5">
-                <div className={`w-2.5 h-2.5 rounded-sm ${color}`} />
-                <span className="text-xs text-slate-500">{label}</span>
+                <div className={`w-2.5 h-2.5 ${color}`} />
+                <span className="text-xs text-gray-800">{label}</span>
               </div>
             ))}
           </div>
+
         </div>
       )}
 

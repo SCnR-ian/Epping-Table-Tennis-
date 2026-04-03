@@ -3,174 +3,148 @@ import { Link } from "react-router-dom";
 const PROGRAMS = [
   {
     id: "private",
-    icon: "🎯",
-    label: "Private Coaching",
-    tagline: "One-on-one with an expert coach",
-    color: "brand",
+    label: "One-on-One",
+    tagline: "Personalised sessions tailored entirely to your game",
     description:
-      "Personalised sessions tailored entirely to your game. Your coach will identify weaknesses, refine technique, and design a development plan that gets you to your goals faster than group training.",
+      "Your coach will identify weaknesses, refine technique, and design a development plan that gets you to your goals faster than group training. Suitable for all skill levels, from complete beginners to competitive players.",
     features: [
       "1-on-1 attention from a certified coach",
       "Customised training plan & drills",
       "Video analysis on request",
       "Flexible scheduling — book online anytime",
-      "Suitable for all skill levels",
     ],
-    cta: { label: "Book Private Sessions", to: "/play" },
+    image: "/images/training/private.png",
+    cta: { label: "Book a Session", to: "/play" },
   },
   {
     id: "group",
-    icon: "👥",
-    label: "Group Coaching",
+    label: "Group Session",
     tagline: "Learn together, improve together",
-    color: "emerald",
     description:
-      "Small-group sessions (max 6 players) led by our coaches. A great way to build skills in a social setting, benefit from shared drills, and enjoy healthy competition with peers at a similar level.",
+      "Small-group sessions of 2–6 players led by our coaches. A great way to build skills in a social setting, benefit from shared drills, and enjoy healthy competition with peers at a similar level.",
     features: [
       "Groups of 2–6 players per coach",
       "Structured skill progressions",
       "Multi-ball drill stations",
-      "Competitive match play included",
       "Beginner, intermediate & advanced groups",
     ],
+    image: "/images/training/group.png",
     cta: { label: "Enquire About Groups", to: "/play" },
   },
   {
     id: "school",
-    icon: "🏫",
     label: "School Coaching",
     tagline: "Bringing table tennis to the classroom",
-    color: "sky",
     description:
-      "We partner with local schools to deliver table tennis as part of their sport and PE programs. Our coaches visit your school with portable equipment or host excursions to our facility.",
+      "We partner with local schools to deliver table tennis as part of their sport and PE programs. Our coaches visit your school with portable equipment or host excursions to our facility, with all equipment provided.",
     features: [
       "Curriculum-aligned programs",
       "On-site school visits available",
       "Full equipment provided",
       "Certified coaches with Working with Children Checks",
-      "Suitable for primary & secondary schools",
     ],
+    image: "/images/training/school.png",
     cta: { label: "Contact Us for Schools", to: "/about" },
   },
   {
     id: "holiday",
-    icon: "☀️",
-    label: "Holiday Coaching",
-    tagline: "School holidays sorted",
-    color: "amber",
+    label: "School Holiday",
+    tagline: "Fun, intensive programs during school holidays",
     description:
-      "Fun, intensive programs during school holidays for juniors aged 7–17. Full-day and half-day options available. Players learn fundamentals, compete in mini-tournaments, and make new friends.",
+      "Holiday programs for juniors aged 7–17. Full-day and half-day options available. Players learn fundamentals, compete in mini-tournaments, and make new friends in a relaxed, fun environment.",
     features: [
       "Half-day & full-day sessions",
       "Ages 7–17 welcome",
       "Mini-tournaments & friendly matches",
       "All equipment supplied",
-      "Limited spots — book early",
     ],
+    image: "/images/training/holiday.png",
     cta: { label: "View Holiday Dates", to: "/play" },
   },
 ];
 
-const COLOR_MAP = {
-  brand:   { ring: "ring-brand-500/50",   bg: "bg-brand-500/10",   text: "text-brand-400",   badge: "bg-brand-500/15 text-brand-300"   },
-  emerald: { ring: "ring-emerald-500/50", bg: "bg-emerald-500/10", text: "text-emerald-400", badge: "bg-emerald-500/15 text-emerald-300" },
-  sky:     { ring: "ring-sky-500/50",     bg: "bg-sky-500/10",     text: "text-sky-400",     badge: "bg-sky-500/15 text-sky-300"         },
-  amber:   { ring: "ring-amber-500/50",   bg: "bg-amber-500/10",   text: "text-amber-400",   badge: "bg-amber-500/15 text-amber-300"     },
-};
-
 export default function TrainingProgramPage() {
   return (
-    <div className="page-wrapper">
-      {/* ── Hero ────────────────────────────────────────────────────────── */}
-      <section className="relative py-32 px-4 -mt-16 bg-court-pattern text-center">
-        <img src="https://images.unsplash.com/photo-1534158914592-062992fbe900?auto=format&fit=crop&w=1920&q=80"
-          alt="" className="absolute inset-0 w-full h-full object-cover opacity-50" />
-        <div className="absolute inset-0 bg-court-dark/60 pointer-events-none" />
-        <div className="relative z-10 max-w-3xl mx-auto">
-          <p className="text-brand-400 font-normal text-sm uppercase tracking-widest mb-4">
-            Develop Your Game
-          </p>
-          <h1 className="section-title text-5xl md:text-6xl mb-6">
-            Training Programs
-          </h1>
-          <p className="text-slate-400 text-lg leading-relaxed">
-            From beginner to competitive — we have a program designed for every
-            stage of your journey.
-          </p>
-        </div>
+    <div className="bg-white">
+
+      {/* ── Header ───────────────────────────────────────────────────────── */}
+      <section className="pt-28 pb-14 px-6 text-center border-b border-gray-100">
+        <h1 className="font-display text-2xl md:text-3xl font-normal text-black mb-4 leading-snug">
+          Training Programs
+        </h1>
+        <p className="text-gray-500 text-sm max-w-md mx-auto leading-relaxed">
+          From beginner to competitive — we have a program designed for every stage of your journey.
+        </p>
       </section>
 
-      {/* ── Programs ────────────────────────────────────────────────────── */}
-      <section className="py-20 px-4">
-        <div className="max-w-7xl mx-auto space-y-12">
-          {PROGRAMS.map((prog, idx) => {
-            const c = COLOR_MAP[prog.color];
-            const flip = idx % 2 === 1;
-            return (
-              <div
-                key={prog.id}
-                className={`grid grid-cols-1 lg:grid-cols-2 gap-10 items-center ${flip ? "lg:[direction:rtl]" : ""}`}
-              >
-                {/* Icon card */}
-                <div className={`[direction:ltr] flex flex-col items-center justify-center rounded-2xl border border-court-light bg-court-mid p-12 ${c.ring} ring-1 min-h-[280px]`}>
-                  <span className="text-7xl mb-6">{prog.icon}</span>
-                  <p className={`font-display text-2xl tracking-wide mb-2 ${c.text}`}>
-                    {prog.label}
-                  </p>
-                  <p className="text-slate-400 text-sm text-center">{prog.tagline}</p>
-                </div>
+      {/* ── Programs ─────────────────────────────────────────────────────── */}
+      {PROGRAMS.map((prog, idx) => (
+        <div key={prog.id} id={prog.id} className="flex flex-col md:flex-row border-b border-gray-100 scroll-mt-16">
+          {/* Image */}
+          <div className={`w-full md:w-1/2 overflow-hidden ${idx % 2 === 1 ? "md:order-2" : ""}`} style={{ height: '50vh' }}>
+            <img
+              src={prog.image}
+              alt={prog.label}
+              className="w-full h-full object-cover hover:scale-105 transition-transform duration-700"
+            />
+          </div>
 
-                {/* Details */}
-                <div className="[direction:ltr]">
-                  <p className={`text-xs uppercase tracking-widest font-normal mb-2 ${c.text}`}>
-                    {prog.label}
-                  </p>
-                  <h2 className="section-title text-3xl md:text-4xl mb-4">
-                    {prog.tagline}
-                  </h2>
-                  <p className="text-slate-400 leading-relaxed mb-6">
-                    {prog.description}
-                  </p>
-                  <ul className="space-y-2 mb-8">
-                    {prog.features.map((f) => (
-                      <li key={f} className="flex items-start gap-2 text-sm text-slate-300">
-                        <span className={`mt-0.5 text-base ${c.text}`}>✓</span>
-                        {f}
-                      </li>
-                    ))}
-                  </ul>
-                  <Link
-                    to={prog.cta.to}
-                    className="btn-primary text-sm px-6 py-2.5 inline-block"
-                  >
-                    {prog.cta.label} →
-                  </Link>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* ── CTA ─────────────────────────────────────────────────────────── */}
-      <section className="py-24 px-4 text-center bg-court-mid border-t border-court-light relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-r from-brand-900/20 via-transparent to-brand-900/20 pointer-events-none" />
-        <div className="relative z-10 max-w-2xl mx-auto">
-          <h2 className="section-title text-5xl mb-4">Not sure where to start?</h2>
-          <p className="text-slate-400 mb-8 leading-relaxed">
-            Reach out and one of our coaches will help you find the right
-            program based on your age, skill level, and goals.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link to="/register" className="btn-primary text-base px-8 py-3">
-              Join the Club
-            </Link>
-            <Link to="/about" className="btn-outline text-base px-8 py-3">
-              Meet the Coaches
-            </Link>
+          {/* Content */}
+          <div className={`w-full md:w-1/2 flex flex-col justify-center px-12 lg:px-16 py-14 ${idx % 2 === 1 ? "md:order-1" : ""}`}>
+            <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-3">{prog.label}</p>
+            <h2 className="font-display text-2xl md:text-3xl font-normal text-black mb-5 leading-snug">
+              {prog.tagline}
+            </h2>
+            <p className="text-gray-500 text-sm leading-relaxed mb-6">{prog.description}</p>
+            <ul className="space-y-2">
+              {prog.features.map((f) => (
+                <li key={f} className="flex items-center gap-3 text-sm text-gray-700">
+                  <span className="w-4 h-px bg-black flex-shrink-0" />
+                  {f}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
+      ))}
+
+      {/* ── Contact ──────────────────────────────────────────────────────── */}
+      <section className="py-16 px-6 text-center border-t border-gray-100">
+        <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-4">Get in Touch</p>
+        <h2 className="font-display text-3xl md:text-4xl font-normal text-black mb-3">
+          Ready to get started?
+        </h2>
+        <p className="text-gray-500 mb-10 max-w-md mx-auto leading-relaxed text-sm">
+          Contact us through any of the channels below and we'll help you find the right program.
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-4">
+          <a href="tel:0298765432" className="inline-flex items-center gap-2.5 border border-black rounded-full px-8 py-3 text-sm text-black hover:bg-black hover:text-white transition-colors duration-200">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
+            </svg>
+            Phone
+          </a>
+          <a href="mailto:info@eppingttclub.com.au" className="inline-flex items-center gap-2.5 border border-black rounded-full px-8 py-3 text-sm text-black hover:bg-black hover:text-white transition-colors duration-200">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+            </svg>
+            Email
+          </a>
+          <a href="https://wa.me/61298765432" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2.5 border border-black rounded-full px-8 py-3 text-sm text-black hover:bg-black hover:text-white transition-colors duration-200">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+            </svg>
+            WhatsApp
+          </a>
+          <span className="inline-flex items-center gap-2.5 border border-black rounded-full px-8 py-3 text-sm text-black">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 01.213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.29.295a.326.326 0 00.167-.054l1.903-1.114a.864.864 0 01.717-.098 10.16 10.16 0 002.837.403c.276 0 .543-.015.806-.035-.751-2.578.257-5.39 2.65-7.182C10.9 8.01 9.895 7.659 8.69 7.659c-.386 0-.77.031-1.144.09a.527.527 0 01-.09.008.55.55 0 01-.547-.55.55.55 0 01.547-.549c.42 0 .841.034 1.247.099 2.042-2.17 5.077-3.57 8.448-3.57h.05C15.062 2.88 11.998 2.188 8.691 2.188zm-2.48 4.53a.826.826 0 110 1.652.826.826 0 010-1.652zm4.95 0a.826.826 0 110 1.652.826.826 0 010-1.652zM24 14.465c0-3.399-3.188-6.155-7.124-6.155-3.936 0-7.125 2.756-7.125 6.155 0 3.4 3.189 6.155 7.125 6.155.836 0 1.64-.12 2.385-.337a.696.696 0 01.572.078l1.522.89a.261.261 0 00.134.043.236.236 0 00.232-.236c0-.058-.023-.113-.038-.17l-.312-1.184a.472.472 0 01.17-.532C23.073 18.092 24 16.368 24 14.465zm-9.305-.34a.66.66 0 110-1.32.66.66 0 010 1.32zm4.36 0a.66.66 0 110-1.32.66.66 0 010 1.32z"/>
+            </svg>
+            WeChat: eppingtt
+          </span>
+        </div>
       </section>
+
     </div>
   );
 }

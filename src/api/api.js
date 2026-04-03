@@ -182,6 +182,7 @@ export const checkinAPI = {
   getByDate:          (date)              => api.get('/checkin/admin', { params: { date } }),
   adminCheckInBooking:  (groupId, userId) => api.post(`/checkin/booking/${groupId}`, { user_id: userId }),
   adminCheckInCoaching: (sessionId, userId) => api.post(`/checkin/coaching/${sessionId}`, { user_id: userId }),
+  adminNoShowCoaching:  (sessionId)         => api.post(`/checkin/coaching/${sessionId}/no-show`),
   adminCheckInSocial:   (sessionId, userId) => api.post(`/checkin/social/${sessionId}`, { user_id: userId }),
   getTodaySummary:      (params)             => api.get('/checkin/today-summary', { params }),
   cancelCheckIn:        (type, refId, userId) => api.delete(`/checkin/${type}/${refId}/${userId}`),
@@ -204,6 +205,17 @@ export const announcementsAPI = {
 // ---------------------------------------------------------------------------
 export const analyticsAPI = {
   getOverview: () => api.get('/analytics/overview'),
+}
+
+// ---------------------------------------------------------------------------
+// Homepage Cards
+// ---------------------------------------------------------------------------
+export const homepageAPI = {
+  getStats:      ()           => api.get('/homepage/stats'),
+  getCards:      ()           => api.get('/homepage/cards'),
+  getImageUrl:   (id)         => `${api.defaults.baseURL}/homepage/cards/${id}/image`,
+  uploadImage:   (id, formData) => api.post(`/homepage/admin/cards/${id}/image`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  deleteImage:   (id)         => api.delete(`/homepage/admin/cards/${id}/image`),
 }
 
 export default api;

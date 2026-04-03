@@ -112,6 +112,52 @@ router.post('/coaching/:sessionId', requireAuth, async (req, res) => {
   }
 })
 
+// POST /api/checkin/coaching/:sessionId/no-show
+// Admin marks a student as no-show for a coaching session and deducts their hours.
+router.post('/coaching/:sessionId/no-show', requireAuth, async (req, res) => {
+  if (req.user.role !== 'admin')
+    return res.status(403).json({ message: 'Admin only.' })
+  const client = await pool.connect()
+  try {
+    const { rows } = await client.query(
+      `SELECT cs.date, cs.start_time, cs.end_time, cs.student_id, cs.group_id
+       FROM coaching_sessions cs
+       WHERE cs.id=$1 AND cs.status='confirmed' LIMIT 1`,
+      [req.params.sessionId]
+    )
+    if (!rows[0]) return res.status(404).json({ message: 'Coaching session not found.' })
+    if (rows[0].date > TODAY())
+      return res.status(409).json({ message: 'Cannot mark no-show for a future session.' })
+
+    const studentId = rows[0].student_id
+    await client.query('BEGIN')
+    const { rowCount } = await client.query(
+      `INSERT INTO check_ins (user_id, type, reference_id, date, checked_in_by, no_show)
+       VALUES ($1, 'coaching', $2, $3, $4, TRUE)
+       ON CONFLICT (user_id, type, reference_id) DO NOTHING`,
+      [studentId, req.params.sessionId, rows[0].date, req.user.id]
+    )
+    if (rowCount > 0) {
+      const [sh, sm] = rows[0].start_time.substring(0, 5).split(':').map(Number)
+      const [eh, em] = rows[0].end_time.substring(0, 5).split(':').map(Number)
+      const hrs = ((eh * 60 + em) - (sh * 60 + sm)) / 60
+      const sessionType = rows[0].group_id ? 'group' : 'solo'
+      await client.query(
+        `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_type, session_id, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [studentId, -hrs, 'No show — hours deducted', sessionType, req.params.sessionId, req.user.id]
+      )
+    }
+    await client.query('COMMIT')
+    res.json({ message: 'Marked as no-show.' })
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    res.status(500).json({ message: 'Server error.' })
+  } finally {
+    client.release()
+  }
+})
+
 // GET /api/checkin/today
 // Returns the logged-in user's check-ins for today.
 router.get('/today', requireAuth, async (req, res) => {
@@ -134,7 +180,7 @@ router.get('/admin', requireAuth, async (req, res) => {
   if (!date) return res.status(400).json({ message: 'date is required.' })
   try {
     const { rows } = await pool.query(
-      `SELECT ci.type, ci.reference_id, ci.user_id, ci.checked_in_at,
+      `SELECT ci.type, ci.reference_id, ci.user_id, ci.checked_in_at, ci.no_show,
               u.name AS user_name
        FROM check_ins ci
        JOIN users u ON u.id = ci.user_id

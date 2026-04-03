@@ -19,7 +19,7 @@ app.use(cors({
   origin: (origin, cb) => {
     // Allow requests with no origin (mobile apps, curl, server-to-server)
     if (!origin) return cb(null, true)
-    if (ALLOWED_ORIGINS.some(o => origin === o || origin.endsWith('.vercel.app') || origin.endsWith('.devtunnels.ms')))
+    if (ALLOWED_ORIGINS.some(o => origin === o) || origin.endsWith('.vercel.app') || origin.endsWith('.devtunnels.ms') || /^http:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?$/.test(origin))
       return cb(null, true)
     cb(new Error(`CORS: origin ${origin} not allowed`))
   },
@@ -51,6 +51,7 @@ app.use('/api/checkin',       require('./routes/checkin'))
 app.use('/api/analytics',     require('./routes/analytics'))
 app.use('/api/schedule',      require('./routes/schedule'))
 app.use('/api/announcements', require('./routes/announcements'))
+app.use('/api/homepage',      require('./routes/homepage'))
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }))
@@ -75,6 +76,13 @@ async function runMigrations() {
        created_at TIMESTAMPTZ   NOT NULL DEFAULT NOW()
      )`,
     `CREATE INDEX IF NOT EXISTS idx_chl_user ON coaching_hour_ledger(user_id)`,
+    `ALTER TABLE check_ins ADD COLUMN IF NOT EXISTS no_show BOOLEAN NOT NULL DEFAULT FALSE`,
+    `CREATE TABLE IF NOT EXISTS homepage_cards (
+       id              VARCHAR(20)  PRIMARY KEY,
+       image_data      TEXT,
+       image_filename  VARCHAR(255),
+       updated_at      TIMESTAMPTZ  DEFAULT NOW()
+     )`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }
@@ -83,5 +91,5 @@ async function runMigrations() {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 runMigrations().then(() =>
-  app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`))
+  app.listen(PORT, '0.0.0.0', () => console.log(`Server running on http://localhost:${PORT}`))
 )
