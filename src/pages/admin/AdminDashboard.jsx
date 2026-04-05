@@ -2536,7 +2536,7 @@ const [sessionForm,      setSessionForm]      = useState({
                             style={{ position: 'absolute', top, height, left, width }}
                             className="bg-blue-100 border border-blue-400 rounded-xl px-2.5 py-1.5 overflow-hidden flex flex-col"
                           >
-                            <p className="text-blue-900 text-xs truncate leading-none font-medium">{ev.user_name}</p>
+                            <p className="text-blue-900 text-xs leading-tight font-medium break-words">{ev.user_name}</p>
                             <p className="text-blue-700 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
                             <div className="mt-auto flex items-center justify-between gap-1">
                               {checkedIn ? (
@@ -2576,10 +2576,10 @@ const [sessionForm,      setSessionForm]      = useState({
                             style={{ position: 'absolute', top, height, left, width }}
                             className="bg-emerald-100 border border-emerald-400 rounded-xl px-2.5 py-1.5 flex flex-col overflow-hidden"
                           >
-                            <p className={`text-xs truncate leading-none font-medium ${isNoShow ? 'text-red-500 line-through' : 'text-emerald-900'}`}>{ev.student_name}</p>
-                            <p className="text-emerald-700 text-xs mt-1 leading-none">Coach: {ev.coach_name}</p>
-                            <p className="text-emerald-700 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
-                            <div className="mt-auto flex items-center justify-between gap-1">
+                            <p className={`text-xs leading-tight font-medium break-words ${isNoShow ? 'text-red-500 line-through' : 'text-emerald-900'}`}>{ev.student_name}</p>
+                            <p className="text-emerald-700 text-xs mt-0.5 leading-tight">Coach: {ev.coach_name}</p>
+                            <p className="text-emerald-700 text-xs mt-0.5 leading-tight">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
+                            <div className="mt-auto flex items-center justify-between gap-1 pt-1">
                               {checkedIn ? (
                                 <button
                                   onClick={() => handleAdminUndoCheckIn('coaching', ev.id, ev.student_id)}
@@ -2588,8 +2588,8 @@ const [sessionForm,      setSessionForm]      = useState({
                                 >{isNoShow ? '✗ No Show' : '✓ In'}</button>
                               ) : (
                                 <div className="flex items-center gap-1">
-                                  <button onClick={() => handleAdminCheckIn('coaching', ev.id, ev.student_id)} className="px-2 py-1 rounded-full bg-emerald-600 text-white text-[10px] font-medium leading-none">✓ In</button>
-                                  <button onClick={() => handleAdminNoShow(ev.id, ev.student_id)} className="px-2 py-1 rounded-full bg-red-400 text-white text-[10px] font-medium leading-none">✗ NS</button>
+                                  <button onClick={() => handleAdminCheckIn('coaching', ev.id, ev.student_id)} className="px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-medium leading-none min-h-[24px] flex items-center">✓ In</button>
+                                  <button onClick={() => handleAdminNoShow(ev.id, ev.student_id)} className="px-1.5 py-0.5 rounded-full bg-red-400 text-white text-[10px] font-medium leading-none min-h-[24px] flex items-center">✗ NS</button>
                                 </div>
                               )}
                               <div className="flex items-center gap-1">
@@ -2618,8 +2618,8 @@ const [sessionForm,      setSessionForm]      = useState({
                                 const ciIn     = !!ciRecord
                                 const isNoShow = ciRecord?.no_show === true
                                 return (
-                                  <div key={i} className="flex items-center gap-1">
-                                    <span className={`text-xs leading-none font-medium ${isNoShow ? 'text-red-400 line-through' : 'text-teal-900'}`}>{name}</span>
+                                  <div key={i} className="flex items-center gap-1 flex-wrap">
+                                    <span className={`text-xs leading-tight font-medium break-words ${isNoShow ? 'text-red-400 line-through' : 'text-teal-900'}`}>{name}</span>
                                     {ciIn ? (
                                       <button
                                         onClick={() => handleAdminUndoCheckIn('coaching', sessionId, sid)}
@@ -2628,8 +2628,8 @@ const [sessionForm,      setSessionForm]      = useState({
                                       >{isNoShow ? '✗' : '✓'}</button>
                                     ) : (
                                       <div className="flex items-center gap-1">
-                                        <button onClick={() => handleAdminCheckIn('coaching', sessionId, sid)} className="px-2 py-1 rounded-full bg-emerald-600 text-white text-[10px] font-medium leading-none" title="Check in">✓ In</button>
-                                        <button onClick={() => handleAdminNoShow(sessionId, sid)} className="px-2 py-1 rounded-full bg-red-400 text-white text-[10px] font-medium leading-none" title="No show">✗ NS</button>
+                                        <button onClick={() => handleAdminCheckIn('coaching', sessionId, sid)} className="px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-medium leading-none min-h-[22px] flex items-center" title="Check in">✓ In</button>
+                                        <button onClick={() => handleAdminNoShow(sessionId, sid)} className="px-1.5 py-0.5 rounded-full bg-red-400 text-white text-[10px] font-medium leading-none min-h-[22px] flex items-center" title="No show">✗ NS</button>
                                       </div>
                                     )}
                                   </div>
