@@ -27,7 +27,7 @@ router.post('/booking/:groupId', requireAuth, async (req, res) => {
       [req.params.groupId, uid]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Booking not found.' })
-    if (rows[0].date > TODAY() && req.user.role !== 'admin')
+    if (rows[0].date > TODAY())
       return res.status(409).json({ message: 'Cannot check in for a future session.' })
 
     await pool.query(
@@ -52,7 +52,7 @@ router.post('/social/:sessionId', requireAuth, async (req, res) => {
       [req.params.sessionId, uid]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Not a participant.' })
-    if (rows[0].date > TODAY() && req.user.role !== 'admin')
+    if (rows[0].date > TODAY())
       return res.status(409).json({ message: 'Cannot check in for a future session.' })
 
     await pool.query(
@@ -79,6 +79,8 @@ router.post('/coaching/:sessionId', requireAuth, async (req, res) => {
       [req.params.sessionId]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Coaching session not found.' })
+    if (rows[0].date > TODAY())
+      return res.status(409).json({ message: 'Cannot check in for a future session.' })
 
     const studentId = rows[0].student_id
     await client.query('BEGIN')
@@ -124,6 +126,8 @@ router.post('/coaching/:sessionId/no-show', requireAuth, async (req, res) => {
       [req.params.sessionId]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Coaching session not found.' })
+    if (rows[0].date > TODAY())
+      return res.status(409).json({ message: 'Cannot mark no-show for a future session.' })
 
     const studentId = rows[0].student_id
     await client.query('BEGIN')
