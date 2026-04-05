@@ -1,8 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent)
+const isInstalled = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true
 
 export default function RegisterPage() {
   const { register, loading, error, clearError } = useAuth()
@@ -10,6 +13,26 @@ export default function RegisterPage() {
 
   const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '', phone: '' })
   const [errors, setErrors] = useState({})
+
+  const [installPrompt, setInstallPrompt] = useState(null)
+  const [showIOSHint, setShowIOSHint] = useState(false)
+  const [installed, setInstalled] = useState(false)
+
+  useEffect(() => {
+    if (isInstalled()) { setInstalled(true); return }
+    const handler = (e) => { e.preventDefault(); setInstallPrompt(e) }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  const handleInstall = async () => {
+    if (isIOS()) { setShowIOSHint(h => !h); return }
+    if (!installPrompt) return
+    installPrompt.prompt()
+    const { outcome } = await installPrompt.userChoice
+    if (outcome === 'accepted') setInstalled(true)
+    setInstallPrompt(null)
+  }
 
   const validate = () => {
     const e = {}
@@ -178,6 +201,25 @@ export default function RegisterPage() {
               {loading ? 'Creating account…' : 'Continue'}
             </button>
           </div>
+
+          {!installed && (
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleInstall}
+                className="w-full border border-black rounded-full py-4 text-sm tracking-widest uppercase transition-colors hover:bg-gray-50"
+              >
+                Install App
+              </button>
+              {showIOSHint && (
+                <div className="mt-3 p-4 bg-gray-50 rounded-2xl text-xs text-gray-600 leading-relaxed text-center">
+                  Tap the <strong>Share</strong> button{' '}
+                  <span className="inline-block">⎋</span> at the bottom of Safari,
+                  then tap <strong>"Add to Home Screen"</strong>.
+                </div>
+              )}
+            </div>
+          )}
 
         </form>
       </div>
