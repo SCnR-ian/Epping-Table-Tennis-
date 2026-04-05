@@ -24,6 +24,8 @@ export default function MessagesPage() {
   const [memberSearch, setMemberSearch] = useState('')
   const [admins, setAdmins] = useState([]) // for members to pick admin
   const bottomRef = useRef(null)
+  const messagesContainerRef = useRef(null)
+  const initialScrollDone = useRef(false)
 
   const loadInbox = useCallback(async () => {
     try {
@@ -61,12 +63,17 @@ export default function MessagesPage() {
     return () => clearInterval(interval)
   }, [view, threadUser, loadInbox, loadThread])
 
-  // Scroll to bottom when thread loads
+  // Scroll messages container to bottom on initial thread open and after sending
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (thread.length > 0 && !initialScrollDone.current) {
+      const el = messagesContainerRef.current
+      if (el) el.scrollTop = el.scrollHeight
+      initialScrollDone.current = true
+    }
   }, [thread])
 
   const openThread = async (otherUser) => {
+    initialScrollDone.current = false
     setThreadUser(otherUser)
     setView('thread')
     await loadThread(otherUser.id)
@@ -81,6 +88,7 @@ export default function MessagesPage() {
         body: body.trim(),
       })
       setBody('')
+      initialScrollDone.current = false
       if (view === 'compose') {
         if (composeRecipient) {
           setThreadUser(composeRecipient)
@@ -111,10 +119,10 @@ export default function MessagesPage() {
   )
 
   return (
-    <div className="page-wrapper py-8 px-4 pb-28 max-w-2xl mx-auto">
+    <div className={view === 'thread' ? 'fixed inset-0 top-[84px] bottom-0 flex flex-col bg-white px-4 max-w-2xl mx-auto w-full' : 'page-wrapper py-8 px-4 pb-28 max-w-2xl mx-auto'}>
 
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className={`flex items-center justify-between ${view === 'thread' ? 'py-4' : 'mb-6'}`}>
         {view !== 'inbox' ? (
           <button onClick={() => { setView('inbox'); setThread([]); setThreadUser(null); setBody('') }}
             className="flex items-center gap-2 text-sm text-gray-600 hover:text-black transition-colors">
@@ -196,8 +204,9 @@ export default function MessagesPage() {
 
       {/* ── Thread view ── */}
       {view === 'thread' && (
-        <div className="flex flex-col gap-3">
-          <div className="space-y-2 min-h-[200px]">
+        <div className="flex flex-col flex-1 overflow-hidden pb-4">
+          {/* Scrollable messages area */}
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto space-y-2 pr-1">
             {thread.length === 0 && (
               <p className="text-center text-gray-400 text-sm py-8">No messages yet. Say hello!</p>
             )}
@@ -218,7 +227,7 @@ export default function MessagesPage() {
           </div>
 
           {/* Input */}
-          <div className="flex gap-2 pt-2 border-t border-gray-100 sticky bottom-24">
+          <div className="flex gap-2 pt-3 border-t border-gray-100 mt-2">
             <input
               type="text" value={body}
               onChange={e => setBody(e.target.value)}
