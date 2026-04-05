@@ -84,6 +84,18 @@ async function runMigrations() {
        image_filename  VARCHAR(255),
        updated_at      TIMESTAMPTZ  DEFAULT NOW()
      )`,
+    `CREATE TABLE IF NOT EXISTS messages (
+       id           SERIAL PRIMARY KEY,
+       sender_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       recipient_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+       body         TEXT NOT NULL,
+       created_at   TIMESTAMPTZ DEFAULT NOW()
+     )`,
+    `CREATE TABLE IF NOT EXISTS message_reads (
+       message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+       user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       PRIMARY KEY (message_id, user_id)
+     )`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }
