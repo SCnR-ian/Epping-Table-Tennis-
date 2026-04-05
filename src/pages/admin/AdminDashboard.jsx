@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, homepageAPI } from '@/api/api'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -1806,8 +1807,9 @@ const [sessionForm,      setSessionForm]      = useState({
         <p className="text-xs uppercase tracking-widest text-gray-500">{activeTab}</p>
       </div>
 
-      {/* ── Fixed bottom nav — mobile only ──────────────────────────────────── */}
-      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-gray-200 safe-area-pb">
+      {/* ── Fixed bottom nav — mobile only (rendered via portal to avoid z-index trapping) ── */}
+      {createPortal(
+        <nav className="lg:hidden fixed bottom-0 inset-x-0 z-[9999] bg-white border-t border-gray-200 shadow-[0_-2px_12px_rgba(0,0,0,0.08)] safe-area-pb">
         {/* More drawer */}
         {showMoreMenu && (
           <>
@@ -1845,63 +1847,65 @@ const [sessionForm,      setSessionForm]      = useState({
           </>
         )}
 
-        <div className="grid grid-cols-5 h-16">
+        <div className="grid grid-cols-5 h-20">
           {/* Bookings */}
           <button
             onClick={() => { setActiveTab('Bookings'); setShowMoreMenu(false) }}
-            className={`flex flex-col items-center justify-center gap-1 transition-colors ${activeTab === 'Bookings' ? 'text-black' : 'text-gray-400'}`}
+            className={`flex flex-col items-center justify-center gap-1.5 transition-colors ${activeTab === 'Bookings' ? 'text-black' : 'text-gray-400'}`}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
             </svg>
-            <span className="text-[10px] tracking-wide">Bookings</span>
+            <span className="text-[11px] font-medium tracking-wide">Bookings</span>
           </button>
 
           {/* Coaching */}
           <button
             onClick={() => { setActiveTab('Coaching'); setShowMoreMenu(false) }}
-            className={`flex flex-col items-center justify-center gap-1 transition-colors ${activeTab === 'Coaching' ? 'text-black' : 'text-gray-400'}`}
+            className={`flex flex-col items-center justify-center gap-1.5 transition-colors ${activeTab === 'Coaching' ? 'text-black' : 'text-gray-400'}`}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5" />
             </svg>
-            <span className="text-[10px] tracking-wide">Coaching</span>
+            <span className="text-[11px] font-medium tracking-wide">Coaching</span>
           </button>
 
           {/* Social Play */}
           <button
             onClick={() => { setActiveTab('Social Play'); setShowMoreMenu(false) }}
-            className={`flex flex-col items-center justify-center gap-1 transition-colors ${activeTab === 'Social Play' ? 'text-black' : 'text-gray-400'}`}
+            className={`flex flex-col items-center justify-center gap-1.5 transition-colors ${activeTab === 'Social Play' ? 'text-black' : 'text-gray-400'}`}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
             </svg>
-            <span className="text-[10px] tracking-wide">Social</span>
+            <span className="text-[11px] font-medium tracking-wide">Social</span>
           </button>
 
           {/* Members */}
           <button
             onClick={() => { setActiveTab('Members'); setShowMoreMenu(false) }}
-            className={`flex flex-col items-center justify-center gap-1 transition-colors ${activeTab === 'Members' ? 'text-black' : 'text-gray-400'}`}
+            className={`flex flex-col items-center justify-center gap-1.5 transition-colors ${activeTab === 'Members' ? 'text-black' : 'text-gray-400'}`}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
             </svg>
-            <span className="text-[10px] tracking-wide">Members</span>
+            <span className="text-[11px] font-medium tracking-wide">Members</span>
           </button>
 
           {/* More */}
           <button
             onClick={() => setShowMoreMenu(v => !v)}
-            className={`flex flex-col items-center justify-center gap-1 transition-colors ${['Pay Report','Analytics','Homepage'].includes(activeTab) ? 'text-black' : showMoreMenu ? 'text-black' : 'text-gray-400'}`}
+            className={`flex flex-col items-center justify-center gap-1.5 transition-colors ${['Pay Report','Analytics','Homepage'].includes(activeTab) ? 'text-black' : showMoreMenu ? 'text-black' : 'text-gray-400'}`}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM18.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
             </svg>
-            <span className="text-[10px] tracking-wide">More</span>
+            <span className="text-[11px] font-medium tracking-wide">More</span>
           </button>
         </div>
-      </nav>
+      </nav>,
+      document.body
+      )}
 
       {/* ── Today tab (hidden) ───────────────────────────────────────────── */}
       {false && (
@@ -2179,7 +2183,7 @@ const [sessionForm,      setSessionForm]      = useState({
           )}
 
         <div className="card p-0 overflow-hidden">
-          <div className="px-5 py-3 border-b border-gray-200 flex items-center gap-3">
+          <div className="px-4 py-3 border-b border-gray-200 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
             <input
               type="text"
               className="input flex-1 text-sm"
@@ -2188,7 +2192,7 @@ const [sessionForm,      setSessionForm]      = useState({
               onChange={e => setMemberListSearch(e.target.value)}
             />
             {!showAddMember && (
-              <button className="btn-primary text-sm whitespace-nowrap" onClick={() => setShowAddMember(true)}>
+              <button className="btn-primary text-sm w-full sm:w-auto" onClick={() => setShowAddMember(true)}>
                 + Add Member
               </button>
             )}
@@ -2544,9 +2548,9 @@ const [sessionForm,      setSessionForm]      = useState({
                               ) : (
                                 <button
                                   onClick={() => handleAdminCheckIn('booking', ev.booking_group_id, ev.user_id)}
-                                  className="text-xs text-emerald-600 hover:text-emerald-800 text-left leading-none"
+                                  className="px-2 py-1 rounded-full bg-emerald-600 text-white text-[10px] font-medium leading-none"
                                 >
-                                  Check In
+                                  ✓ In
                                 </button>
                               )}
                               <button
@@ -2584,9 +2588,8 @@ const [sessionForm,      setSessionForm]      = useState({
                                 >{isNoShow ? '✗ No Show' : '✓ In'}</button>
                               ) : (
                                 <div className="flex items-center gap-1">
-                                  <button onClick={() => handleAdminCheckIn('coaching', ev.id, ev.student_id)} className="text-xs text-emerald-600 hover:text-emerald-800 leading-none">✓ In</button>
-                                  <span className="text-gray-300">|</span>
-                                  <button onClick={() => handleAdminNoShow(ev.id, ev.student_id)} className="text-xs text-red-400 hover:text-red-600 leading-none">✗ No Show</button>
+                                  <button onClick={() => handleAdminCheckIn('coaching', ev.id, ev.student_id)} className="px-2 py-1 rounded-full bg-emerald-600 text-white text-[10px] font-medium leading-none">✓ In</button>
+                                  <button onClick={() => handleAdminNoShow(ev.id, ev.student_id)} className="px-2 py-1 rounded-full bg-red-400 text-white text-[10px] font-medium leading-none">✗ NS</button>
                                 </div>
                               )}
                               <div className="flex items-center gap-1">
@@ -2624,9 +2627,9 @@ const [sessionForm,      setSessionForm]      = useState({
                                         title="Undo"
                                       >{isNoShow ? '✗' : '✓'}</button>
                                     ) : (
-                                      <div className="flex items-center gap-0.5">
-                                        <button onClick={() => handleAdminCheckIn('coaching', sessionId, sid)} className="text-[10px] text-emerald-600 hover:text-emerald-800 leading-none" title="Check in">✓</button>
-                                        <button onClick={() => handleAdminNoShow(sessionId, sid)} className="text-[10px] text-red-400 hover:text-red-600 leading-none" title="No show">✗</button>
+                                      <div className="flex items-center gap-1">
+                                        <button onClick={() => handleAdminCheckIn('coaching', sessionId, sid)} className="px-2 py-1 rounded-full bg-emerald-600 text-white text-[10px] font-medium leading-none" title="Check in">✓ In</button>
+                                        <button onClick={() => handleAdminNoShow(sessionId, sid)} className="px-2 py-1 rounded-full bg-red-400 text-white text-[10px] font-medium leading-none" title="No show">✗ NS</button>
                                       </div>
                                     )}
                                   </div>
@@ -2994,11 +2997,12 @@ const [sessionForm,      setSessionForm]      = useState({
                 )
                 return (
                   <div className="card p-0 overflow-hidden">
+                    <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-gray-300">
                           {['Type', 'Student(s)', 'Coach', 'Time', 'Notes', 'Actions'].map(h => (
-                            <th key={h} className="sticky top-0 bg-gray-100 text-left px-5 py-3 text-xs text-gray-700 font-semibold uppercase tracking-wider">{h}</th>
+                            <th key={h} className={`sticky top-0 bg-gray-100 text-left px-3 py-3 text-xs text-gray-700 font-semibold uppercase tracking-wider${h === 'Notes' ? ' hidden md:table-cell' : ''}`}>{h}</th>
                           ))}
                         </tr>
                       </thead>
@@ -3011,10 +3015,10 @@ const [sessionForm,      setSessionForm]      = useState({
                           const bal = sessionBalances[s.student_id]
                           return (
                             <tr key={s.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50 transition-colors">
-                              <td className="px-5 py-3">
+                              <td className="px-3 py-3">
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-100 text-blue-800 border border-blue-200 whitespace-nowrap">1-on-1</span>
                               </td>
-                              <td className="px-5 py-3">
+                              <td className="px-3 py-3">
                                 <div className="flex items-center gap-2">
                                   <button
                                     onClick={() => handleOpenMemberModal(s.student_id)}
@@ -3025,13 +3029,13 @@ const [sessionForm,      setSessionForm]      = useState({
                                   <span className={`text-[11px] font-mono ${bal.solo < 0 ? 'text-red-600' : bal.solo < 1 ? 'text-amber-600' : 'text-emerald-600'}`}>{bal.solo.toFixed(1)}h</span>
                                 )}
                               </td>
-                              <td className="px-5 py-3">
+                              <td className="px-3 py-3">
                                 <button onClick={() => { const ci = coaches.find(c => c.id === s.coach_id); setCoachViewModal({ coach_id: s.coach_id, coach_name: s.coach_name, email: ci?.email, phone: ci?.phone }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}
                                   className="text-gray-800 hover:text-blue-600 transition-colors text-left">{s.coach_name}</button>
                               </td>
-                              <td className="px-5 py-3 text-gray-700 text-xs font-mono whitespace-nowrap">{fmtTime(s.start_time)} – {fmtTime(s.end_time)}</td>
-                              <td className="px-5 py-3 text-gray-600 text-xs max-w-[140px] truncate">{s.notes ?? '—'}</td>
-                              <td className="px-5 py-3">
+                              <td className="px-3 py-3 text-gray-700 text-xs font-mono whitespace-nowrap">{fmtTime(s.start_time)} – {fmtTime(s.end_time)}</td>
+                              <td className="px-3 py-3 text-gray-600 text-xs max-w-[140px] truncate hidden md:table-cell">{s.notes ?? '—'}</td>
+                              <td className="px-3 py-3">
                                 <div className="flex flex-col gap-1.5">
                                   <div className="flex items-center gap-1.5">
                                     {!adminCI ? (
@@ -3065,10 +3069,10 @@ const [sessionForm,      setSessionForm]      = useState({
                           })
                           return (
                           <tr key={g.group_id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50 transition-colors align-top">
-                            <td className="px-5 py-3">
+                            <td className="px-3 py-3">
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-teal-100 text-teal-800 border border-teal-200 whitespace-nowrap">Group</span>
                             </td>
-                            <td className="px-5 py-3">
+                            <td className="px-3 py-3">
                               <div className="flex flex-col divide-y divide-gray-100">
                                 {studentData.map(({ name, sid, bal }, i) => (
                                   <div key={i} className="py-2 first:pt-0 last:pb-0">
@@ -3078,13 +3082,13 @@ const [sessionForm,      setSessionForm]      = useState({
                                 ))}
                               </div>
                             </td>
-                            <td className="px-5 py-3">
+                            <td className="px-3 py-3">
                               <button onClick={() => { const ci = coaches.find(c => c.id === g.coach_id); setCoachViewModal({ coach_id: g.coach_id, coach_name: g.coach_name, email: ci?.email, phone: ci?.phone }); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}
                                 className="text-gray-800 hover:text-blue-600 transition-colors text-left">{g.coach_name}</button>
                             </td>
-                            <td className="px-5 py-3 text-gray-700 text-xs font-mono whitespace-nowrap">{fmtTime(g.start_time)} – {fmtTime(g.end_time)}</td>
-                            <td className="px-5 py-3 text-gray-600 text-xs max-w-[140px] truncate">{g.notes ?? '—'}</td>
-                            <td className="px-5 py-3">
+                            <td className="px-3 py-3 text-gray-700 text-xs font-mono whitespace-nowrap">{fmtTime(g.start_time)} – {fmtTime(g.end_time)}</td>
+                            <td className="px-3 py-3 text-gray-600 text-xs max-w-[140px] truncate hidden md:table-cell">{g.notes ?? '—'}</td>
+                            <td className="px-3 py-3">
                               <div className="flex flex-col gap-1">
                                 <div className="flex flex-col divide-y divide-gray-100">
                                   {studentData.map(({ sessionId, sid, adminCI, isNS }, i) => (
@@ -3117,6 +3121,7 @@ const [sessionForm,      setSessionForm]      = useState({
                         })}
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 )
               })()}
@@ -3517,7 +3522,7 @@ const [sessionForm,      setSessionForm]      = useState({
 
           {/* Date range picker */}
           <div className="card">
-            <div className="flex items-end gap-4 flex-wrap">
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3 flex-wrap">
               <div>
                 <label className="block text-xs text-gray-800 mb-1">From</label>
                 <input type="date" className="input" value={payFrom}
@@ -3572,6 +3577,7 @@ const [sessionForm,      setSessionForm]      = useState({
                               <span className="text-emerald-400">{week.counted}</span>{' '}/ {week.total} counted
                             </p>
                           </div>
+                          <div className="overflow-x-auto">
                           <table className="w-full text-sm">
                             <tbody>
                               {week.sessions.map(s => (
@@ -3599,6 +3605,7 @@ const [sessionForm,      setSessionForm]      = useState({
                               ))}
                             </tbody>
                           </table>
+                          </div>
                         </div>
                       ))}
                     </div>
