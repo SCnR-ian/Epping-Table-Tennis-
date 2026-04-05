@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { NavLink, Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { messagesAPI } from "@/api/api";
 
 const NAV_LINKS = [
   { to: "/",         label: "Home"     },
@@ -34,21 +33,6 @@ function AccountPanel({ open, onClose }) {
   const [form, setForm] = useState({ identifier: "", password: "" });
   const [showPass, setShowPass] = useState(false);
   const [localError, setLocalError] = useState("");
-  const [unreadCount, setUnreadCount] = useState(0);
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    const load = async () => {
-      try {
-        const { data } = await messagesAPI.getUnreadCount();
-        setUnreadCount(data.count);
-      } catch {}
-    };
-    load();
-    const t = setInterval(load, 10000);
-    return () => clearInterval(t);
-  }, [isAuthenticated]);
-
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showIOSHint, setShowIOSHint] = useState(false);
   const [installed, setInstalled] = useState(
@@ -130,10 +114,6 @@ function AccountPanel({ open, onClose }) {
                 </Link>
                 <Link to="/play" onClick={onClose} className="block text-sm tracking-widest uppercase text-black hover:text-gray-500 py-2 transition-colors">
                   Social Play
-                </Link>
-                <Link to="/messages" onClick={onClose} className="flex items-center gap-2 text-sm tracking-widest uppercase text-black hover:text-gray-500 py-2 transition-colors">
-                  Messages
-                  {unreadCount > 0 && <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold">{unreadCount}</span>}
                 </Link>
               </div>
               <div className="pt-4 border-t border-gray-100">
