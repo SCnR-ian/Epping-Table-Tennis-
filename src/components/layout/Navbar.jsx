@@ -34,6 +34,28 @@ function AccountPanel({ open, onClose }) {
   const [showPass, setShowPass] = useState(false);
   const [localError, setLocalError] = useState("");
 
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [showIOSHint, setShowIOSHint] = useState(false);
+  const [installed, setInstalled] = useState(
+    () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true
+  );
+
+  useEffect(() => {
+    const handler = (e) => { e.preventDefault(); setInstallPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstall = async () => {
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    if (ios) { setShowIOSHint(h => !h); return; }
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') setInstalled(true);
+    setInstallPrompt(null);
+  };
+
   const handleChange = (e) => {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
     clearError?.();
@@ -185,6 +207,22 @@ function AccountPanel({ open, onClose }) {
                 <Link to="/register" onClick={onClose} className="w-full block text-center bg-black text-white rounded-full py-3.5 text-sm tracking-widest uppercase hover:bg-gray-800 transition-colors">
                   Create an Account
                 </Link>
+                {!installed && (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={handleInstall}
+                      className="w-full border border-black rounded-full py-3.5 text-sm tracking-widest uppercase hover:bg-gray-50 transition-colors"
+                    >
+                      Install App
+                    </button>
+                    {showIOSHint && (
+                      <p className="mt-3 text-xs text-gray-500 text-center leading-relaxed">
+                        Tap the <strong>Share</strong> button ⎋ in Safari, then <strong>"Add to Home Screen"</strong>.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
