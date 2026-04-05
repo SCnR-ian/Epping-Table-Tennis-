@@ -3984,7 +3984,7 @@ const [sessionForm,      setSessionForm]      = useState({
                       {s.participants.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {s.participants.map(p => (
-                            <span key={p.id} className={`text-xs rounded-full px-2.5 py-0.5 flex items-center gap-1 ${p.is_walkin ? 'bg-slate-700 text-gray-800' : 'bg-gray-100 text-gray-800'}`}>
+                            <span key={p.id} className={`text-xs rounded-full px-2.5 py-0.5 flex items-center gap-1 ${p.is_walkin ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-gray-100 text-gray-800'}`}>
                               {p.name}
                               <button
                                 onClick={() => handleSocialRemoveMember(s.id, p.id)}
