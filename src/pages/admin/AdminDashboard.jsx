@@ -2548,7 +2548,7 @@ const [sessionForm,      setSessionForm]      = useState({
                               ) : (
                                 <button
                                   onClick={() => handleAdminCheckIn('booking', ev.booking_group_id, ev.user_id)}
-                                  className="px-2 py-1 rounded-full bg-emerald-600 text-white text-[10px] font-medium leading-none"
+                                  className="text-[10px] font-semibold text-emerald-700 hover:text-emerald-900 leading-none"
                                 >
                                   ✓ In
                                 </button>
@@ -2579,22 +2579,26 @@ const [sessionForm,      setSessionForm]      = useState({
                             <p className={`text-xs leading-tight font-medium break-words ${isNoShow ? 'text-red-500 line-through' : 'text-emerald-900'}`}>{ev.student_name}</p>
                             <p className="text-emerald-700 text-xs mt-0.5 leading-tight">Coach: {ev.coach_name}</p>
                             <p className="text-emerald-700 text-xs mt-0.5 leading-tight">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
-                            <div className="mt-auto flex items-center justify-between gap-1 pt-1">
-                              {checkedIn ? (
-                                <button
-                                  onClick={() => handleAdminUndoCheckIn('coaching', ev.id, ev.student_id)}
-                                  className={`text-xs leading-none transition-colors hover:text-red-600 ${isNoShow ? 'text-red-400' : 'text-emerald-600'}`}
-                                  title="Undo"
-                                >{isNoShow ? '✗ No Show' : '✓ In'}</button>
-                              ) : (
-                                <div className="flex items-center gap-1">
-                                  <button onClick={() => handleAdminCheckIn('coaching', ev.id, ev.student_id)} className="px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-medium leading-none min-h-[24px] flex items-center">✓ In</button>
-                                  <button onClick={() => handleAdminNoShow(ev.id, ev.student_id)} className="px-1.5 py-0.5 rounded-full bg-red-400 text-white text-[10px] font-medium leading-none min-h-[24px] flex items-center">✗ NS</button>
-                                </div>
-                              )}
+                            <div className="mt-auto pt-1 space-y-0.5">
                               <div className="flex items-center gap-1">
-                                <button onClick={() => setCalendarReschedule({ type: 'solo', ev, newDate: selectedDate, newStart: ev.start_time.slice(0,5), newEnd: ev.end_time.slice(0,5), saving: false, _slots: openTimeSlots })} className="text-xs text-blue-600 hover:text-blue-800 leading-none">Edit</button>
-                                <button onClick={() => handleCancelSession(ev.id)} className="text-xs text-red-600 hover:text-red-800 leading-none">Cancel</button>
+                                {checkedIn ? (
+                                  <button
+                                    onClick={() => handleAdminUndoCheckIn('coaching', ev.id, ev.student_id)}
+                                    className={`text-[10px] leading-none transition-colors hover:opacity-60 font-medium ${isNoShow ? 'text-red-500' : 'text-emerald-700'}`}
+                                    title="Undo"
+                                  >{isNoShow ? '✗ No Show' : '✓ Checked In'}</button>
+                                ) : (
+                                  <>
+                                    <button onClick={() => handleAdminCheckIn('coaching', ev.id, ev.student_id)} className="text-[10px] font-semibold text-emerald-700 hover:text-emerald-900 leading-none">✓ In</button>
+                                    <span className="text-gray-400 text-[10px]">·</span>
+                                    <button onClick={() => handleAdminNoShow(ev.id, ev.student_id)} className="text-[10px] font-semibold text-red-500 hover:text-red-700 leading-none">✗ NS</button>
+                                  </>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button onClick={() => setCalendarReschedule({ type: 'solo', ev, newDate: selectedDate, newStart: ev.start_time.slice(0,5), newEnd: ev.end_time.slice(0,5), saving: false, _slots: openTimeSlots })} className="text-[10px] text-blue-600 hover:text-blue-800 leading-none">Edit</button>
+                                <span className="text-gray-400 text-[10px]">·</span>
+                                <button onClick={() => handleCancelSession(ev.id)} className="text-[10px] text-red-600 hover:text-red-800 leading-none">Cancel</button>
                               </div>
                             </div>
                           </div>
@@ -2623,13 +2627,14 @@ const [sessionForm,      setSessionForm]      = useState({
                                     {ciIn ? (
                                       <button
                                         onClick={() => handleAdminUndoCheckIn('coaching', sessionId, sid)}
-                                        className={`text-[10px] leading-none transition-colors hover:text-red-600 ${isNoShow ? 'text-red-400' : 'text-emerald-600'}`}
+                                        className={`text-[10px] font-semibold leading-none transition-colors hover:opacity-60 ${isNoShow ? 'text-red-500' : 'text-emerald-700'}`}
                                         title="Undo"
                                       >{isNoShow ? '✗' : '✓'}</button>
                                     ) : (
-                                      <div className="flex items-center gap-1">
-                                        <button onClick={() => handleAdminCheckIn('coaching', sessionId, sid)} className="px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-medium leading-none min-h-[22px] flex items-center" title="Check in">✓ In</button>
-                                        <button onClick={() => handleAdminNoShow(sessionId, sid)} className="px-1.5 py-0.5 rounded-full bg-red-400 text-white text-[10px] font-medium leading-none min-h-[22px] flex items-center" title="No show">✗ NS</button>
+                                      <div className="flex items-center gap-0.5">
+                                        <button onClick={() => handleAdminCheckIn('coaching', sessionId, sid)} className="text-[10px] font-semibold text-emerald-700 hover:text-emerald-900 leading-none" title="Check in">✓ In</button>
+                                        <span className="text-gray-400 text-[10px]">·</span>
+                                        <button onClick={() => handleAdminNoShow(sessionId, sid)} className="text-[10px] font-semibold text-red-500 hover:text-red-700 leading-none" title="No show">✗ NS</button>
                                       </div>
                                     )}
                                   </div>
