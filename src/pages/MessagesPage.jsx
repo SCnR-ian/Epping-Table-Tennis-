@@ -35,7 +35,25 @@ export default function MessagesPage() {
   const [admins, setAdmins] = useState([])
   const messagesEndRef = useRef(null)
   const messagesContainerRef = useRef(null)
+  const threadContainerRef = useRef(null)
   const inputRef = useRef(null)
+  const [threadHeight, setThreadHeight] = useState(null)
+
+  // Resize thread container when iOS keyboard opens/closes
+  useEffect(() => {
+    if (view !== 'thread') return
+    const updateHeight = () => {
+      const vv = window.visualViewport
+      if (vv) setThreadHeight(vv.height)
+    }
+    updateHeight()
+    window.visualViewport?.addEventListener('resize', updateHeight)
+    window.visualViewport?.addEventListener('scroll', updateHeight)
+    return () => {
+      window.visualViewport?.removeEventListener('resize', updateHeight)
+      window.visualViewport?.removeEventListener('scroll', updateHeight)
+    }
+  }, [view])
 
   const scrollToBottom = useCallback(() => {
     const el = messagesContainerRef.current
@@ -119,7 +137,11 @@ export default function MessagesPage() {
   // ── Thread view (full-screen fixed layout like WeChat) ──────────────────────
   if (view === 'thread') {
     return (
-      <div className="fixed inset-0 top-[84px] flex flex-col bg-[#f5f5f5]">
+      <div
+        ref={threadContainerRef}
+        className="fixed inset-x-0 top-[84px] flex flex-col bg-[#f5f5f5]"
+        style={{ height: threadHeight ? threadHeight - 84 : 'calc(100dvh - 84px)' }}
+      >
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200 shrink-0">
           <button
