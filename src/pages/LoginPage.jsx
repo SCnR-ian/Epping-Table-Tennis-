@@ -46,8 +46,8 @@ export default function LoginPage() {
       <div className="relative z-10 w-full max-w-md animate-slide-up">
         {/* Header */}
         <div className="text-center mb-8">
-          <Link to="/" className="font-display text-3xl text-white tracking-widest">
-            SPIN<span className="text-brand-500">&</span>WIN
+          <Link to="/" className="font-display text-2xl text-white tracking-widest">
+            EPPING TABLE TENNIS
           </Link>
           <h1 className="font-display text-4xl text-white mt-4 tracking-wider">Welcome Back</h1>
           <p className="text-slate-500 mt-2 text-sm">Sign in to your account to continue</p>
