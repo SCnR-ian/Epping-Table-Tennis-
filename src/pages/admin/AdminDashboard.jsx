@@ -2579,23 +2579,14 @@ const [sessionForm,      setSessionForm]      = useState({
                             <p className={`text-xs leading-tight font-medium break-words ${isNoShow ? 'text-red-500 line-through' : 'text-emerald-900'}`}>{ev.student_name}</p>
                             <p className="text-emerald-700 text-xs mt-0.5 leading-tight">Coach: {ev.coach_name}</p>
                             <p className="text-emerald-700 text-xs mt-0.5 leading-tight">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
-                            <div className="mt-auto flex items-center justify-between gap-1 pt-1">
-                              {checkedIn ? (
-                                <button
-                                  onClick={() => handleAdminUndoCheckIn('coaching', ev.id, ev.student_id)}
-                                  className={`text-xs leading-none transition-colors hover:text-red-600 ${isNoShow ? 'text-red-400' : 'text-emerald-600'}`}
-                                  title="Undo"
-                                >{isNoShow ? '✗ No Show' : '✓ In'}</button>
-                              ) : (
-                                <div className="flex items-center gap-1">
-                                  <button onClick={() => handleAdminCheckIn('coaching', ev.id, ev.student_id)} className="px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-medium leading-none min-h-[24px] flex items-center">✓ In</button>
-                                  <button onClick={() => handleAdminNoShow(ev.id, ev.student_id)} className="px-1.5 py-0.5 rounded-full bg-red-400 text-white text-[10px] font-medium leading-none min-h-[24px] flex items-center">✗ NS</button>
-                                </div>
+                            <div className="mt-auto flex items-center gap-2 pt-1">
+                              {checkedIn && (
+                                <span className={`text-[10px] font-medium ${isNoShow ? 'text-red-400' : 'text-emerald-600'}`}>
+                                  {isNoShow ? '✗ NS' : '✓ In'}
+                                </span>
                               )}
-                              <div className="flex items-center gap-1">
-                                <button onClick={() => setCalendarReschedule({ type: 'solo', ev, newDate: selectedDate, newStart: ev.start_time.slice(0,5), newEnd: ev.end_time.slice(0,5), saving: false, _slots: openTimeSlots })} className="text-xs text-blue-600 hover:text-blue-800 leading-none">Edit</button>
-                                <button onClick={() => handleCancelSession(ev.id)} className="text-xs text-red-600 hover:text-red-800 leading-none">Cancel</button>
-                              </div>
+                              <button onClick={() => setCalendarReschedule({ type: 'solo', ev, newDate: selectedDate, newStart: ev.start_time.slice(0,5), newEnd: ev.end_time.slice(0,5), saving: false, _slots: openTimeSlots })} className="text-xs text-blue-600 hover:text-blue-800 leading-none">Edit</button>
+                              <button onClick={() => handleCancelSession(ev.id)} className="text-xs text-red-600 hover:text-red-800 leading-none">Cancel</button>
                             </div>
                           </div>
                         )
@@ -2618,19 +2609,10 @@ const [sessionForm,      setSessionForm]      = useState({
                                 const ciIn     = !!ciRecord
                                 const isNoShow = ciRecord?.no_show === true
                                 return (
-                                  <div key={i} className="flex items-center gap-1 flex-wrap">
+                                  <div key={i} className="flex items-center gap-1">
                                     <span className={`text-xs leading-tight font-medium break-words ${isNoShow ? 'text-red-400 line-through' : 'text-teal-900'}`}>{name}</span>
-                                    {ciIn ? (
-                                      <button
-                                        onClick={() => handleAdminUndoCheckIn('coaching', sessionId, sid)}
-                                        className={`text-[10px] leading-none transition-colors hover:text-red-600 ${isNoShow ? 'text-red-400' : 'text-emerald-600'}`}
-                                        title="Undo"
-                                      >{isNoShow ? '✗' : '✓'}</button>
-                                    ) : (
-                                      <div className="flex items-center gap-1">
-                                        <button onClick={() => handleAdminCheckIn('coaching', sessionId, sid)} className="px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-medium leading-none min-h-[22px] flex items-center" title="Check in">✓ In</button>
-                                        <button onClick={() => handleAdminNoShow(sessionId, sid)} className="px-1.5 py-0.5 rounded-full bg-red-400 text-white text-[10px] font-medium leading-none min-h-[22px] flex items-center" title="No show">✗ NS</button>
-                                      </div>
+                                    {ciIn && (
+                                      <span className={`text-[10px] font-medium ${isNoShow ? 'text-red-400' : 'text-emerald-600'}`}>{isNoShow ? '✗' : '✓'}</span>
                                     )}
                                   </div>
                                 )
@@ -4241,17 +4223,80 @@ const [sessionForm,      setSessionForm]      = useState({
       {/* ── Calendar Reschedule Modal ─────────────────────────────────────── */}
       {calendarReschedule && (() => {
         const { ev, newDate, newStart, newEnd } = calendarReschedule
-        const label = calendarReschedule.type === 'solo'
-          ? ev.student_name
-          : ev.student_names?.join(', ')
+        const isSolo = calendarReschedule.type === 'solo'
+        const label = isSolo ? ev.student_name : ev.student_names?.join(', ')
+
+        // Check-in state for solo
+        const soloCiRecord = isSolo
+          ? adminCheckIns.find(ci => ci.type === 'coaching' && ci.reference_id === String(ev.id) && ci.user_id === ev.student_id)
+          : null
+        const soloCheckedIn = !!soloCiRecord
+        const soloIsNoShow  = soloCiRecord?.no_show === true
+
+        // Check-in state per student for group
+        const groupStudents = !isSolo ? (ev.student_names ?? []).map((name, i) => {
+          const sid = ev.student_ids?.[i]
+          const sessionId = ev.session_ids?.[i]
+          const ciRec = adminCheckIns.find(ci => ci.type === 'coaching' && ci.reference_id === String(sessionId) && ci.user_id === sid)
+          return { name, sid, sessionId, checkedIn: !!ciRec, isNoShow: ciRec?.no_show === true }
+        }) : []
+
+        const todayISO = new Date().toISOString().slice(0, 10)
+        const isPast = (ev.date ?? newDate ?? '')?.slice(0, 10) <= todayISO
+
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
                onClick={e => { if (e.target === e.currentTarget) setCalendarReschedule(null) }}>
             <div className="bg-gray-50 border border-gray-200 rounded-xl w-full max-w-sm p-5 space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-gray-900 text-sm font-normal">Reschedule — {label}</h2>
+                <h2 className="text-gray-900 text-sm font-normal">Edit — {label}</h2>
                 <button onClick={() => setCalendarReschedule(null)} className="text-gray-800 hover:text-gray-900 text-xl leading-none">✕</button>
               </div>
+
+              {/* ── Check-in section ── */}
+              {isPast && (
+                <div className="border border-gray-200 rounded-lg p-3 space-y-2 bg-white">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider">Attendance</p>
+                  {isSolo ? (
+                    <div className="flex items-center gap-2">
+                      {soloCheckedIn ? (
+                        <>
+                          <span className={`text-sm font-medium ${soloIsNoShow ? 'text-red-500' : 'text-emerald-600'}`}>
+                            {soloIsNoShow ? '✗ No Show' : '✓ Checked In'}
+                          </span>
+                          <button onClick={() => handleAdminUndoCheckIn('coaching', ev.id, ev.student_id)} className="text-xs text-gray-400 hover:text-gray-600 underline">Undo</button>
+                        </>
+                      ) : (
+                        <>
+                          <button onClick={() => { handleAdminCheckIn('coaching', ev.id, ev.student_id) }} className="btn-primary text-sm px-4 py-2">✓ Check In</button>
+                          <button onClick={() => handleAdminNoShow(ev.id, ev.student_id)} className="px-4 py-2 rounded-full border border-red-300 text-red-500 text-sm hover:bg-red-50 transition-colors">✗ No Show</button>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {groupStudents.map(({ name, sid, sessionId, checkedIn, isNoShow }) => (
+                        <div key={sid} className="flex items-center justify-between gap-2">
+                          <span className={`text-sm ${isNoShow ? 'text-red-400 line-through' : 'text-gray-800'}`}>{name}</span>
+                          {checkedIn ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-xs font-medium ${isNoShow ? 'text-red-500' : 'text-emerald-600'}`}>{isNoShow ? '✗ No Show' : '✓ In'}</span>
+                              <button onClick={() => handleAdminUndoCheckIn('coaching', sessionId, sid)} className="text-xs text-gray-400 hover:text-gray-600 underline">Undo</button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <button onClick={() => handleAdminCheckIn('coaching', sessionId, sid)} className="px-3 py-1 rounded-full bg-emerald-600 text-white text-xs font-medium">✓ In</button>
+                              <button onClick={() => handleAdminNoShow(sessionId, sid)} className="px-3 py-1 rounded-full bg-red-400 text-white text-xs font-medium">✗ NS</button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Reschedule section ── */}
               <div className="space-y-3">
                 <div>
                   <label className="block text-xs text-gray-800 mb-1">Date</label>
@@ -4283,7 +4328,7 @@ const [sessionForm,      setSessionForm]      = useState({
                   className="btn-primary flex-1 disabled:opacity-50">
                   {calendarReschedule.saving ? 'Saving…' : 'Save'}
                 </button>
-                <button onClick={() => setCalendarReschedule(null)} className="btn-secondary flex-1">Cancel</button>
+                <button onClick={() => setCalendarReschedule(null)} className="btn-secondary flex-1">Close</button>
               </div>
             </div>
           </div>
