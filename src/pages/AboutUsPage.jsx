@@ -2,6 +2,36 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { homepageAPI } from "@/api/api";
 
+const BANNER_IMAGES = [
+  "/images/ETTC1.jpg",
+  "/images/ETTC2.jpg",
+  "/images/ETTC3.jpg",
+  "/images/ETTC4.jpg",
+  "/images/ETTC5.jpg",
+  "/images/ETTC6.jpg",
+]
+
+function BannerSlideshow({ className = "" }) {
+  const [current, setCurrent] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setCurrent(i => (i + 1) % BANNER_IMAGES.length), 4000)
+    return () => clearInterval(t)
+  }, [])
+  return (
+    <div className={`relative overflow-hidden ${className}`}>
+      {BANNER_IMAGES.map((src, i) => (
+        <img
+          key={src}
+          src={src}
+          alt="Epping Table Tennis"
+          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000"
+          style={{ opacity: i === current ? 1 : 0 }}
+        />
+      ))}
+    </div>
+  )
+}
+
 const COACHES = [
   {
     id: 1,
@@ -78,13 +108,7 @@ export default function AboutUsPage() {
       </section>
 
       {/* ── Full-width photo ─────────────────────────────────────────────── */}
-      <div className="w-full h-screen overflow-hidden">
-        <img
-          src="/images/hero.jpg"
-          alt="Epping Table Tennis"
-          className="w-full h-full object-cover"
-        />
-      </div>
+      <BannerSlideshow className="w-full h-screen" />
 
       {/* ── Story — text left, image right ───────────────────────────────── */}
       <section className="grid grid-cols-1 lg:grid-cols-2 min-h-[560px]">

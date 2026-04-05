@@ -3,7 +3,35 @@ import { Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { homepageAPI } from "@/api/api";
 
-const HERO_BG = "/images/hero.jpg";
+const BANNER_IMAGES = [
+  "/images/ETTC1.jpg",
+  "/images/ETTC2.jpg",
+  "/images/ETTC3.jpg",
+  "/images/ETTC4.jpg",
+  "/images/ETTC5.jpg",
+  "/images/ETTC6.jpg",
+]
+
+function BannerSlideshow({ className = "" }) {
+  const [current, setCurrent] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setCurrent(i => (i + 1) % BANNER_IMAGES.length), 4000)
+    return () => clearInterval(t)
+  }, [])
+  return (
+    <div className={`relative overflow-hidden ${className}`}>
+      {BANNER_IMAGES.map((src, i) => (
+        <img
+          key={src}
+          src={src}
+          alt="Epping Table Tennis"
+          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000"
+          style={{ opacity: i === current ? 1 : 0 }}
+        />
+      ))}
+    </div>
+  )
+}
 
 const SCHEDULE = [
   { day: "Mon", time: "4:00 – 8:30 PM" },
@@ -45,11 +73,7 @@ export default function HomePage() {
     <div className="bg-white">
       {/* ── Hero ── full screen, text at bottom center ────────────────────── */}
       <section className="relative h-screen -mt-[84px] overflow-hidden">
-        <img
-          src={HERO_BG}
-          alt="Epping Table Tennis Club"
-          className="absolute inset-0 w-full h-full object-cover"
-        />
+        <BannerSlideshow className="absolute inset-0 w-full h-full" />
         {/* gradient: dark at bottom for text, slight at top for navbar */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-black/20" />
 
@@ -132,13 +156,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Full-width photo ─────────────────────────────────────────────── */}
-      <div className="w-full h-screen overflow-hidden">
-        <img
-          src="/images/banner2.jpg"
-          alt="Table tennis"
-          className="w-full h-full object-cover"
-        />
-      </div>
+      <BannerSlideshow className="w-full h-screen" />
 
       {/* ── Programs ─────────────────────────────────────────────────────── */}
       <section className="py-14 px-6 lg:px-10">
@@ -176,13 +194,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Full-width photo 2 ───────────────────────────────────────────── */}
-      <div className="w-full h-screen overflow-hidden">
-        <img
-          src="/images/hero.jpg"
-          alt="Table tennis"
-          className="w-full h-full object-cover"
-        />
-      </div>
+      <BannerSlideshow className="w-full h-screen" />
 
       {/* ── Schedule ─────────────────────────────────────────────────────── */}
       <section className="py-12 px-6 lg:px-10">
