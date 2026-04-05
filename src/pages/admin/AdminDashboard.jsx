@@ -4255,44 +4255,44 @@ const [sessionForm,      setSessionForm]      = useState({
 
               {/* ── Check-in section ── */}
               {isPast && (
-                <div className="border border-gray-200 rounded-lg p-3 space-y-2 bg-white">
-                  <p className="text-xs text-gray-500 uppercase tracking-wider">Attendance</p>
+                <div className="rounded-lg overflow-hidden border border-gray-200">
+                  <div className="bg-gray-100 px-3 py-2 border-b border-gray-200">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Attendance</p>
+                  </div>
+                  <div className="p-3 bg-white space-y-2">
                   {isSolo ? (
-                    <div className="flex items-center gap-2">
-                      {soloCheckedIn ? (
-                        <>
-                          <span className={`text-sm font-medium ${soloIsNoShow ? 'text-red-500' : 'text-emerald-600'}`}>
-                            {soloIsNoShow ? '✗ No Show' : '✓ Checked In'}
-                          </span>
-                          <button onClick={() => handleAdminUndoCheckIn('coaching', ev.id, ev.student_id)} className="text-xs text-gray-400 hover:text-gray-600 underline">Undo</button>
-                        </>
-                      ) : (
-                        <>
-                          <button onClick={() => { handleAdminCheckIn('coaching', ev.id, ev.student_id) }} className="btn-primary text-sm px-4 py-2">✓ Check In</button>
-                          <button onClick={() => handleAdminNoShow(ev.id, ev.student_id)} className="px-4 py-2 rounded-full border border-red-300 text-red-500 text-sm hover:bg-red-50 transition-colors">✗ No Show</button>
-                        </>
-                      )}
-                    </div>
+                    soloCheckedIn ? (
+                      <div className="flex items-center justify-between">
+                        <span className={`text-sm font-medium ${soloIsNoShow ? 'text-red-500' : 'text-emerald-600'}`}>
+                          {soloIsNoShow ? '✗ No Show' : '✓ Checked In'}
+                        </span>
+                        <button onClick={() => handleAdminUndoCheckIn('coaching', ev.id, ev.student_id)} className="text-xs text-gray-400 hover:text-gray-700 underline">Undo</button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        <button onClick={() => handleAdminCheckIn('coaching', ev.id, ev.student_id)} className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors">✓ Check In</button>
+                        <button onClick={() => handleAdminNoShow(ev.id, ev.student_id)} className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-medium transition-colors">✗ No Show</button>
+                      </div>
+                    )
                   ) : (
-                    <div className="space-y-2">
-                      {groupStudents.map(({ name, sid, sessionId, checkedIn, isNoShow }) => (
-                        <div key={sid} className="flex items-center justify-between gap-2">
-                          <span className={`text-sm ${isNoShow ? 'text-red-400 line-through' : 'text-gray-800'}`}>{name}</span>
-                          {checkedIn ? (
-                            <div className="flex items-center gap-1.5">
-                              <span className={`text-xs font-medium ${isNoShow ? 'text-red-500' : 'text-emerald-600'}`}>{isNoShow ? '✗ No Show' : '✓ In'}</span>
-                              <button onClick={() => handleAdminUndoCheckIn('coaching', sessionId, sid)} className="text-xs text-gray-400 hover:text-gray-600 underline">Undo</button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5">
-                              <button onClick={() => handleAdminCheckIn('coaching', sessionId, sid)} className="px-3 py-1 rounded-full bg-emerald-600 text-white text-xs font-medium">✓ In</button>
-                              <button onClick={() => handleAdminNoShow(sessionId, sid)} className="px-3 py-1 rounded-full bg-red-400 text-white text-xs font-medium">✗ NS</button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                    groupStudents.map(({ name, sid, sessionId, checkedIn, isNoShow }) => (
+                      <div key={sid} className="flex items-center justify-between gap-2 py-1 border-b border-gray-100 last:border-0">
+                        <span className={`text-sm ${isNoShow ? 'text-red-400 line-through' : 'text-gray-800'}`}>{name}</span>
+                        {checkedIn ? (
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-medium px-2 py-1 rounded-md ${isNoShow ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-600'}`}>{isNoShow ? '✗ No Show' : '✓ In'}</span>
+                            <button onClick={() => handleAdminUndoCheckIn('coaching', sessionId, sid)} className="text-xs text-gray-400 hover:text-gray-700 underline">Undo</button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <button onClick={() => handleAdminCheckIn('coaching', sessionId, sid)} className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium transition-colors">✓ In</button>
+                            <button onClick={() => handleAdminNoShow(sessionId, sid)} className="px-3 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white text-xs font-medium transition-colors">✗ NS</button>
+                          </div>
+                        )}
+                      </div>
+                    ))
                   )}
+                  </div>
                 </div>
               )}
 
