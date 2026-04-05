@@ -218,4 +218,15 @@ export const homepageAPI = {
   deleteImage:   (id)         => api.delete(`/homepage/admin/cards/${id}/image`),
 }
 
+// ---------------------------------------------------------------------------
+// Messages
+// ---------------------------------------------------------------------------
+export const messagesAPI = {
+  getUnreadCount: ()           => api.get('/messages/unread-count'),
+  getInbox:       ()           => api.get('/messages/inbox'),
+  getThread:      (userId)     => api.get(`/messages/thread/${userId}`),
+  send:           (data)       => api.post('/messages', data),
+  markRead:       (id)         => api.post(`/messages/${id}/read`),
+}
+
 export default api;
