@@ -4294,9 +4294,9 @@ const [sessionForm,      setSessionForm]      = useState({
       {memberModal && (() => {
         const { member, bookings: mBookings, coaching: mCoaching, social: mSocial, coachSessions: mCoachSessions = [], soloBalance, groupBalance } = memberModal
         return (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
+          <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
                onClick={e => { if (e.target === e.currentTarget) { setMemberModal(null); setMemberModalEditId(null); setMemberModalSelected(new Set()) } }}>
-            <div className="bg-gray-50 border border-gray-200 rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="bg-gray-50 border border-gray-200 rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[80vh] sm:max-h-[90vh] flex flex-col mb-20 sm:mb-0">
               {/* Header */}
               <div className="flex items-start justify-between px-6 py-4 border-b border-gray-200 shrink-0">
                 <div>
@@ -4932,9 +4932,9 @@ const [sessionForm,      setSessionForm]      = useState({
         const totalStudents = [...new Set(coachSessions.map(s => s.student_id))].length
 
         return (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
+          <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
                onClick={() => { setCoachViewModal(null); setCoachViewExpanded(new Set()); setCoachViewSelectedDate({}); setCoachSeriesExpanded(new Set()) }}>
-            <div className="bg-gray-50 border border-gray-200 rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+            <div className="bg-gray-50 border border-gray-200 rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[80vh] sm:max-h-[90vh] flex flex-col mb-20 sm:mb-0"
                  onClick={e => e.stopPropagation()}>
               {/* Header */}
               <div className="flex items-start justify-between px-6 py-4 border-b border-gray-200 shrink-0">
