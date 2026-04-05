@@ -104,6 +104,10 @@
   .page-wrapper {
     @apply min-h-screen pt-[84px];
   }
+
+  .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
 }
 
 @keyframes bounce-x {
