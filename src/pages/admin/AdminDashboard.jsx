@@ -2463,7 +2463,6 @@ const [sessionForm,      setSessionForm]      = useState({
                         )
                         const checkedIn = !!ciRecord
                         const isNoShow  = ciRecord?.no_show === true
-                        const isPast    = ev.date <= new Date().toISOString().slice(0, 10)
                         return (
                           <div
                             key={ev.key}
@@ -2480,14 +2479,12 @@ const [sessionForm,      setSessionForm]      = useState({
                                   className={`text-xs leading-none transition-colors hover:text-red-600 ${isNoShow ? 'text-red-400' : 'text-emerald-600'}`}
                                   title="Undo"
                                 >{isNoShow ? '✗ No Show' : '✓ In'}</button>
-                              ) : isPast ? (
+                              ) : (
                                 <div className="flex items-center gap-1">
                                   <button onClick={() => handleAdminCheckIn('coaching', ev.id, ev.student_id)} className="text-xs text-emerald-600 hover:text-emerald-800 leading-none">✓ In</button>
                                   <span className="text-gray-300">|</span>
                                   <button onClick={() => handleAdminNoShow(ev.id, ev.student_id)} className="text-xs text-red-400 hover:text-red-600 leading-none">✗ No Show</button>
                                 </div>
-                              ) : (
-                                <span />
                               )}
                               <div className="flex items-center gap-1">
                                 <button onClick={() => setCalendarReschedule({ type: 'solo', ev, newDate: selectedDate, newStart: ev.start_time.slice(0,5), newEnd: ev.end_time.slice(0,5), saving: false, _slots: openTimeSlots })} className="text-xs text-blue-600 hover:text-blue-800 leading-none">Edit</button>
@@ -2499,7 +2496,6 @@ const [sessionForm,      setSessionForm]      = useState({
                       }
 
                       if (ev.type === 'coaching_group') {
-                        const isPast = ev.date <= new Date().toISOString().slice(0, 10)
                         return (
                           <div
                             key={ev.key}
@@ -2524,12 +2520,12 @@ const [sessionForm,      setSessionForm]      = useState({
                                         className={`text-[10px] leading-none transition-colors hover:text-red-600 ${isNoShow ? 'text-red-400' : 'text-emerald-600'}`}
                                         title="Undo"
                                       >{isNoShow ? '✗' : '✓'}</button>
-                                    ) : isPast ? (
+                                    ) : (
                                       <div className="flex items-center gap-0.5">
                                         <button onClick={() => handleAdminCheckIn('coaching', sessionId, sid)} className="text-[10px] text-emerald-600 hover:text-emerald-800 leading-none" title="Check in">✓</button>
                                         <button onClick={() => handleAdminNoShow(sessionId, sid)} className="text-[10px] text-red-400 hover:text-red-600 leading-none" title="No show">✗</button>
                                       </div>
-                                    ) : null}
+                                    )}
                                   </div>
                                 )
                               })}
