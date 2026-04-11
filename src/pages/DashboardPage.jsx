@@ -608,6 +608,9 @@ export default function DashboardPage() {
           >
             {savingReview ? 'Saving…' : reviewModal.existingReview ? 'Update Review' : 'Submit Review'}
           </button>
+          {!reviewSkills.length && !reviewBody.trim() && (
+            <p className="text-xs text-center text-gray-400">Select at least one skill or add notes to submit</p>
+          )}
         </div>
       </div>
     )}
