@@ -1446,18 +1446,23 @@ router.get('/reviews/session/:sessionId', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ message: 'Server error.' }) }
 })
 
-// POST /api/coaching/reviews  — coach creates a review for a session
+// POST /api/coaching/reviews  — coach creates a review for a session (also auto check-in)
 // body: { session_id, skills, body }
 router.post('/reviews', requireAuth, async (req, res) => {
   const { session_id, skills = [], body = '' } = req.body
   if (!session_id) return res.status(400).json({ message: 'session_id is required.' })
   if (!skills.length && !body.trim())
     return res.status(400).json({ message: 'At least one skill or notes required.' })
+  const client = await pool.connect()
   try {
     const coachRow = await pool.query('SELECT id FROM coaches WHERE user_id=$1', [req.user.id])
     if (!coachRow.rows[0]) return res.status(403).json({ message: 'Not a coach.' })
     const coachId = coachRow.rows[0].id
-    const { rows } = await pool.query(
+
+    await client.query('BEGIN')
+
+    // Insert review
+    const { rows } = await client.query(
       `INSERT INTO coaching_reviews (session_id, coach_id, student_id, skills, body)
        SELECT $1, $2, cs.student_id, $3, $4
        FROM coaching_sessions cs WHERE cs.id=$1
@@ -1465,8 +1470,39 @@ router.post('/reviews', requireAuth, async (req, res) => {
        RETURNING *`,
       [session_id, coachId, JSON.stringify(skills), body.trim()]
     )
+
+    // Auto check-in the student (idempotent)
+    const { rows: [sessRow] } = await client.query(
+      'SELECT student_id, date, group_id FROM coaching_sessions WHERE id=$1', [session_id]
+    )
+    if (sessRow) {
+      const { rowCount: ciCount } = await client.query(
+        `INSERT INTO check_ins (user_id, type, reference_id, date, checked_in_by)
+         VALUES ($1, 'coaching', $2, $3, $4)
+         ON CONFLICT (user_id, type, reference_id) DO NOTHING`,
+        [sessRow.student_id, session_id, sessRow.date, req.user.id]
+      )
+      // Deduct balance only on first check-in
+      if (ciCount > 0) {
+        const sessionType = sessRow.group_id ? 'group' : 'solo'
+        const { rows: [priceRow] } = await client.query(
+          'SELECT price FROM coaching_prices WHERE session_type=$1', [sessionType]
+        )
+        const amount = priceRow?.price ?? (sessionType === 'group' ? 50 : 70)
+        await client.query(
+          `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_type, session_id, created_by)
+           VALUES ($1, $2, 'Coaching session attended', $3, $4, $5)`,
+          [sessRow.student_id, -amount, sessionType, session_id, req.user.id]
+        )
+      }
+    }
+
+    await client.query('COMMIT')
     res.status(201).json({ review: rows[0] ?? null })
-  } catch (e) { res.status(500).json({ message: 'Server error.' }) }
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {})
+    res.status(500).json({ message: 'Server error.' })
+  } finally { client.release() }
 })
 
 // PUT /api/coaching/reviews/:id  — coach updates an existing review

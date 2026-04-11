@@ -101,11 +101,12 @@ export default function DashboardPage() {
   const [checkedIn,        setCheckedIn]        = useState(new Set())
   const [hoursBalance,     setHoursBalance]     = useState(null)
   const [loadingData,      setLoadingData]      = useState(false)
-  const [myReviews,    setMyReviews]    = useState([])
-  const [reviewModal,  setReviewModal]  = useState(null) // { sessionId, studentName, date, existingReview }
-  const [reviewSkills, setReviewSkills] = useState([])
-  const [reviewBody,   setReviewBody]   = useState('')
-  const [savingReview, setSavingReview] = useState(false)
+  const [myReviews,       setMyReviews]       = useState([])
+  const [reviewModal,     setReviewModal]     = useState(null) // { sessionId, studentName, date, existingReview }
+  const [reviewSkills,    setReviewSkills]    = useState([])
+  const [reviewBody,      setReviewBody]      = useState('')
+  const [savingReview,    setSavingReview]    = useState(false)
+  const [pastReviewsOpen, setPastReviewsOpen] = useState(false)
 
   const todayDow = new Date().getDay() || 7
   const defaultDow = CHECKIN_DOWS.includes(todayDow) ? todayDow : 1
@@ -281,47 +282,79 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Session Reviews (coach view) */}
-          {coachSessions.length > 0 && (
-            <div className="border border-gray-300 rounded-xl p-6">
-              <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 mb-4">Session Reviews</p>
-              <div className="divide-y divide-gray-200">
-                {coachSessions.map(s => (
-                  <div key={s.id} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm text-gray-900 truncate">{s.student_name}</p>
-                      <p className="text-xs text-gray-500">
-                        {new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'})}
-                        {' · '}{fmtTime(s.start_time)}–{fmtTime(s.end_time)}
-                      </p>
+          {/* Session Reviews — today only (coach view) */}
+          {(() => {
+            const todaySessions   = coachSessions.filter(s => s.date?.slice(0,10) === todayISO)
+            const pastWithReviews = coachSessions.filter(s => s.date?.slice(0,10) < todayISO && s.has_review)
+            const openReviewModal = async (s) => {
+              let existingReview = null
+              if (s.has_review) {
+                try { const r = await coachingAPI.getSessionReview(s.id); existingReview = r.data.review } catch {}
+              }
+              setReviewSkills(existingReview?.skills ?? [])
+              setReviewBody(existingReview?.body ?? '')
+              setReviewModal({
+                sessionId: s.id,
+                studentName: s.student_name,
+                date: new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}),
+                existingReview,
+              })
+            }
+            if (todaySessions.length === 0 && pastWithReviews.length === 0) return null
+            return (
+              <>
+                {/* Today */}
+                <div className="border border-gray-300 rounded-xl p-6">
+                  <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 mb-4">Session Reviews</p>
+                  {todaySessions.length === 0 ? (
+                    <p className="text-sm text-gray-500">No sessions today.</p>
+                  ) : (
+                    <div className="divide-y divide-gray-200">
+                      {todaySessions.map(s => (
+                        <div key={s.id} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm text-gray-900 truncate">{s.student_name}</p>
+                            <p className="text-xs text-gray-500">{fmtTime(s.start_time)}–{fmtTime(s.end_time)}</p>
+                          </div>
+                          <button onClick={() => openReviewModal(s)} className="flex-shrink-0 text-xs text-sky-600 hover:text-sky-500 whitespace-nowrap">
+                            {s.has_review ? '✎ Edit' : 'Write Review'}
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                    <button
-                      onClick={async () => {
-                        let existingReview = null
-                        if (s.has_review) {
-                          try {
-                            const res = await coachingAPI.getSessionReview(s.id)
-                            existingReview = res.data.review
-                          } catch {}
-                        }
-                        setReviewSkills(existingReview?.skills ?? [])
-                        setReviewBody(existingReview?.body ?? '')
-                        setReviewModal({
-                          sessionId: s.id,
-                          studentName: s.student_name,
-                          date: new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}),
-                          existingReview,
-                        })
-                      }}
-                      className="flex-shrink-0 text-xs text-sky-600 hover:text-sky-500 whitespace-nowrap"
-                    >
-                      {s.has_review ? '✎ Edit' : 'Write Review'}
+                  )}
+                </div>
+
+                {/* Past Reviews (collapsible) */}
+                {pastWithReviews.length > 0 && (
+                  <div className="border border-gray-300 rounded-xl p-6">
+                    <button onClick={() => setPastReviewsOpen(o => !o)} className="flex items-center justify-between w-full">
+                      <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800">Past Reviews</p>
+                      <span className="text-xs text-gray-400">{pastReviewsOpen ? '▲' : '▼'}</span>
                     </button>
+                    {pastReviewsOpen && (
+                      <div className="divide-y divide-gray-200 mt-4">
+                        {pastWithReviews.map(s => (
+                          <div key={s.id} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm text-gray-900 truncate">{s.student_name}</p>
+                              <p className="text-xs text-gray-500">
+                                {new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})}
+                                {' · '}{fmtTime(s.start_time)}–{fmtTime(s.end_time)}
+                              </p>
+                            </div>
+                            <button onClick={() => openReviewModal(s)} className="flex-shrink-0 text-xs text-sky-600 hover:text-sky-500 whitespace-nowrap">
+                              ✎ Edit
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                )}
+              </>
+            )
+          })()}
 
           {/* Check-In */}
           <div className="border border-gray-300 rounded-xl p-6">
