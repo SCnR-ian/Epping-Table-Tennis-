@@ -40,6 +40,7 @@ export default function FloatingMessages() {
   const [minimized, setMinimized] = useState(false)
   // new state
   const [activeMsg, setActiveMsg]     = useState(null)   // msg id with popup open
+  const [activeMsgAnchor, setActiveMsgAnchor] = useState(null) // { top, left, right, isMe }
   const [editingMsg, setEditingMsg]   = useState(null)   // msg id being edited
   const [editBody, setEditBody]       = useState('')
   const [attachPreview, setAttachPreview] = useState(null) // { data, type, name }
@@ -93,6 +94,7 @@ export default function FloatingMessages() {
     setThreadUser(otherUser)
     setView('thread')
     setActiveMsg(null)
+    setActiveMsgAnchor(null)
     setEditingMsg(null)
     await loadThread(otherUser.id, true)
     setTimeout(() => inputRef.current?.focus(), 150)
@@ -150,6 +152,7 @@ export default function FloatingMessages() {
     } catch {}
     setEditingMsg(null)
     setActiveMsg(null)
+    setActiveMsgAnchor(null)
   }
 
   const handleDelete = async (msgId) => {
@@ -158,6 +161,7 @@ export default function FloatingMessages() {
       setThread(prev => prev.map(m => m.id === msgId ? { ...m, deleted: true, body: null } : m))
     } catch {}
     setActiveMsg(null)
+    setActiveMsgAnchor(null)
   }
 
   const handleReact = async (msgId, emoji) => {
@@ -166,6 +170,7 @@ export default function FloatingMessages() {
       setThread(prev => prev.map(m => m.id === msgId ? { ...m, reactions: data.reactions } : m))
     } catch {}
     setActiveMsg(null)
+    setActiveMsgAnchor(null)
   }
 
   // Find the last message sent by me that the recipient has read
@@ -206,7 +211,7 @@ export default function FloatingMessages() {
           <div
             className={`fixed z-[9999] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden inset-x-0 bottom-0 rounded-b-none sm:inset-x-auto sm:bottom-24 sm:right-4 sm:w-[360px] sm:rounded-2xl transition-all duration-200 ${minimized ? 'h-auto sm:h-auto' : 'h-[82vh] sm:h-[520px]'}`}
             style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)' }}
-            onClick={() => { if (activeMsg) setActiveMsg(null) }}
+            onClick={() => { if (activeMsg) { setActiveMsg(null); setActiveMsgAnchor(null) } }}
           >
 
             {/* ── Inbox ── */}
@@ -286,7 +291,7 @@ export default function FloatingMessages() {
             {view === 'thread' && (
               <>
                 <div className="flex items-center gap-2 px-3 py-3 border-b border-gray-100 shrink-0">
-                  <button onClick={() => { setView('inbox'); setThread([]); setActiveMsg(null); setEditingMsg(null) }} className="p-1 text-gray-500 hover:text-black">
+                  <button onClick={() => { setView('inbox'); setThread([]); setActiveMsg(null); setActiveMsgAnchor(null); setEditingMsg(null) }} className="p-1 text-gray-500 hover:text-black">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                     </svg>
@@ -329,15 +334,26 @@ export default function FloatingMessages() {
                                   autoFocus
                                   value={editBody}
                                   onChange={e => setEditBody(e.target.value)}
-                                  onKeyDown={e => { if (e.key === 'Enter') handleEdit(msg); if (e.key === 'Escape') { setEditingMsg(null); setActiveMsg(null) } }}
+                                  onKeyDown={e => { if (e.key === 'Enter') handleEdit(msg); if (e.key === 'Escape') { setEditingMsg(null); setActiveMsg(null); setActiveMsgAnchor(null) } }}
                                   className="flex-1 bg-white border border-gray-300 rounded-full px-3 py-1.5 text-sm focus:outline-none"
                                 />
                                 <button onClick={() => handleEdit(msg)} className="text-[#07c160] text-xs font-medium">✓</button>
-                                <button onClick={() => { setEditingMsg(null); setActiveMsg(null) }} className="text-gray-400 text-xs">✕</button>
+                                <button onClick={() => { setEditingMsg(null); setActiveMsg(null); setActiveMsgAnchor(null) }} className="text-gray-400 text-xs">✕</button>
                               </div>
                             ) : (
                               <div
-                                onClick={e => { e.stopPropagation(); if (!msg.deleted) setActiveMsg(isActive ? null : msg.id) }}
+                                onClick={e => {
+                                  e.stopPropagation()
+                                  if (!msg.deleted) {
+                                    if (isActive) {
+                                      setActiveMsg(null); setActiveMsgAnchor(null)
+                                    } else {
+                                      const r = e.currentTarget.getBoundingClientRect()
+                                      setActiveMsgAnchor({ top: r.top, left: r.left, right: r.right, isMe })
+                                      setActiveMsg(msg.id)
+                                    }
+                                  }
+                                }}
                                 className={`px-3 py-2 rounded-2xl text-sm leading-relaxed cursor-pointer select-none ${
                                   msg.deleted
                                     ? 'bg-gray-100 text-gray-400 italic rounded-bl-sm'
@@ -355,39 +371,6 @@ export default function FloatingMessages() {
                                     {msg.edited_at && !msg.deleted && (
                                       <span className={`text-[10px] ml-1 ${isMe ? 'text-white/60' : 'text-gray-400'}`}>edited</span>
                                     )}
-                                  </>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Action popup */}
-                            {isActive && !isEditing && (
-                              <div
-                                onClick={e => e.stopPropagation()}
-                                className={`absolute z-10 bg-white rounded-2xl shadow-xl border border-gray-100 p-2 flex flex-col gap-1 min-w-[140px] ${isMe ? 'right-0' : 'left-0'} bottom-full mb-1`}
-                              >
-                                {/* Emoji row */}
-                                <div className="flex gap-1 px-1 pb-1 border-b border-gray-100">
-                                  {PRESET_EMOJIS.map(emoji => {
-                                    const reacted = msg.reactions?.some(r => r.emoji === emoji && r.reacted_by_me)
-                                    return (
-                                      <button key={emoji} onClick={() => handleReact(msg.id, emoji)}
-                                        className={`text-lg p-0.5 rounded-full transition-colors ${reacted ? 'bg-green-100' : 'hover:bg-gray-100'}`}>
-                                        {emoji}
-                                      </button>
-                                    )
-                                  })}
-                                </div>
-                                {isMe && !msg.deleted && (
-                                  <>
-                                    <button onClick={() => { setEditBody(msg.body); setEditingMsg(msg.id); setActiveMsg(null) }}
-                                      className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50 rounded-xl">
-                                      ✎ Edit
-                                    </button>
-                                    <button onClick={() => handleDelete(msg.id)}
-                                      className="flex items-center gap-2 px-2 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-xl">
-                                      🗑 Delete
-                                    </button>
                                   </>
                                 )}
                               </div>
@@ -414,6 +397,49 @@ export default function FloatingMessages() {
                     )
                   })}
                 </div>}
+
+                {/* Fixed action popup — outside scroll container so it's never clipped */}
+                {activeMsg && activeMsgAnchor && !editingMsg && (() => {
+                  const activeMsgData = thread.find(m => m.id === activeMsg)
+                  if (!activeMsgData) return null
+                  const popupIsMe = activeMsgData.sender_id === user?.id
+                  const spaceAbove = activeMsgAnchor.top
+                  const showBelow = spaceAbove < 120
+                  return (
+                    <div
+                      onClick={e => e.stopPropagation()}
+                      className="fixed z-[99999] bg-white rounded-2xl shadow-xl border border-gray-100 p-2 flex flex-col gap-1 min-w-[160px]"
+                      style={showBelow
+                        ? { top: activeMsgAnchor.top + 40, ...(popupIsMe ? { right: window.innerWidth - activeMsgAnchor.right } : { left: activeMsgAnchor.left }) }
+                        : { bottom: window.innerHeight - activeMsgAnchor.top + 6, ...(popupIsMe ? { right: window.innerWidth - activeMsgAnchor.right } : { left: activeMsgAnchor.left }) }
+                      }
+                    >
+                      <div className="flex gap-1 px-1 pb-1 border-b border-gray-100">
+                        {PRESET_EMOJIS.map(emoji => {
+                          const reacted = activeMsgData.reactions?.some(r => r.emoji === emoji && r.reacted_by_me)
+                          return (
+                            <button key={emoji} onClick={() => handleReact(activeMsg, emoji)}
+                              className={`text-lg p-0.5 rounded-full transition-colors ${reacted ? 'bg-green-100' : 'hover:bg-gray-100'}`}>
+                              {emoji}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {popupIsMe && !activeMsgData.deleted && (
+                        <>
+                          <button onClick={() => { setEditBody(activeMsgData.body); setEditingMsg(activeMsg); setActiveMsg(null); setActiveMsgAnchor(null) }}
+                            className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50 rounded-xl">
+                            ✎ Edit
+                          </button>
+                          <button onClick={() => handleDelete(activeMsg)}
+                            className="flex items-center gap-2 px-2 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-xl">
+                            🗑 Delete
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )
+                })()}
 
                 {/* Attachment preview */}
                 {!minimized && attachPreview && (

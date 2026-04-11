@@ -37,6 +37,7 @@ export default function MessagesPage() {
   const [admins, setAdmins] = useState([])
   // new state
   const [activeMsg, setActiveMsg] = useState(null)
+  const [activeMsgAnchor, setActiveMsgAnchor] = useState(null)
   const [editingMsg, setEditingMsg] = useState(null)
   const [editBody, setEditBody] = useState('')
   const [attachPreview, setAttachPreview] = useState(null)
@@ -107,6 +108,7 @@ export default function MessagesPage() {
     setThreadUser(otherUser)
     setView('thread')
     setActiveMsg(null)
+    setActiveMsgAnchor(null)
     setEditingMsg(null)
     await loadThread(otherUser.id, true)
     setTimeout(() => inputRef.current?.focus(), 100)
@@ -163,6 +165,7 @@ export default function MessagesPage() {
     } catch {}
     setEditingMsg(null)
     setActiveMsg(null)
+    setActiveMsgAnchor(null)
   }
 
   const handleDelete = async (msgId) => {
@@ -171,6 +174,7 @@ export default function MessagesPage() {
       setThread(prev => prev.map(m => m.id === msgId ? { ...m, deleted: true, body: null } : m))
     } catch {}
     setActiveMsg(null)
+    setActiveMsgAnchor(null)
   }
 
   const handleReact = async (msgId, emoji) => {
@@ -179,6 +183,7 @@ export default function MessagesPage() {
       setThread(prev => prev.map(m => m.id === msgId ? { ...m, reactions: data.reactions } : m))
     } catch {}
     setActiveMsg(null)
+    setActiveMsgAnchor(null)
   }
 
   // Find the last message sent by me that the recipient has read
@@ -195,7 +200,7 @@ export default function MessagesPage() {
         ref={threadContainerRef}
         className="fixed inset-x-0 top-[84px] flex flex-col bg-[#f5f5f5]"
         style={{ height: threadHeight ? threadHeight - 84 : 'calc(100dvh - 84px)' }}
-        onClick={() => { if (activeMsg) setActiveMsg(null) }}
+        onClick={() => { if (activeMsg) { setActiveMsg(null); setActiveMsgAnchor(null) } }}
       >
         {/* Hidden file input */}
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
@@ -203,7 +208,7 @@ export default function MessagesPage() {
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200 shrink-0">
           <button
-            onClick={() => { setView('inbox'); setThread([]); setThreadUser(null); setBody(''); setActiveMsg(null); setEditingMsg(null) }}
+            onClick={() => { setView('inbox'); setThread([]); setThreadUser(null); setBody(''); setActiveMsg(null); setActiveMsgAnchor(null); setEditingMsg(null) }}
             className="p-1 -ml-1 text-gray-600 hover:text-black"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -242,15 +247,26 @@ export default function MessagesPage() {
                           autoFocus
                           value={editBody}
                           onChange={e => setEditBody(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') handleEdit(msg); if (e.key === 'Escape') { setEditingMsg(null); setActiveMsg(null) } }}
+                          onKeyDown={e => { if (e.key === 'Enter') handleEdit(msg); if (e.key === 'Escape') { setEditingMsg(null); setActiveMsg(null); setActiveMsgAnchor(null) } }}
                           className="flex-1 bg-white border border-gray-300 rounded-full px-3 py-1.5 text-sm focus:outline-none"
                         />
                         <button onClick={() => handleEdit(msg)} className="text-[#07c160] text-xs font-medium">✓</button>
-                        <button onClick={() => { setEditingMsg(null); setActiveMsg(null) }} className="text-gray-400 text-xs">✕</button>
+                        <button onClick={() => { setEditingMsg(null); setActiveMsg(null); setActiveMsgAnchor(null) }} className="text-gray-400 text-xs">✕</button>
                       </div>
                     ) : (
                       <div
-                        onClick={e => { e.stopPropagation(); if (!msg.deleted) setActiveMsg(isActive ? null : msg.id) }}
+                        onClick={e => {
+                          e.stopPropagation()
+                          if (!msg.deleted) {
+                            if (isActive) {
+                              setActiveMsg(null); setActiveMsgAnchor(null)
+                            } else {
+                              const r = e.currentTarget.getBoundingClientRect()
+                              setActiveMsgAnchor({ top: r.top, left: r.left, right: r.right, isMe })
+                              setActiveMsg(msg.id)
+                            }
+                          }
+                        }}
                         className={`px-3.5 py-2 rounded-2xl text-sm leading-relaxed cursor-pointer select-none ${
                           msg.deleted
                             ? 'bg-gray-100 text-gray-400 italic'
@@ -268,39 +284,6 @@ export default function MessagesPage() {
                             {msg.edited_at && !msg.deleted && (
                               <span className={`text-[10px] ml-1 ${isMe ? 'text-white/60' : 'text-gray-400'}`}>edited</span>
                             )}
-                          </>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Action popup */}
-                    {isActive && !isEditing && (
-                      <div
-                        onClick={e => e.stopPropagation()}
-                        className={`absolute z-10 bg-white rounded-2xl shadow-xl border border-gray-100 p-2 flex flex-col gap-1 min-w-[140px] ${isMe ? 'right-0' : 'left-0'} bottom-full mb-1`}
-                      >
-                        {/* Emoji row */}
-                        <div className="flex gap-1 px-1 pb-1 border-b border-gray-100">
-                          {PRESET_EMOJIS.map(emoji => {
-                            const reacted = msg.reactions?.some(r => r.emoji === emoji && r.reacted_by_me)
-                            return (
-                              <button key={emoji} onClick={() => handleReact(msg.id, emoji)}
-                                className={`text-lg p-0.5 rounded-full transition-colors ${reacted ? 'bg-green-100' : 'hover:bg-gray-100'}`}>
-                                {emoji}
-                              </button>
-                            )
-                          })}
-                        </div>
-                        {isMe && !msg.deleted && (
-                          <>
-                            <button onClick={() => { setEditBody(msg.body); setEditingMsg(msg.id); setActiveMsg(null) }}
-                              className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50 rounded-xl">
-                              ✎ Edit
-                            </button>
-                            <button onClick={() => handleDelete(msg.id)}
-                              className="flex items-center gap-2 px-2 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-xl">
-                              🗑 Delete
-                            </button>
                           </>
                         )}
                       </div>
@@ -328,6 +311,48 @@ export default function MessagesPage() {
             )
           })}
         </div>
+
+        {/* Fixed action popup — outside scroll container so it's never clipped */}
+        {activeMsg && activeMsgAnchor && !editingMsg && (() => {
+          const activeMsgData = thread.find(m => m.id === activeMsg)
+          if (!activeMsgData) return null
+          const popupIsMe = activeMsgData.sender_id === user?.id
+          const showBelow = activeMsgAnchor.top < 160
+          return (
+            <div
+              onClick={e => e.stopPropagation()}
+              className="fixed z-[99999] bg-white rounded-2xl shadow-xl border border-gray-100 p-2 flex flex-col gap-1 min-w-[160px]"
+              style={showBelow
+                ? { top: activeMsgAnchor.top + 40, ...(popupIsMe ? { right: window.innerWidth - activeMsgAnchor.right } : { left: activeMsgAnchor.left }) }
+                : { bottom: window.innerHeight - activeMsgAnchor.top + 6, ...(popupIsMe ? { right: window.innerWidth - activeMsgAnchor.right } : { left: activeMsgAnchor.left }) }
+              }
+            >
+              <div className="flex gap-1 px-1 pb-1 border-b border-gray-100">
+                {PRESET_EMOJIS.map(emoji => {
+                  const reacted = activeMsgData.reactions?.some(r => r.emoji === emoji && r.reacted_by_me)
+                  return (
+                    <button key={emoji} onClick={() => handleReact(activeMsg, emoji)}
+                      className={`text-lg p-0.5 rounded-full transition-colors ${reacted ? 'bg-green-100' : 'hover:bg-gray-100'}`}>
+                      {emoji}
+                    </button>
+                  )
+                })}
+              </div>
+              {popupIsMe && !activeMsgData.deleted && (
+                <>
+                  <button onClick={() => { setEditBody(activeMsgData.body); setEditingMsg(activeMsg); setActiveMsg(null); setActiveMsgAnchor(null) }}
+                    className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50 rounded-xl">
+                    ✎ Edit
+                  </button>
+                  <button onClick={() => handleDelete(activeMsg)}
+                    className="flex items-center gap-2 px-2 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-xl">
+                    🗑 Delete
+                  </button>
+                </>
+              )}
+            </div>
+          )
+        })()}
 
         {/* Attachment preview */}
         {attachPreview && (
