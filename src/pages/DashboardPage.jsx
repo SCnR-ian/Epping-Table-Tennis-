@@ -437,60 +437,6 @@ export default function DashboardPage() {
             )
           })()}
 
-          {/* Check-In */}
-          <div className="border border-gray-300 rounded-xl p-6">
-            <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 mb-4">Check-In</p>
-            <div className="flex gap-2 mb-5">
-              {CHECKIN_DOWS.map(dow => {
-                const date    = weeks[0][dow]
-                const dateISO = toISO(date)
-                const isToday = dateISO === todayISO
-                const dayLabel = date.toLocaleDateString('en-AU', { weekday: 'short' })
-                const dateNum  = date.getDate()
-                return (
-                  <button
-                    key={dow}
-                    onClick={() => setSelectedCheckInDay(dow)}
-                    className={`relative flex-1 py-2 text-xs border transition-colors flex flex-col items-center gap-0.5 ${
-                      selectedCheckInDay === dow
-                        ? 'bg-black border-black text-white'
-                        : 'border-gray-400 text-gray-700 hover:border-black hover:text-black'
-                    }`}
-                  >
-                    <span className="uppercase tracking-wide">{dayLabel}</span>
-                    <span className="text-xs opacity-70">{dateNum}</span>
-                    {isToday && <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-black" />}
-                  </button>
-                )
-              })}
-            </div>
-            {dayActivities.length === 0 ? (
-              <p className="text-sm text-gray-700">No sessions scheduled.</p>
-            ) : (
-              <div className="divide-y divide-gray-300">
-                {dayActivities.map(act => {
-                  const key     = `${act.type}:${act.refId}`
-                  const done    = checkedIn.has(key)
-                  return (
-                    <div key={key} className="py-3 first:pt-0 last:pb-0">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm text-black">{act.title}</p>
-                          <p className="text-sm text-gray-800">{act.subtitle}</p>
-                          <p className="text-xs text-gray-700 mt-0.5">{act.time}</p>
-                        </div>
-                        {done
-                          ? <span className="text-xs text-black flex-shrink-0">✓ Checked In</span>
-                          : <span className="text-xs text-gray-700 flex-shrink-0">Upcoming</span>
-                        }
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-
           {/* Quick Links */}
           <div className="border border-gray-300 rounded-xl overflow-hidden">
             {[['Profile Settings', '/profile'], ['Social Play', '/play']].map(([label, to]) => (
