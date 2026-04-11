@@ -349,7 +349,7 @@ export default function FloatingMessages() {
                                       setActiveMsg(null); setActiveMsgAnchor(null)
                                     } else {
                                       const r = e.currentTarget.getBoundingClientRect()
-                                      setActiveMsgAnchor({ top: r.top, left: r.left, right: r.right, isMe })
+                                      setActiveMsgAnchor({ top: r.top, bottom: r.bottom, left: r.left, right: r.right, isMe })
                                       setActiveMsg(msg.id)
                                     }
                                   }
@@ -410,7 +410,7 @@ export default function FloatingMessages() {
                       onClick={e => e.stopPropagation()}
                       className="fixed z-[99999] bg-white rounded-2xl shadow-xl border border-gray-100 p-2 flex flex-col gap-1 min-w-[160px]"
                       style={showBelow
-                        ? { top: activeMsgAnchor.top + 40, ...(popupIsMe ? { right: window.innerWidth - activeMsgAnchor.right } : { left: activeMsgAnchor.left }) }
+                        ? { top: activeMsgAnchor.bottom + 6, ...(popupIsMe ? { right: window.innerWidth - activeMsgAnchor.right } : { left: activeMsgAnchor.left }) }
                         : { bottom: window.innerHeight - activeMsgAnchor.top + 6, ...(popupIsMe ? { right: window.innerWidth - activeMsgAnchor.right } : { left: activeMsgAnchor.left }) }
                       }
                     >
