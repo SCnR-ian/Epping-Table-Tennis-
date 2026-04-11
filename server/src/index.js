@@ -117,6 +117,17 @@ async function runMigrations() {
     `ALTER TABLE coaching_reviews ALTER COLUMN student_id DROP NOT NULL`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_cr_session ON coaching_reviews(session_id)`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS name_changed_at TIMESTAMPTZ`,
+    `ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ`,
+    `ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`,
+    `ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_data TEXT`,
+    `ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_type VARCHAR(20)`,
+    `ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_name VARCHAR(255)`,
+    `CREATE TABLE IF NOT EXISTS message_reactions (
+       message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+       user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       emoji      VARCHAR(10) NOT NULL,
+       PRIMARY KEY (message_id, user_id, emoji)
+     )`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }
