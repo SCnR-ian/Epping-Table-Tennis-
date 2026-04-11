@@ -314,15 +314,15 @@ export default function DashboardPage() {
                               <p className="text-xs text-gray-500">{timeStr}</p>
                             </div>
                             <div className="flex items-center gap-3 flex-shrink-0">
+                              {s.charged != null && (
+                                <span className="text-xs text-gray-400">−${Number(s.charged).toFixed(0)}</span>
+                              )}
                               {attended
                                 ? <span className="text-xs font-medium text-emerald-600">✓ Attended</span>
                                 : noShow
                                   ? <span className="text-xs font-medium text-red-500">✗ No Show</span>
                                   : <span className="text-xs text-gray-400">—</span>
                               }
-                              {s.charged != null && (
-                                <span className="text-xs text-gray-400">−${Number(s.charged).toFixed(0)}</span>
-                              )}
                               {hasReview && (
                                 <button
                                   onClick={() => setExpandedReview(isOpen ? null : s.id)}
