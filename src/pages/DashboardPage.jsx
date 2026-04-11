@@ -269,13 +269,12 @@ export default function DashboardPage() {
                 {(showAllUpcoming ? coachingSessions : coachingSessions.slice(0, 3)).map(s => {
                   const dateStr = s.date ? new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{ weekday:'short', day:'numeric', month:'short' }) : ''
                   const timeStr = `${fmtTime(s.start_time)}–${fmtTime(s.end_time)}`
-                  const sessionNum = s.series_total ? `Session ${(s.series_used ?? 0) + 1} of ${s.series_total}` : null
                   return (
                     <div key={s.id} className="py-2.5 first:pt-0 last:pb-0">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="text-sm text-gray-900">{dateStr} · w/ {s.coach_name}</p>
-                          <p className="text-xs text-gray-500">{timeStr}{sessionNum ? ` · ${sessionNum}` : ''}</p>
+                          <p className="text-xs text-gray-500">{timeStr}</p>
                         </div>
                       </div>
                     </div>
