@@ -1521,6 +1521,33 @@ router.put('/reviews/:id', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ message: 'Server error.' }) }
 })
 
+// GET /api/coaching/my-history  — student sees all past sessions with attendance status
+router.get('/my-history', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT cs.id, cs.date, cs.start_time, cs.end_time,
+              u.name AS coach_name,
+              EXISTS(
+                SELECT 1 FROM check_ins ci
+                WHERE ci.type='coaching' AND ci.reference_id=cs.id::text AND ci.user_id=cs.student_id
+              ) AS checked_in,
+              COALESCE((
+                SELECT ci.no_show FROM check_ins ci
+                WHERE ci.type='coaching' AND ci.reference_id=cs.id::text AND ci.user_id=cs.student_id
+                LIMIT 1
+              ), FALSE) AS no_show
+       FROM coaching_sessions cs
+       JOIN coaches co ON co.id = cs.coach_id
+       JOIN users u ON u.id = co.user_id
+       WHERE cs.student_id=$1 AND cs.status='confirmed' AND cs.date < CURRENT_DATE
+       ORDER BY cs.date DESC
+       LIMIT 100`,
+      [req.user.id]
+    )
+    res.json({ sessions: rows })
+  } catch (e) { res.status(500).json({ message: 'Server error.' }) }
+})
+
 // GET /api/coaching/reviews/my  — student sees their reviews (with session info + skills)
 router.get('/reviews/my', requireAuth, async (req, res) => {
   try {

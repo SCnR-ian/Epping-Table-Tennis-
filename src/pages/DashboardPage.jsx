@@ -107,6 +107,9 @@ export default function DashboardPage() {
   const [reviewBody,      setReviewBody]      = useState('')
   const [savingReview,    setSavingReview]    = useState(false)
   const [pastReviewsOpen, setPastReviewsOpen] = useState(false)
+  const [myAttendance,    setMyAttendance]    = useState([])
+  const [attendanceOpen,  setAttendanceOpen]  = useState(true)
+  const [showAllAttendance, setShowAllAttendance] = useState(false)
 
   const todayDow = new Date().getDay() || 7
   const defaultDow = CHECKIN_DOWS.includes(todayDow) ? todayDow : 1
@@ -127,8 +130,9 @@ export default function DashboardPage() {
       checkinAPI.getToday(),
       user?.id ? coachingAPI.getHoursBalance(user.id) : Promise.resolve(null),
       coachingAPI.getMyReviews(),
+      coachingAPI.getMyHistory(),
     ])
-      .then(([coachingRes, coachRes, socialRes, checkinRes, hoursRes, myReviewsRes]) => {
+      .then(([coachingRes, coachRes, socialRes, checkinRes, hoursRes, myReviewsRes, myHistoryRes]) => {
         if (cancelled) return
         if (coachingRes.status === 'fulfilled')
           setCoachingSessions(coachingRes.value.data.sessions)
@@ -144,6 +148,8 @@ export default function DashboardPage() {
           setHoursBalance(hoursRes.value.data.balance ?? 0)
         if (myReviewsRes.status === 'fulfilled')
           setMyReviews(myReviewsRes.value.data.reviews ?? [])
+        if (myHistoryRes?.status === 'fulfilled')
+          setMyAttendance(myHistoryRes.value.data.sessions ?? [])
       })
       .finally(() => { if (!cancelled) setLoadingData(false) })
     return () => { cancelled = true }
@@ -279,6 +285,47 @@ export default function DashboardPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Attendance History (student view) */}
+          {myAttendance.length > 0 && (
+            <div className="border border-gray-300 rounded-xl p-6">
+              <button onClick={() => setAttendanceOpen(o => !o)} className="flex items-center justify-between w-full">
+                <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800">Attendance</p>
+                <span className="text-xs text-gray-400">{attendanceOpen ? '▲' : '▼'}</span>
+              </button>
+              {attendanceOpen && (
+                <>
+                  <div className="divide-y divide-gray-200 mt-4">
+                    {(showAllAttendance ? myAttendance : myAttendance.slice(0, 10)).map(s => {
+                      const dateStr = s.date ? new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}) : ''
+                      const timeStr = `${fmtTime(s.start_time)}–${fmtTime(s.end_time)}`
+                      const attended = s.checked_in && !s.no_show
+                      const noShow   = s.no_show
+                      return (
+                        <div key={s.id} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm text-gray-900 truncate">{dateStr} · {s.coach_name}</p>
+                            <p className="text-xs text-gray-500">{timeStr}</p>
+                          </div>
+                          {attended
+                            ? <span className="flex-shrink-0 text-xs font-medium text-emerald-600">✓ Attended</span>
+                            : noShow
+                              ? <span className="flex-shrink-0 text-xs font-medium text-red-500">✗ No Show</span>
+                              : <span className="flex-shrink-0 text-xs text-gray-400">—</span>
+                          }
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {myAttendance.length > 10 && (
+                    <button onClick={() => setShowAllAttendance(o => !o)} className="mt-3 w-full text-xs text-gray-500 hover:text-black">
+                      {showAllAttendance ? 'Show less' : `Show all (${myAttendance.length})`}
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           )}
 
