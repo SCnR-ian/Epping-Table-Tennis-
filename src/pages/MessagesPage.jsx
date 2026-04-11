@@ -35,6 +35,7 @@ export default function MessagesPage() {
   const [composeRecipient, setComposeRecipient] = useState(null)
   const [memberSearch, setMemberSearch] = useState('')
   const [admins, setAdmins] = useState([])
+  const [deletingThread, setDeletingThread] = useState(null)
   // new state
   const [activeMsg, setActiveMsg] = useState(null)
   const [activeMsgAnchor, setActiveMsgAnchor] = useState(null)
@@ -442,23 +443,49 @@ export default function MessagesPage() {
             {/* DM threads */}
             {inbox.threads.map(t => {
               const unread = !t.is_read && t.sender_id !== user?.id
+              const isDeleting = deletingThread === t.other_user
               return (
-                <button key={t.other_user}
-                  onClick={() => openThread({ id: t.other_user, name: t.other_name })}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-left transition-colors"
-                >
-                  <Avatar name={t.other_name} unread={unread} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <p className={`text-sm ${unread ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>{t.other_name}</p>
-                      <p className="text-xs text-gray-400 shrink-0 ml-2">{fmtTime(t.created_at)}</p>
+                <div key={t.other_user} className="relative group">
+                  {isDeleting ? (
+                    <div className="flex items-center justify-between px-4 py-3 bg-red-50">
+                      <p className="text-sm text-gray-700">Delete conversation with <b>{t.other_name}</b>?</p>
+                      <div className="flex gap-3 shrink-0 ml-3">
+                        <button onClick={() => setDeletingThread(null)} className="text-sm text-gray-500 hover:text-gray-800">Cancel</button>
+                        <button onClick={async () => {
+                          await messagesAPI.deleteThread(t.other_user)
+                          setDeletingThread(null)
+                          loadInbox()
+                        }} className="text-sm text-red-600 font-medium hover:text-red-800">Delete</button>
+                      </div>
                     </div>
-                    <p className={`text-xs truncate mt-0.5 ${unread ? 'text-gray-700' : 'text-gray-400'}`}>
-                      {t.sender_id === user?.id ? 'You: ' : ''}{t.deleted ? 'Message deleted' : t.body}
-                    </p>
-                  </div>
-                  {unread && <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center text-[10px] text-white font-bold shrink-0">1</span>}
-                </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => openThread({ id: t.other_user, name: t.other_name })}
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-left transition-colors pr-12"
+                      >
+                        <Avatar name={t.other_name} unread={unread} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <p className={`text-sm ${unread ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>{t.other_name}</p>
+                            <p className="text-xs text-gray-400 shrink-0 ml-2">{fmtTime(t.created_at)}</p>
+                          </div>
+                          <p className={`text-xs truncate mt-0.5 ${unread ? 'text-gray-700' : 'text-gray-400'}`}>
+                            {t.sender_id === user?.id ? 'You: ' : ''}{t.deleted ? 'Message deleted' : t.body}
+                          </p>
+                        </div>
+                        {unread && <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center text-[10px] text-white font-bold shrink-0">1</span>}
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); setDeletingThread(t.other_user) }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </>
+                  )}
+                </div>
               )
             })}
 

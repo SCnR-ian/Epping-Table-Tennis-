@@ -236,6 +236,7 @@ export const messagesAPI = {
   getThread:      (userId)       => api.get(`/messages/thread/${userId}`),
   send:           (data)         => api.post('/messages', data),
   markRead:       (id)           => api.post(`/messages/${id}/read`),
+  deleteThread:   (userId)       => api.delete(`/messages/thread/${userId}`),
   editMessage:    (id, body)     => api.put(`/messages/${id}`, { body }),
   deleteMessage:  (id)           => api.delete(`/messages/${id}`),
   reactMessage:   (id, emoji)    => api.post(`/messages/${id}/react`, { emoji }),

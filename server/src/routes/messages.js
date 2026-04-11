@@ -182,6 +182,21 @@ router.put('/:id', requireAuth, async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
+// DELETE /api/messages/thread/:userId  — delete entire conversation (hard delete, both sides)
+router.delete('/thread/:userId', requireAuth, async (req, res) => {
+  const uid   = req.user.id
+  const other = Number(req.params.userId)
+  try {
+    await pool.query(
+      `DELETE FROM messages
+       WHERE (sender_id=$1 AND recipient_id=$2)
+          OR (sender_id=$2 AND recipient_id=$1)`,
+      [uid, other]
+    )
+    res.json({ ok: true })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
 // DELETE /api/messages/:id  — soft delete own message
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
