@@ -107,9 +107,10 @@ export default function DashboardPage() {
   const [reviewBody,      setReviewBody]      = useState('')
   const [savingReview,    setSavingReview]    = useState(false)
   const [pastReviewsOpen, setPastReviewsOpen] = useState(false)
-  const [myAttendance,    setMyAttendance]    = useState([])
-  const [attendanceOpen,  setAttendanceOpen]  = useState(true)
+  const [myAttendance,      setMyAttendance]      = useState([])
+  const [attendanceOpen,    setAttendanceOpen]    = useState(true)
   const [showAllAttendance, setShowAllAttendance] = useState(false)
+  const [expandedReview,    setExpandedReview]    = useState(null) // session id
 
   const todayDow = new Date().getDay() || 7
   const defaultDow = CHECKIN_DOWS.includes(todayDow) ? todayDow : 1
@@ -259,35 +260,6 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Coaching Reviews (student view) */}
-          {myReviews.length > 0 && (
-            <div className="border border-gray-300 rounded-xl p-6">
-              <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 mb-4">Coaching Reviews</p>
-              <div className="space-y-4">
-                {myReviews.map(r => (
-                  <div key={r.id} className="border-l-2 border-gray-300 pl-4">
-                    <p className="text-xs text-gray-500 mb-1">
-                      {r.coach_name}
-                      <span className="ml-2 text-gray-400">
-                        {r.date ? new Date(r.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}
-                      </span>
-                    </p>
-                    {r.skills?.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-1 mb-1.5">
-                        {r.skills.map(k => (
-                          <span key={k} className="text-xs bg-gray-100 px-2 py-0.5 rounded-full text-gray-600">
-                            {SKILL_LABEL[k] ?? k}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    {r.body && <p className="text-sm text-gray-800 whitespace-pre-wrap">{r.body}</p>}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Attendance History (student view) */}
           {myAttendance.length > 0 && (
             <div className="border border-gray-300 rounded-xl p-6">
@@ -299,22 +271,52 @@ export default function DashboardPage() {
                 <>
                   <div className="divide-y divide-gray-200 mt-4">
                     {(showAllAttendance ? myAttendance : myAttendance.slice(0, 10)).map(s => {
-                      const dateStr = s.date ? new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}) : ''
-                      const timeStr = `${fmtTime(s.start_time)}–${fmtTime(s.end_time)}`
+                      const dateStr  = s.date ? new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}) : ''
+                      const timeStr  = `${fmtTime(s.start_time)}–${fmtTime(s.end_time)}`
                       const attended = s.checked_in && !s.no_show
                       const noShow   = s.no_show
+                      const hasReview = s.review_body || (s.review_skills?.length > 0)
+                      const isOpen   = expandedReview === s.id
                       return (
-                        <div key={s.id} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="text-sm text-gray-900 truncate">{dateStr} · {s.coach_name}</p>
-                            <p className="text-xs text-gray-500">{timeStr}</p>
+                        <div key={s.id} className="py-2.5 first:pt-0 last:pb-0">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm text-gray-900 truncate">{dateStr} · {s.coach_name}</p>
+                              <p className="text-xs text-gray-500">{timeStr}</p>
+                            </div>
+                            <div className="flex items-center gap-3 flex-shrink-0">
+                              {attended
+                                ? <span className="text-xs font-medium text-emerald-600">✓ Attended</span>
+                                : noShow
+                                  ? <span className="text-xs font-medium text-red-500">✗ No Show</span>
+                                  : <span className="text-xs text-gray-400">—</span>
+                              }
+                              {hasReview && (
+                                <button
+                                  onClick={() => setExpandedReview(isOpen ? null : s.id)}
+                                  className="text-xs text-sky-600 hover:text-sky-500"
+                                >
+                                  {isOpen ? 'Hide' : 'Review'}
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          {attended
-                            ? <span className="flex-shrink-0 text-xs font-medium text-emerald-600">✓ Attended</span>
-                            : noShow
-                              ? <span className="flex-shrink-0 text-xs font-medium text-red-500">✗ No Show</span>
-                              : <span className="flex-shrink-0 text-xs text-gray-400">—</span>
-                          }
+                          {isOpen && hasReview && (
+                            <div className="mt-2 ml-0 pl-3 border-l-2 border-gray-200">
+                              {s.review_skills?.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mb-1.5">
+                                  {s.review_skills.map(k => (
+                                    <span key={k} className="text-xs bg-gray-100 px-2 py-0.5 rounded-full text-gray-600">
+                                      {SKILL_LABEL[k] ?? k}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {s.review_body && (
+                                <p className="text-sm text-gray-700 whitespace-pre-wrap">{s.review_body}</p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )
                     })}

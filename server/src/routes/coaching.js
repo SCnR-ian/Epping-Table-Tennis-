@@ -1535,10 +1535,13 @@ router.get('/my-history', requireAuth, async (req, res) => {
                 SELECT ci.no_show FROM check_ins ci
                 WHERE ci.type='coaching' AND ci.reference_id=cs.id::text AND ci.user_id=cs.student_id
                 LIMIT 1
-              ), FALSE) AS no_show
+              ), FALSE) AS no_show,
+              cr.skills AS review_skills,
+              cr.body   AS review_body
        FROM coaching_sessions cs
        JOIN coaches co ON co.id = cs.coach_id
        JOIN users u ON u.id = co.user_id
+       LEFT JOIN coaching_reviews cr ON cr.session_id = cs.id
        WHERE cs.student_id=$1 AND cs.status='confirmed' AND cs.date < CURRENT_DATE
        ORDER BY cs.date DESC
        LIMIT 100`,
