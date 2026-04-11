@@ -37,6 +37,7 @@ export default function FloatingMessages() {
   const [memberSearch, setMemberSearch] = useState('')
   const [composeRecipient, setComposeRecipient] = useState(null)
   const [unread, setUnread] = useState(0)
+  const [minimized, setMinimized] = useState(false)
   // new state
   const [activeMsg, setActiveMsg]     = useState(null)   // msg id with popup open
   const [editingMsg, setEditingMsg]   = useState(null)   // msg id being edited
@@ -183,7 +184,7 @@ export default function FloatingMessages() {
 
       {/* FAB */}
       <button
-        onClick={() => { setOpen(o => !o); if (!open) { setView('inbox'); loadInbox() } }}
+        onClick={() => { if (open) { setOpen(false); setMinimized(false) } else { setOpen(true); setView('inbox'); loadInbox() } }}
         className="fixed bottom-6 right-4 z-[9998] w-14 h-14 bg-white rounded-full shadow-lg border border-gray-200 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
         style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)' }}
       >
@@ -203,7 +204,7 @@ export default function FloatingMessages() {
           <div className="fixed inset-0 z-[9998] bg-black/20 sm:hidden" onClick={() => setOpen(false)} />
 
           <div
-            className="fixed z-[9999] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden inset-x-0 bottom-0 rounded-b-none h-[82vh] sm:inset-x-auto sm:bottom-24 sm:right-4 sm:w-[360px] sm:h-[520px] sm:rounded-2xl"
+            className={`fixed z-[9999] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden inset-x-0 bottom-0 rounded-b-none sm:inset-x-auto sm:bottom-24 sm:right-4 sm:w-[360px] sm:rounded-2xl transition-all duration-200 ${minimized ? 'h-auto sm:h-auto' : 'h-[82vh] sm:h-[520px]'}`}
             style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)' }}
             onClick={() => { if (activeMsg) setActiveMsg(null) }}
           >
@@ -214,10 +215,20 @@ export default function FloatingMessages() {
                 <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
                   <h2 className="font-semibold text-gray-900 text-sm">Messages</h2>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => { setView('compose'); setComposeRecipient(null); setBody(''); setMemberSearch('') }}
-                      className="w-7 h-7 flex items-center justify-center text-gray-500 hover:text-black">
+                    {!minimized && (
+                      <button onClick={() => { setView('compose'); setComposeRecipient(null); setBody(''); setMemberSearch('') }}
+                        className="w-7 h-7 flex items-center justify-center text-gray-500 hover:text-black">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                      </button>
+                    )}
+                    <button onClick={() => setMinimized(m => !m)} className="w-7 h-7 hidden sm:flex items-center justify-center text-gray-400 hover:text-black">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        {minimized
+                          ? <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+                          : <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                        }
                       </svg>
                     </button>
                     <button onClick={() => setOpen(false)} className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-black">
@@ -228,7 +239,7 @@ export default function FloatingMessages() {
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+                {!minimized && <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
                   {inbox.announcements.map(msg => (
                     <div key={msg.id} className="flex items-center gap-3 px-4 py-3">
                       <div className="w-10 h-10 rounded-full bg-amber-400 flex items-center justify-center shrink-0">
@@ -267,7 +278,7 @@ export default function FloatingMessages() {
                   {inbox.threads.length === 0 && inbox.announcements.length === 0 && (
                     <p className="text-center text-gray-400 text-xs py-10">No messages yet.</p>
                   )}
-                </div>
+                </div>}
               </>
             )}
 
@@ -282,6 +293,14 @@ export default function FloatingMessages() {
                   </button>
                   <Avatar name={threadUser?.name} size="sm" />
                   <p className="flex-1 text-sm font-semibold text-gray-900">{threadUser?.name}</p>
+                  <button onClick={() => setMinimized(m => !m)} className="p-1 hidden sm:flex text-gray-400 hover:text-black">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      {minimized
+                        ? <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+                        : <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                      }
+                    </svg>
+                  </button>
                   <button onClick={() => setOpen(false)} className="p-1 text-gray-400 hover:text-black">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -289,7 +308,7 @@ export default function FloatingMessages() {
                   </button>
                 </div>
 
-                <div ref={msgContainerRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-1 bg-[#f5f5f5]">
+                {!minimized && <div ref={msgContainerRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-1 bg-[#f5f5f5]">
                   {thread.length === 0 && <p className="text-center text-gray-400 text-xs py-6">No messages yet.</p>}
                   {thread.map((msg, i) => {
                     const isMe = msg.sender_id === user?.id
@@ -394,10 +413,10 @@ export default function FloatingMessages() {
                       </div>
                     )
                   })}
-                </div>
+                </div>}
 
                 {/* Attachment preview */}
-                {attachPreview && (
+                {!minimized && attachPreview && (
                   <div className="px-3 pt-2 shrink-0 relative w-fit">
                     <img src={attachPreview.data} alt="preview" className="h-16 rounded-xl object-cover" />
                     <button onClick={() => setAttachPreview(null)}
@@ -406,7 +425,7 @@ export default function FloatingMessages() {
                 )}
 
                 {/* Input bar */}
-                <div className="flex items-center gap-2 px-3 py-2 border-t border-gray-100 bg-white shrink-0">
+                {!minimized && <div className="flex items-center gap-2 px-3 py-2 border-t border-gray-100 bg-white shrink-0">
                   <button onClick={() => fileInputRef.current?.click()} className="text-gray-400 hover:text-gray-700 shrink-0">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
@@ -424,7 +443,7 @@ export default function FloatingMessages() {
                       <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
                     </svg>
                   </button>
-                </div>
+                </div>}
               </>
             )}
 
