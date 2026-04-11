@@ -17,6 +17,13 @@ export default function ProfilePage() {
   const handleChange = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }))
 
   const nameChanging = form.name.trim() !== (user?.name ?? '')
+  const nameLocked = user?.name_changed_at
+    ? (Date.now() - new Date(user.name_changed_at)) / (1000 * 60 * 60 * 24) < 7
+    : false
+  const nextAllowedDate = user?.name_changed_at
+    ? new Date(new Date(user.name_changed_at).getTime() + 7 * 24 * 60 * 60 * 1000)
+        .toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
+    : null
 
   const handleProfileSave = async (e) => {
     e.preventDefault()
@@ -30,7 +37,7 @@ export default function ProfilePage() {
     setError('')
     try {
       const { data } = await profileAPI.update({ name: form.name.trim(), phone: form.phone })
-      updateUser({ name: data.user?.name ?? form.name, phone: data.user?.phone ?? form.phone })
+      updateUser({ name: data.user?.name ?? form.name, phone: data.user?.phone ?? form.phone, name_changed_at: data.user?.name_changed_at ?? null })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (err) {
@@ -57,7 +64,10 @@ export default function ProfilePage() {
 
       {/* Form */}
       <form onSubmit={handleProfileSave} className="space-y-5">
-        <FormInput id="name"  name="name"  label="Full Name" value={form.name}  onChange={handleChange} />
+        <div>
+          <FormInput id="name" name="name" label="Full Name" value={form.name} onChange={handleChange} disabled={nameLocked} />
+          {nameLocked && <p className="text-xs text-gray-400 mt-1">Name can be changed again on {nextAllowedDate}.</p>}
+        </div>
         <FormInput id="phone" name="phone" label="Phone"     type="tel" value={form.phone} onChange={handleChange} />
 
         {/* Name-change confirmation banner */}

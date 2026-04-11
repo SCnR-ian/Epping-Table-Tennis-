@@ -6,6 +6,7 @@ const { requireAuth } = require('../middleware/auth')
 const safeUser = (u) => ({
   id: u.id, name: u.name, email: u.email,
   role: u.role, phone: u.phone, avatar_url: u.avatar_url,
+  name_changed_at: u.name_changed_at ?? null,
 })
 
 // GET /api/profile
