@@ -71,7 +71,7 @@ export default function ProfilePage() {
               <button type="submit" className="flex-1 py-2 bg-black text-white text-sm rounded-xl hover:bg-gray-800">
                 Confirm
               </button>
-              <button type="button" onClick={() => setConfirm(false)} className="flex-1 py-2 border border-gray-300 text-sm rounded-xl hover:border-black">
+              <button type="button" onClick={() => { setConfirm(false); setForm(f => ({ ...f, name: user?.name ?? '' })) }} className="flex-1 py-2 border border-gray-300 text-sm rounded-xl hover:border-black">
                 Cancel
               </button>
             </div>
