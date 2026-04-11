@@ -946,14 +946,14 @@ router.get('/my-coach-sessions', requireAuth, async (req, res) => {
          cs.notes,
          cs.recurrence_id,
          u.name  AS student_name,
-         ct.name AS court_name
+         ct.name AS court_name,
+         EXISTS(SELECT 1 FROM coaching_reviews WHERE session_id=cs.id) AS has_review
        FROM coaching_sessions cs
        JOIN users  u  ON u.id  = cs.student_id
        JOIN courts ct ON ct.id = cs.court_id
        WHERE cs.coach_id = $1
          AND cs.status = 'confirmed'
-         AND cs.date >= CURRENT_DATE
-       ORDER BY cs.date ASC, cs.start_time ASC`,
+       ORDER BY cs.date DESC, cs.start_time DESC`,
       [coachRows[0].id]
     )
     res.json({ sessions: rows })
@@ -1386,7 +1386,7 @@ router.get('/my', requireAuth, async (req, res) => {
 
 // ─── COACHING HOURS (admin + student) ─────────────────────────────────────────
 
-// GET /api/coaching/hours/:userId  — split balances + recent transactions (admin or self)
+// GET /api/coaching/hours/:userId  — combined balance + recent transactions (admin or self)
 router.get('/hours/:userId', requireAuth, async (req, res) => {
   const targetId = Number(req.params.userId)
   if (req.user.role !== 'admin' && req.user.id !== targetId)
@@ -1401,39 +1401,128 @@ router.get('/hours/:userId', requireAuth, async (req, res) => {
       [targetId]
     )
     const { rows: [bal] } = await pool.query(
-      `SELECT
-         COALESCE(SUM(CASE WHEN session_type='solo'  THEN delta ELSE 0 END), 0)::numeric AS solo_balance,
-         COALESCE(SUM(CASE WHEN session_type='group' THEN delta ELSE 0 END), 0)::numeric AS group_balance
+      `SELECT COALESCE(SUM(delta), 0)::numeric AS balance
        FROM coaching_hour_ledger WHERE user_id=$1`,
       [targetId]
     )
     const round = v => Math.round(parseFloat(v) * 100) / 100
-    res.json({ soloBalance: round(bal.solo_balance), groupBalance: round(bal.group_balance), ledger })
+    res.json({ balance: round(bal.balance), ledger })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
-// POST /api/coaching/hours/:userId  — admin manually credits or debits hours
-// body: { delta, note, session_type }  (session_type: 'solo' | 'group', default 'solo')
+// POST /api/coaching/hours/:userId  — admin manually credits or debits dollars
+// body: { delta, note }
 router.post('/hours/:userId', requireAuth, requireAdmin, async (req, res) => {
   const targetId = Number(req.params.userId)
-  const { delta, note, session_type = 'solo' } = req.body
+  const { delta, note } = req.body
   if (delta === undefined || delta === null || delta === 0)
     return res.status(400).json({ message: 'delta is required and must be non-zero.' })
   try {
     await pool.query(
       `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_type, created_by)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [targetId, delta, note ?? null, session_type, req.user.id]
+       VALUES ($1, $2, $3, 'credit', $4)`,
+      [targetId, delta, note ?? null, req.user.id]
     )
     const { rows: [bal] } = await pool.query(
-      `SELECT
-         COALESCE(SUM(CASE WHEN session_type='solo'  THEN delta ELSE 0 END), 0)::numeric AS solo_balance,
-         COALESCE(SUM(CASE WHEN session_type='group' THEN delta ELSE 0 END), 0)::numeric AS group_balance
+      `SELECT COALESCE(SUM(delta), 0)::numeric AS balance
        FROM coaching_hour_ledger WHERE user_id=$1`,
       [targetId]
     )
     const round = v => Math.round(parseFloat(v) * 100) / 100
-    res.json({ message: 'Hours updated.', soloBalance: round(bal.solo_balance), groupBalance: round(bal.group_balance) })
+    res.json({ message: 'Balance updated.', balance: round(bal.balance) })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// ── Coaching Reviews ──────────────────────────────────────────────────────────
+
+// GET /api/coaching/reviews/session/:sessionId  — get review for a specific session
+router.get('/reviews/session/:sessionId', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM coaching_reviews WHERE session_id=$1',
+      [req.params.sessionId]
+    )
+    res.json({ review: rows[0] ?? null })
+  } catch (e) { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// POST /api/coaching/reviews  — coach creates a review for a session
+// body: { session_id, skills, body }
+router.post('/reviews', requireAuth, async (req, res) => {
+  const { session_id, skills = [], body = '' } = req.body
+  if (!session_id) return res.status(400).json({ message: 'session_id is required.' })
+  if (!skills.length && !body.trim())
+    return res.status(400).json({ message: 'At least one skill or notes required.' })
+  try {
+    const coachRow = await pool.query('SELECT id FROM coaches WHERE user_id=$1', [req.user.id])
+    if (!coachRow.rows[0]) return res.status(403).json({ message: 'Not a coach.' })
+    const coachId = coachRow.rows[0].id
+    const { rows } = await pool.query(
+      `INSERT INTO coaching_reviews (session_id, coach_id, student_id, skills, body)
+       SELECT $1, $2, cs.student_id, $3, $4
+       FROM coaching_sessions cs WHERE cs.id=$1
+       ON CONFLICT (session_id) DO NOTHING
+       RETURNING *`,
+      [session_id, coachId, JSON.stringify(skills), body.trim()]
+    )
+    res.status(201).json({ review: rows[0] ?? null })
+  } catch (e) { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// PUT /api/coaching/reviews/:id  — coach updates an existing review
+// body: { skills, body }
+router.put('/reviews/:id', requireAuth, async (req, res) => {
+  const { skills = [], body = '' } = req.body
+  try {
+    const { rows } = await pool.query(
+      `UPDATE coaching_reviews SET skills=$1, body=$2, updated_at=NOW()
+       WHERE id=$3 AND coach_id=(SELECT id FROM coaches WHERE user_id=$4)
+       RETURNING *`,
+      [JSON.stringify(skills), body.trim(), req.params.id, req.user.id]
+    )
+    if (!rows[0]) return res.status(404).json({ message: 'Review not found.' })
+    res.json({ review: rows[0] })
+  } catch (e) { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// GET /api/coaching/reviews/my  — student sees their reviews (with session info + skills)
+router.get('/reviews/my', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT cr.id, cr.skills, cr.body, cr.created_at, cr.updated_at,
+              u.name AS coach_name,
+              cs.date, cs.start_time, cs.end_time
+       FROM coaching_reviews cr
+       JOIN coaches co ON co.id = cr.coach_id
+       JOIN users u ON u.id = co.user_id
+       JOIN coaching_sessions cs ON cs.id = cr.session_id
+       WHERE cs.student_id=$1
+       ORDER BY cs.date DESC`,
+      [req.user.id]
+    )
+    res.json({ reviews: rows })
+  } catch (e) { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// GET /api/coaching/prices  — current session prices (admin only)
+router.get('/prices', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT session_type, price FROM coaching_prices')
+    const prices = Object.fromEntries(rows.map(r => [r.session_type, parseFloat(r.price)]))
+    res.json({ prices })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// PUT /api/coaching/prices  — update session prices (admin only)
+// body: { solo: 70, group: 50 }
+router.put('/prices', requireAuth, requireAdmin, async (req, res) => {
+  const { solo, group } = req.body
+  if (solo === undefined || group === undefined || solo <= 0 || group <= 0)
+    return res.status(400).json({ message: 'solo and group prices are required and must be positive.' })
+  try {
+    await pool.query('UPDATE coaching_prices SET price=$1 WHERE session_type=$2', [solo, 'solo'])
+    await pool.query('UPDATE coaching_prices SET price=$1 WHERE session_type=$2', [group, 'group'])
+    res.json({ message: 'Prices updated.', prices: { solo, group } })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 

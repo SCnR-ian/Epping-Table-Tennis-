@@ -96,6 +96,26 @@ async function runMigrations() {
        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
        PRIMARY KEY (message_id, user_id)
      )`,
+    `ALTER TABLE coaching_hour_ledger ADD COLUMN IF NOT EXISTS session_type VARCHAR(10)`,
+    `CREATE TABLE IF NOT EXISTS coaching_prices (
+       session_type VARCHAR(10) PRIMARY KEY,
+       price        DECIMAL(8,2) NOT NULL
+     )`,
+    `INSERT INTO coaching_prices (session_type, price) VALUES ('solo', 70), ('group', 50) ON CONFLICT DO NOTHING`,
+    `CREATE TABLE IF NOT EXISTS coaching_reviews (
+       id         SERIAL PRIMARY KEY,
+       coach_id   INTEGER NOT NULL REFERENCES coaches(id) ON DELETE CASCADE,
+       student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       body       TEXT NOT NULL,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `ALTER TABLE coaching_reviews DROP CONSTRAINT IF EXISTS coaching_reviews_coach_id_student_id_milestone_key`,
+    `ALTER TABLE coaching_reviews DROP COLUMN IF EXISTS milestone`,
+    `ALTER TABLE coaching_reviews ADD COLUMN IF NOT EXISTS session_id INTEGER REFERENCES coaching_sessions(id) ON DELETE CASCADE`,
+    `ALTER TABLE coaching_reviews ADD COLUMN IF NOT EXISTS skills JSONB NOT NULL DEFAULT '[]'`,
+    `ALTER TABLE coaching_reviews ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+    `ALTER TABLE coaching_reviews ALTER COLUMN student_id DROP NOT NULL`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_cr_session ON coaching_reviews(session_id)`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }

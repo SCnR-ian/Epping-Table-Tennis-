@@ -90,16 +90,17 @@ router.post('/coaching/:sessionId', requireAuth, async (req, res) => {
        ON CONFLICT (user_id, type, reference_id) DO NOTHING`,
       [studentId, req.params.sessionId, rows[0].date, req.user.id]
     )
-    // Deduct hours when first checked in
+    // Deduct session price when first checked in
     if (rowCount > 0) {
-      const [sh, sm] = rows[0].start_time.substring(0, 5).split(':').map(Number)
-      const [eh, em] = rows[0].end_time.substring(0, 5).split(':').map(Number)
-      const hrs = ((eh * 60 + em) - (sh * 60 + sm)) / 60
       const sessionType = rows[0].group_id ? 'group' : 'solo'
+      const { rows: [priceRow] } = await client.query(
+        'SELECT price FROM coaching_prices WHERE session_type=$1', [sessionType]
+      )
+      const amount = priceRow?.price ?? (sessionType === 'group' ? 50 : 70)
       await client.query(
         `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_type, session_id, created_by)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [studentId, -hrs, 'Coaching session attended', sessionType, req.params.sessionId, req.user.id]
+        [studentId, -amount, 'Coaching session attended', sessionType, req.params.sessionId, req.user.id]
       )
     }
     await client.query('COMMIT')
@@ -138,14 +139,15 @@ router.post('/coaching/:sessionId/no-show', requireAuth, async (req, res) => {
       [studentId, req.params.sessionId, rows[0].date, req.user.id]
     )
     if (rowCount > 0) {
-      const [sh, sm] = rows[0].start_time.substring(0, 5).split(':').map(Number)
-      const [eh, em] = rows[0].end_time.substring(0, 5).split(':').map(Number)
-      const hrs = ((eh * 60 + em) - (sh * 60 + sm)) / 60
       const sessionType = rows[0].group_id ? 'group' : 'solo'
+      const { rows: [priceRow] } = await client.query(
+        'SELECT price FROM coaching_prices WHERE session_type=$1', [sessionType]
+      )
+      const amount = priceRow?.price ?? (sessionType === 'group' ? 50 : 70)
       await client.query(
         `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_type, session_id, created_by)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [studentId, -hrs, 'No show — hours deducted', sessionType, req.params.sessionId, req.user.id]
+        [studentId, -amount, 'No show — fee deducted', sessionType, req.params.sessionId, req.user.id]
       )
     }
     await client.query('COMMIT')
@@ -307,26 +309,23 @@ router.delete('/:type/:refId/:userId', requireAuth, async (req, res) => {
       await client.query('ROLLBACK')
       return res.status(404).json({ message: 'Check-in not found.' })
     }
-    // Refund coaching hours when undoing a student coaching check-in
+    // Refund coaching fee when undoing a student coaching check-in
     if (type === 'coaching') {
       const { rows: [session] } = await client.query(
-        'SELECT start_time, end_time, group_id FROM coaching_sessions WHERE id=$1',
+        'SELECT group_id FROM coaching_sessions WHERE id=$1',
         [refId]
       )
-      // Only refund if a deduction entry exists for this user+session (handles both 1-on-1 and group)
-      const { rowCount: ledgerCount } = await client.query(
-        'SELECT 1 FROM coaching_hour_ledger WHERE user_id=$1 AND session_id=$2 AND delta < 0 LIMIT 1',
+      // Find the original deduction and refund exactly that amount
+      const { rows: [deduction] } = await client.query(
+        'SELECT delta FROM coaching_hour_ledger WHERE user_id=$1 AND session_id=$2 AND delta < 0 LIMIT 1',
         [userId, refId]
       )
-      if (session && ledgerCount > 0) {
-        const [sh, sm] = session.start_time.substring(0, 5).split(':').map(Number)
-        const [eh, em] = session.end_time.substring(0, 5).split(':').map(Number)
-        const hrs = ((eh * 60 + em) - (sh * 60 + sm)) / 60
+      if (session && deduction) {
         const sessionType = session.group_id ? 'group' : 'solo'
         await client.query(
           `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_type, session_id, created_by)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [userId, hrs, 'Check-in undone — hours refunded', sessionType, refId, req.user.id]
+          [userId, -deduction.delta, 'Check-in undone — refunded', sessionType, refId, req.user.id]
         )
       }
     }

@@ -147,9 +147,17 @@ export const coachingAPI = {
   removeStudentFromGroup:   (groupId, studentId, from_date)     => api.delete(`/coaching/sessions/group/${groupId}/remove-student/${studentId}`, { params: from_date ? { from_date } : {} }),
   rescheduleGroupSession:   (groupId, date, start_time, end_time) =>
     api.put(`/coaching/sessions/group/${groupId}/reschedule`, { date, ...(start_time && end_time ? { start_time, end_time } : {}) }),
-  // Coaching hours
+  // Coaching balance
   getHoursBalance: (userId)       => api.get(`/coaching/hours/${userId}`),
   addHours:        (userId, data) => api.post(`/coaching/hours/${userId}`, data),
+  // Session prices
+  getPrices:       ()             => api.get('/coaching/prices'),
+  updatePrices:    (data)         => api.put('/coaching/prices', data),
+  // Coach reviews
+  getSessionReview: (sessionId) => api.get(`/coaching/reviews/session/${sessionId}`),
+  submitReview:     (data)      => api.post('/coaching/reviews', data),
+  updateReview:     (id, data)  => api.put(`/coaching/reviews/${id}`, data),
+  getMyReviews:     ()          => api.get('/coaching/reviews/my'),
 }
 
 // ---------------------------------------------------------------------------

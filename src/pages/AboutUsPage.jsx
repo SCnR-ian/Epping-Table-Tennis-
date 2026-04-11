@@ -213,13 +213,12 @@ export default function AboutUsPage() {
           >
             {/* Image */}
             <div
-              className={`w-full md:w-1/2 overflow-hidden ${idx % 2 === 1 ? "md:order-2" : ""}`}
-              style={{ height: "60vh" }}
+              className={`w-full md:w-1/2 self-start ${idx % 2 === 1 ? "md:order-2" : ""}`}
             >
               <img
                 src={coach.image}
                 alt={coach.name}
-                className="w-full h-full object-cover object-top"
+                className="w-full"
               />
             </div>
             {/* Content */}

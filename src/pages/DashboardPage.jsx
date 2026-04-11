@@ -3,6 +3,18 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { coachingAPI, socialAPI, checkinAPI } from '@/api/api'
 
+const REVIEW_SKILLS = [
+  { key: 'forehand',         label: 'Forehand' },
+  { key: 'backhand',         label: 'Backhand' },
+  { key: 'looping',          label: 'Looping' },
+  { key: 'forehand_push',    label: 'Forehand Pushing' },
+  { key: 'backhand_push',    label: 'Backhand Pushing' },
+  { key: 'one_bh_on_fh',     label: 'One Backhand on Forehand' },
+  { key: 'two_bh_two_fh',    label: 'Two Backhand Two Forehand' },
+  { key: 'serve_and_attack', label: 'Serve and Attack' },
+]
+const SKILL_LABEL = Object.fromEntries(REVIEW_SKILLS.map(s => [s.key, s.label]))
+
 function toMins(t) {
   const [h, m] = t.substring(0, 5).split(':').map(Number)
   return h * 60 + m
@@ -89,6 +101,11 @@ export default function DashboardPage() {
   const [checkedIn,        setCheckedIn]        = useState(new Set())
   const [hoursBalance,     setHoursBalance]     = useState(null)
   const [loadingData,      setLoadingData]      = useState(false)
+  const [myReviews,    setMyReviews]    = useState([])
+  const [reviewModal,  setReviewModal]  = useState(null) // { sessionId, studentName, date, existingReview }
+  const [reviewSkills, setReviewSkills] = useState([])
+  const [reviewBody,   setReviewBody]   = useState('')
+  const [savingReview, setSavingReview] = useState(false)
 
   const todayDow = new Date().getDay() || 7
   const defaultDow = CHECKIN_DOWS.includes(todayDow) ? todayDow : 1
@@ -108,8 +125,9 @@ export default function DashboardPage() {
       socialAPI.getSessions(),
       checkinAPI.getToday(),
       user?.id ? coachingAPI.getHoursBalance(user.id) : Promise.resolve(null),
+      coachingAPI.getMyReviews(),
     ])
-      .then(([coachingRes, coachRes, socialRes, checkinRes, hoursRes]) => {
+      .then(([coachingRes, coachRes, socialRes, checkinRes, hoursRes, myReviewsRes]) => {
         if (cancelled) return
         if (coachingRes.status === 'fulfilled')
           setCoachingSessions(coachingRes.value.data.sessions)
@@ -122,7 +140,9 @@ export default function DashboardPage() {
             checkinRes.value.data.checkIns.map(ci => `${ci.type}:${ci.reference_id}`)
           ))
         if (hoursRes?.status === 'fulfilled' && hoursRes.value)
-          setHoursBalance({ solo: hoursRes.value.data.soloBalance ?? 0, group: hoursRes.value.data.groupBalance ?? 0 })
+          setHoursBalance(hoursRes.value.data.balance ?? 0)
+        if (myReviewsRes.status === 'fulfilled')
+          setMyReviews(myReviewsRes.value.data.reviews ?? [])
       })
       .finally(() => { if (!cancelled) setLoadingData(false) })
     return () => { cancelled = true }
@@ -185,6 +205,7 @@ export default function DashboardPage() {
   }
 
   return (
+    <>
     <div className="bg-white min-h-screen pt-24 pb-16 px-4 max-w-3xl mx-auto">
 
       {/* Greeting */}
@@ -218,25 +239,86 @@ export default function DashboardPage() {
       {activeTab === 'checkin' && (
         <div className="space-y-6">
 
-          {/* Coaching hours balance */}
+          {/* Coaching balance */}
           {hoursBalance !== null && (
             <div className="border border-gray-300 rounded-xl p-6">
-              <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 mb-4">Coaching Hours</p>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="text-center py-4 border border-gray-300 rounded-lg">
-                  <p className="text-[10px] tracking-widest uppercase text-gray-800 mb-2">1-on-1</p>
-                  <p className={`font-display text-4xl font-normal leading-none ${(hoursBalance.solo ?? 0) >= 0 ? 'text-black' : 'text-red-500'}`}>
-                    {(hoursBalance.solo ?? 0).toFixed(1)}
-                  </p>
-                  <p className="text-xs text-gray-700 mt-2">hrs remaining</p>
-                </div>
-                <div className="text-center py-4 border border-gray-300 rounded-lg">
-                  <p className="text-[10px] tracking-widest uppercase text-gray-800 mb-2">Group</p>
-                  <p className={`font-display text-4xl font-normal leading-none ${(hoursBalance.group ?? 0) >= 0 ? 'text-black' : 'text-red-500'}`}>
-                    {(hoursBalance.group ?? 0).toFixed(1)}
-                  </p>
-                  <p className="text-xs text-gray-700 mt-2">hrs remaining</p>
-                </div>
+              <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 mb-4">Coaching Balance</p>
+              <div className="text-center py-4">
+                <p className={`font-display text-5xl font-normal leading-none ${hoursBalance >= 0 ? 'text-black' : 'text-red-500'}`}>
+                  ${hoursBalance.toFixed(2)}
+                </p>
+                <p className="text-xs text-gray-700 mt-2">remaining</p>
+              </div>
+            </div>
+          )}
+
+          {/* Coaching Reviews (student view) */}
+          {myReviews.length > 0 && (
+            <div className="border border-gray-300 rounded-xl p-6">
+              <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 mb-4">Coaching Reviews</p>
+              <div className="space-y-4">
+                {myReviews.map(r => (
+                  <div key={r.id} className="border-l-2 border-gray-300 pl-4">
+                    <p className="text-xs text-gray-500 mb-1">
+                      {r.coach_name}
+                      <span className="ml-2 text-gray-400">
+                        {r.date ? new Date(r.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}
+                      </span>
+                    </p>
+                    {r.skills?.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1 mb-1.5">
+                        {r.skills.map(k => (
+                          <span key={k} className="text-xs bg-gray-100 px-2 py-0.5 rounded-full text-gray-600">
+                            {SKILL_LABEL[k] ?? k}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {r.body && <p className="text-sm text-gray-800 whitespace-pre-wrap">{r.body}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Session Reviews (coach view) */}
+          {coachSessions.length > 0 && (
+            <div className="border border-gray-300 rounded-xl p-6">
+              <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 mb-4">Session Reviews</p>
+              <div className="divide-y divide-gray-200">
+                {coachSessions.map(s => (
+                  <div key={s.id} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-900 truncate">{s.student_name}</p>
+                      <p className="text-xs text-gray-500">
+                        {new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'})}
+                        {' · '}{fmtTime(s.start_time)}–{fmtTime(s.end_time)}
+                      </p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        let existingReview = null
+                        if (s.has_review) {
+                          try {
+                            const res = await coachingAPI.getSessionReview(s.id)
+                            existingReview = res.data.review
+                          } catch {}
+                        }
+                        setReviewSkills(existingReview?.skills ?? [])
+                        setReviewBody(existingReview?.body ?? '')
+                        setReviewModal({
+                          sessionId: s.id,
+                          studentName: s.student_name,
+                          date: new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}),
+                          existingReview,
+                        })
+                      }}
+                      className="flex-shrink-0 text-xs text-sky-600 hover:text-sky-500 whitespace-nowrap"
+                    >
+                      {s.has_review ? '✎ Edit' : 'Write Review'}
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -425,5 +507,78 @@ export default function DashboardPage() {
       )}
 
     </div>
+
+    {/* ── Review Modal ─────────────────────────────────────────────────────── */}
+    {reviewModal && (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setReviewModal(null) }}>
+        <div className="bg-white rounded-2xl w-full max-w-md p-6 space-y-5">
+          {/* Header */}
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="font-medium text-gray-900">{reviewModal.studentName}</p>
+              <p className="text-xs text-gray-500">{reviewModal.date}</p>
+            </div>
+            <button onClick={() => setReviewModal(null)} className="text-gray-400 hover:text-gray-700 text-lg leading-none">✕</button>
+          </div>
+
+          {/* Skill checkboxes */}
+          <div>
+            <p className="text-xs text-gray-500 mb-2">Skills covered</p>
+            <div className="grid grid-cols-2 gap-y-2 gap-x-4">
+              {REVIEW_SKILLS.map(skill => (
+                <label key={skill.key} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={reviewSkills.includes(skill.key)}
+                    onChange={() => setReviewSkills(prev =>
+                      prev.includes(skill.key) ? prev.filter(k => k !== skill.key) : [...prev, skill.key]
+                    )}
+                    className="w-4 h-4 accent-black"
+                  />
+                  <span className="text-gray-800">{skill.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Free text */}
+          <div>
+            <p className="text-xs text-gray-500 mb-2">Additional notes</p>
+            <textarea
+              rows={4}
+              value={reviewBody}
+              onChange={e => setReviewBody(e.target.value)}
+              placeholder="Write any additional notes here..."
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 resize-none focus:outline-none focus:border-gray-500"
+            />
+          </div>
+
+          {/* Submit */}
+          <button
+            disabled={savingReview || (!reviewSkills.length && !reviewBody.trim())}
+            onClick={async () => {
+              setSavingReview(true)
+              try {
+                const payload = { session_id: reviewModal.sessionId, skills: reviewSkills, body: reviewBody.trim() }
+                if (reviewModal.existingReview) {
+                  await coachingAPI.updateReview(reviewModal.existingReview.id, { skills: reviewSkills, body: reviewBody.trim() })
+                  setCoachSessions(prev => prev.map(s => s.id === reviewModal.sessionId ? { ...s, has_review: true } : s))
+                } else {
+                  await coachingAPI.submitReview(payload)
+                  setCoachSessions(prev => prev.map(s => s.id === reviewModal.sessionId ? { ...s, has_review: true } : s))
+                }
+                setReviewModal(null)
+              } catch {}
+              setSavingReview(false)
+            }}
+            className="w-full py-2.5 bg-black text-white text-sm rounded-xl disabled:opacity-40 hover:bg-gray-800 transition-colors"
+          >
+            {savingReview ? 'Saving…' : reviewModal.existingReview ? 'Update Review' : 'Submit Review'}
+          </button>
+        </div>
+      </div>
+    )}
+
+    </>
   )
 }

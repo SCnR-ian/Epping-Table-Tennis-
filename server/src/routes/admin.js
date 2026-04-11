@@ -229,9 +229,7 @@ router.get('/members/:userId/activities', async (req, res) => {
         [userId]
       ),
       pool.query(
-        `SELECT
-           COALESCE(SUM(CASE WHEN session_type='solo'  THEN delta ELSE 0 END),0)::numeric AS solo_balance,
-           COALESCE(SUM(CASE WHEN session_type='group' THEN delta ELSE 0 END),0)::numeric AS group_balance
+        `SELECT COALESCE(SUM(delta), 0)::numeric AS balance
          FROM coaching_hour_ledger WHERE user_id=$1`,
         [userId]
       ),
@@ -259,8 +257,7 @@ router.get('/members/:userId/activities', async (req, res) => {
       coaching:      coachingRes.status       === 'fulfilled' ? coachingRes.value.rows       : [],
       social:        socialRes.status         === 'fulfilled' ? socialRes.value.rows         : [],
       coachSessions: coachSessionsRes.status  === 'fulfilled' ? coachSessionsRes.value.rows  : [],
-      soloBalance:   hoursRes.status === 'fulfilled' ? Math.round(parseFloat(hoursRes.value.rows[0].solo_balance)  * 100) / 100 : 0,
-      groupBalance:  hoursRes.status === 'fulfilled' ? Math.round(parseFloat(hoursRes.value.rows[0].group_balance) * 100) / 100 : 0,
+      balance:       hoursRes.status === 'fulfilled' ? Math.round(parseFloat(hoursRes.value.rows[0].balance) * 100) / 100 : 0,
     })
   } catch (err) {
     console.error('member activities error:', err.message)
