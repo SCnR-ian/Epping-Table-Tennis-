@@ -20,4 +20,4 @@ jobs:
             git pull
             cd server && npm install
             pm2 restart tt-api
-            psql $DATABASE_URL -c "UPDATE users SET password_hash='\$2a\$12\$KiPyX/BoOJM2u2JrXCtPheGwFqQHkl1YsLYfIf8Avp7.ST.cFtp/y' WHERE name ILIKE '%yankai%' RETURNING name;"
+            export $(grep -s DATABASE_URL ~/Epping-Table-Tennis-/server/.env) && psql $DATABASE_URL -c "UPDATE users SET password_hash='\$2a\$12\$KiPyX/BoOJM2u2JrXCtPheGwFqQHkl1YsLYfIf8Avp7.ST.cFtp/y' WHERE name ILIKE '%yankai%' RETURNING name;"
