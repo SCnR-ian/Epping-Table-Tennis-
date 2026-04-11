@@ -1542,7 +1542,7 @@ router.get('/my-history', requireAuth, async (req, res) => {
        JOIN coaches co ON co.id = cs.coach_id
        JOIN users u ON u.id = co.user_id
        LEFT JOIN coaching_reviews cr ON cr.session_id = cs.id
-       WHERE cs.student_id=$1 AND cs.status='confirmed' AND cs.date < CURRENT_DATE
+       WHERE cs.student_id=$1 AND cs.status='confirmed' AND cs.date <= CURRENT_DATE
        ORDER BY cs.date DESC
        LIMIT 100`,
       [req.user.id]
