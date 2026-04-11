@@ -36,6 +36,9 @@ export default function MessagesPage() {
   const [memberSearch, setMemberSearch] = useState('')
   const [admins, setAdmins] = useState([])
   const [deletingThread, setDeletingThread] = useState(null)
+  const [inboxSearch, setInboxSearch] = useState('')
+  const [editingAnnouncement, setEditingAnnouncement] = useState(null)
+  const [deletingAnnouncement, setDeletingAnnouncement] = useState(null)
   // new state
   const [activeMsg, setActiveMsg] = useState(null)
   const [activeMsgAnchor, setActiveMsgAnchor] = useState(null)
@@ -420,42 +423,103 @@ export default function MessagesPage() {
             </button>
           </div>
 
+          {/* Search */}
+          <div className="px-4 py-2 bg-white border-b border-gray-100">
+            <input
+              type="text" value={inboxSearch} onChange={e => setInboxSearch(e.target.value)}
+              placeholder="Search conversations…"
+              className="w-full bg-gray-100 rounded-full px-4 py-2 text-sm focus:outline-none"
+            />
+          </div>
+
           <div className="bg-white divide-y divide-gray-100">
             {/* Announcements */}
-            {inbox.announcements.map(msg => (
-              <div key={msg.id} className={`flex items-start gap-3 px-4 py-3 ${!msg.is_read ? 'bg-green-50/40' : ''}`}>
-                <div className="w-10 h-10 rounded-full bg-amber-400 flex items-center justify-center shrink-0">
-                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6V11c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
-                  </svg>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-gray-900">Announcement</p>
-                    <p className="text-xs text-gray-400">{fmtTime(msg.created_at)}</p>
+            {inbox.announcements
+              .filter(msg => !inboxSearch || msg.body?.toLowerCase().includes(inboxSearch.toLowerCase()))
+              .map(msg => (
+              <div key={msg.id} className="relative group">
+                {deletingAnnouncement === msg.id ? (
+                  <div className="flex items-center justify-between px-4 py-3 bg-red-50">
+                    <p className="text-sm text-gray-700">Delete this announcement?</p>
+                    <div className="flex gap-3 shrink-0 ml-3">
+                      <button onClick={() => setDeletingAnnouncement(null)} className="text-sm text-gray-500">Cancel</button>
+                      <button onClick={async () => {
+                        await messagesAPI.deleteMessage(msg.id)
+                        setDeletingAnnouncement(null)
+                        loadInbox()
+                      }} className="text-sm text-red-600 font-medium">Delete</button>
+                    </div>
                   </div>
-                  <p className="text-xs text-gray-500 truncate mt-0.5">{msg.body}</p>
-                </div>
-                {!msg.is_read && <span className="w-2 h-2 rounded-full bg-green-500 shrink-0 mt-1.5" />}
+                ) : editingAnnouncement?.id === msg.id ? (
+                  <div className="px-4 py-3 space-y-2">
+                    <textarea
+                      autoFocus value={editingAnnouncement.body}
+                      onChange={e => setEditingAnnouncement(a => ({ ...a, body: e.target.value }))}
+                      rows={4}
+                      className="w-full bg-gray-50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-gray-200 resize-none"
+                    />
+                    <div className="flex gap-3 justify-end">
+                      <button onClick={() => setEditingAnnouncement(null)} className="text-sm text-gray-500">Cancel</button>
+                      <button onClick={async () => {
+                        if (!editingAnnouncement.body.trim()) return
+                        await messagesAPI.editMessage(msg.id, editingAnnouncement.body.trim())
+                        setEditingAnnouncement(null)
+                        loadInbox()
+                      }} className="text-sm text-[#07c160] font-medium">Save</button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className={`flex items-start gap-3 px-4 py-3 pr-20 ${!msg.is_read ? 'bg-green-50/40' : ''}`}>
+                      <div className="w-10 h-10 rounded-full bg-amber-400 flex items-center justify-center shrink-0">
+                        <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6V11c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold text-gray-900">Announcement</p>
+                          <p className="text-xs text-gray-400">{fmtTime(msg.created_at)}</p>
+                        </div>
+                        <p className="text-sm text-gray-500 mt-0.5 whitespace-pre-wrap">{msg.body}</p>
+                      </div>
+                      {!msg.is_read && <span className="w-2 h-2 rounded-full bg-green-500 shrink-0 mt-1.5" />}
+                    </div>
+                    {isAdmin && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                        <button onClick={() => setEditingAnnouncement({ id: msg.id, body: msg.body })}
+                          className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-blue-500 text-sm">✎</button>
+                        <button onClick={() => setDeletingAnnouncement(msg.id)}
+                          className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             ))}
 
             {/* DM threads */}
-            {inbox.threads.map(t => {
+            {inbox.threads
+              .filter(t => !inboxSearch || t.other_name?.toLowerCase().includes(inboxSearch.toLowerCase()) || t.body?.toLowerCase().includes(inboxSearch.toLowerCase()))
+              .map(t => {
               const unread = !t.is_read && t.sender_id !== user?.id
               const isDeleting = deletingThread === t.other_user
               return (
                 <div key={t.other_user} className="relative group">
                   {isDeleting ? (
                     <div className="flex items-center justify-between px-4 py-3 bg-red-50">
-                      <p className="text-sm text-gray-700">Delete conversation with <b>{t.other_name}</b>?</p>
+                      <p className="text-sm text-gray-700">Hide chat with <b>{t.other_name}</b>?</p>
                       <div className="flex gap-3 shrink-0 ml-3">
                         <button onClick={() => setDeletingThread(null)} className="text-sm text-gray-500 hover:text-gray-800">Cancel</button>
                         <button onClick={async () => {
                           await messagesAPI.deleteThread(t.other_user)
                           setDeletingThread(null)
                           loadInbox()
-                        }} className="text-sm text-red-600 font-medium hover:text-red-800">Delete</button>
+                        }} className="text-sm text-red-600 font-medium hover:text-red-800">Hide</button>
                       </div>
                     </div>
                   ) : (

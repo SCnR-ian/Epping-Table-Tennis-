@@ -128,6 +128,12 @@ async function runMigrations() {
        emoji      VARCHAR(10) NOT NULL,
        PRIMARY KEY (message_id, user_id, emoji)
      )`,
+    `CREATE TABLE IF NOT EXISTS message_thread_hidden (
+       user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       other_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       hidden_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       PRIMARY KEY (user_id, other_user_id)
+     )`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }

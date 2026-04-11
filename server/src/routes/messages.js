@@ -47,7 +47,7 @@ router.get('/inbox', requireAuth, async (req, res) => {
   const uid = req.user.id
   try {
     const { rows: announcements } = await pool.query(`
-      SELECT m.id, m.body, m.created_at, m.recipient_id, m.deleted_at,
+      SELECT m.id, m.body, m.created_at, m.recipient_id, m.deleted_at, m.edited_at,
              u.name AS sender_name, u.id AS sender_id,
              EXISTS(
                SELECT 1 FROM message_reads mr WHERE mr.message_id = m.id AND mr.user_id = $1
@@ -55,6 +55,7 @@ router.get('/inbox', requireAuth, async (req, res) => {
       FROM messages m
       JOIN users u ON u.id = m.sender_id
       WHERE m.recipient_id IS NULL
+        AND m.deleted_at IS NULL
       ORDER BY m.created_at DESC
     `, [uid])
 
@@ -70,6 +71,11 @@ router.get('/inbox', requireAuth, async (req, res) => {
       JOIN users u ON u.id = CASE WHEN m.sender_id = $1 THEN m.recipient_id ELSE m.sender_id END
       WHERE m.recipient_id IS NOT NULL
         AND (m.sender_id = $1 OR m.recipient_id = $1)
+        AND NOT EXISTS (
+          SELECT 1 FROM message_thread_hidden h
+          WHERE h.user_id = $1
+            AND h.other_user_id = CASE WHEN m.sender_id = $1 THEN m.recipient_id ELSE m.sender_id END
+        )
       ORDER BY other_user, m.created_at DESC
     `, [uid])
 
@@ -160,6 +166,14 @@ router.post('/', requireAuth, async (req, res) => {
       'INSERT INTO message_reads (message_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
       [rows[0].id, req.user.id]
     )
+    // Un-hide thread for both parties when a new message is sent
+    if (recipient_id) {
+      await pool.query(
+        `DELETE FROM message_thread_hidden
+         WHERE (user_id=$1 AND other_user_id=$2) OR (user_id=$2 AND other_user_id=$1)`,
+        [req.user.id, recipient_id]
+      )
+    }
     res.json({ message: rows[0] })
   } catch (err) {
     console.error(err)
@@ -182,15 +196,13 @@ router.put('/:id', requireAuth, async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
-// DELETE /api/messages/thread/:userId  — delete entire conversation (hard delete, both sides)
+// DELETE /api/messages/thread/:userId  — hide conversation for current user only
 router.delete('/thread/:userId', requireAuth, async (req, res) => {
   const uid   = req.user.id
   const other = Number(req.params.userId)
   try {
     await pool.query(
-      `DELETE FROM messages
-       WHERE (sender_id=$1 AND recipient_id=$2)
-          OR (sender_id=$2 AND recipient_id=$1)`,
+      `INSERT INTO message_thread_hidden (user_id, other_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
       [uid, other]
     )
     res.json({ ok: true })
