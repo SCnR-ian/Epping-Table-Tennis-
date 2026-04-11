@@ -116,6 +116,7 @@ async function runMigrations() {
     `ALTER TABLE coaching_reviews ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
     `ALTER TABLE coaching_reviews ALTER COLUMN student_id DROP NOT NULL`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_cr_session ON coaching_reviews(session_id)`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS name_changed_at TIMESTAMPTZ`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }

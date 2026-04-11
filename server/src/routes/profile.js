@@ -21,10 +21,43 @@ router.get('/', requireAuth, async (req, res) => {
 router.put('/', requireAuth, async (req, res) => {
   const { name, phone } = req.body
   try {
+    const { rows: [current] } = await pool.query(
+      'SELECT name, name_changed_at FROM users WHERE id=$1', [req.user.id]
+    )
+    const nameChanging = name && name.trim() !== current.name
+
+    // Enforce one name change per week
+    if (nameChanging && current.name_changed_at) {
+      const daysSince = (Date.now() - new Date(current.name_changed_at)) / (1000 * 60 * 60 * 24)
+      if (daysSince < 7) {
+        const nextAllowed = new Date(new Date(current.name_changed_at).getTime() + 7 * 24 * 60 * 60 * 1000)
+        return res.status(429).json({
+          message: `You can only change your name once per week. Next allowed: ${nextAllowed.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}.`
+        })
+      }
+    }
+
     const { rows } = await pool.query(
-      'UPDATE users SET name=$1, phone=$2, updated_at=NOW() WHERE id=$3 RETURNING *',
+      `UPDATE users SET name=$1, phone=$2, updated_at=NOW()
+       ${nameChanging ? ', name_changed_at=NOW()' : ''}
+       WHERE id=$3 RETURNING *`,
       [name, phone || null, req.user.id]
     )
+
+    // Notify all admins via message
+    if (nameChanging) {
+      const { rows: admins } = await pool.query(
+        `SELECT id FROM users WHERE role='admin'`
+      )
+      const body = `${current.name} has changed their name to "${name.trim()}".`
+      for (const admin of admins) {
+        await pool.query(
+          `INSERT INTO messages (sender_id, recipient_id, body) VALUES ($1, $2, $3)`,
+          [req.user.id, admin.id, body]
+        )
+      }
+    }
+
     res.json({ user: safeUser(rows[0]) })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
