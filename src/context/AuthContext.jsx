@@ -100,6 +100,14 @@ export function AuthProvider({ children }) {
 
   const clearError = useCallback(() => setError(null), [])
 
+  const updateUser = useCallback((partial) => {
+    setUser(prev => {
+      const updated = { ...prev, ...partial }
+      localStorage.setItem('user', JSON.stringify(updated))
+      return updated
+    })
+  }, [])
+
   // ---- derived state -----------------------------------------------------
   const isAuthenticated = Boolean(token && user)
   const isAdmin         = user?.role === 'admin'
@@ -117,6 +125,7 @@ export function AuthProvider({ children }) {
       logout,
       loginWithOAuth,
       clearError,
+      updateUser,
     }}>
       {children}
     </AuthContext.Provider>

@@ -1,27 +1,31 @@
 import { useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
+import { profileAPI } from '@/api/api'
 import FormInput from '@/components/common/FormInput'
 
 export default function ProfilePage() {
-  const { user } = useAuth()
+  const { user, updateUser } = useAuth()
   const [form, setForm] = useState({
     name:  user?.name  ?? '',
-    email: user?.email ?? '',
     phone: user?.phone ?? '',
-    bio:   user?.bio   ?? '',
   })
   const [saving, setSaving] = useState(false)
   const [saved,  setSaved]  = useState(false)
+  const [error,  setError]  = useState('')
 
   const handleChange = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }))
 
   const handleProfileSave = async (e) => {
     e.preventDefault()
     setSaving(true)
+    setError('')
     try {
-      await new Promise(r => setTimeout(r, 600))
+      const { data } = await profileAPI.update({ name: form.name, phone: form.phone })
+      updateUser({ name: data.user?.name ?? form.name, phone: data.user?.phone ?? form.phone })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
+    } catch {
+      setError('Failed to save. Please try again.')
     } finally { setSaving(false) }
   }
 
@@ -44,17 +48,9 @@ export default function ProfilePage() {
 
       {/* Form */}
       <form onSubmit={handleProfileSave} className="space-y-5">
-        <FormInput id="name"  name="name"  label="Full Name"     value={form.name}  onChange={handleChange} />
-        <FormInput id="email" name="email" label="Email Address" type="email" value={form.email} onChange={handleChange} />
-        <FormInput id="phone" name="phone" label="Phone"         type="tel"  value={form.phone} onChange={handleChange} />
-        <div>
-          <label className="text-sm font-normal text-gray-700 block mb-1.5">Bio</label>
-          <textarea
-            name="bio" rows={3} value={form.bio} onChange={handleChange}
-            placeholder="Tell us about your playing style…"
-            className="w-full bg-white border border-gray-300 px-4 py-2.5 text-black placeholder-gray-400 focus:outline-none focus:border-black transition-all duration-200 resize-none"
-          />
-        </div>
+        <FormInput id="name"  name="name"  label="Full Name" value={form.name}  onChange={handleChange} />
+        <FormInput id="phone" name="phone" label="Phone"     type="tel" value={form.phone} onChange={handleChange} />
+        {error && <p className="text-sm text-red-500">{error}</p>}
         <button type="submit" disabled={saving} className="btn-primary w-full">
           {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Changes'}
         </button>
