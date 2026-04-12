@@ -373,6 +373,10 @@ const [sessionForm,      setSessionForm]      = useState({
   const [groupStudentBalances,  setGroupStudentBalances]  = useState({})     // { [userId]: number }
   // Hours balances for all students visible in the session tables
   const [sessionBalances,       setSessionBalances]       = useState({})     // { [userId]: number }
+  // Cancel + makeup modal
+  const [cancelModal, setCancelModal] = useState(null)
+  // Transfer modal
+  const [transferModal, setTransferModal] = useState(null)
   const [socialSearch,     setSocialSearch]     = useState('')
   // Set of session IDs the admin has checked in during this tab visit
   const [adminCheckedIn,   setAdminCheckedIn]   = useState(new Set())
@@ -1087,7 +1091,6 @@ const [sessionForm,      setSessionForm]      = useState({
     const firstCandidate = new Date(lastDate + 'T12:00:00Z')
     firstCandidate.setUTCDate(firstCandidate.getUTCDate() + 7)
     const firstISO = firstCandidate.toISOString().slice(0, 10)
-    if (!window.confirm(`Schedule a makeup session after ${fmtDate(lastDate)} (same time)?`)) return false
 
     const payload = {
       coach_id:   session.coach_id,
@@ -1166,19 +1169,38 @@ const [sessionForm,      setSessionForm]      = useState({
     }
   }
 
-  const handleCancelSession = async (id) => {
-    if (!window.confirm('Cancel this coaching session?')) return
+  const handleCancelSession = (id) => {
+    const session = allCoachingSessions.find(s => s.id === id)
+      ?? coachingSessions.find(s => s.id === id)
+      ?? bookingViewSessions.find(s => s.id === id)
+    if (!session) return
+    const series = session.recurrence_id
+      ? allCoachingSessions.filter(s => s.recurrence_id === session.recurrence_id)
+      : []
+    const lastDate = (series.length ? series : [session])
+      .map(s => s.date?.slice(0, 10)).filter(Boolean).sort().at(-1)
+      ?? session.date?.slice(0, 10)
+    const canMakeup = !session.checked_in
+    setCancelModal({ session, lastDate, wantMakeup: canMakeup, submitting: false })
+  }
+
+  const handleConfirmCancelModal = async () => {
+    if (!cancelModal) return
+    const { session, wantMakeup } = cancelModal
+    const snapshot = allCoachingSessions // capture before state updates
+    setCancelModal(m => ({ ...m, submitting: true }))
     try {
-      const session = allCoachingSessions.find(s => s.id === id) ?? coachingSessions.find(s => s.id === id)
-      await coachingAPI.cancelSession(id)
-      setCoachingSessions(prev => prev.filter(s => s.id !== id))
-      setAllCoachingSessions(prev => prev.filter(s => s.id !== id))
-      setBookingViewSessions(prev => prev.filter(s => s.id !== id))
-      if (session && !session.checked_in) {
-        await offerMakeupSession(session, allCoachingSessions)
+      await coachingAPI.cancelSession(session.id)
+      setCoachingSessions(prev => prev.filter(s => s.id !== session.id))
+      setAllCoachingSessions(prev => prev.filter(s => s.id !== session.id))
+      setBookingViewSessions(prev => prev.filter(s => s.id !== session.id))
+      setCancelModal(null)
+      if (wantMakeup) {
+        await offerMakeupSession(session, snapshot)
       }
     } catch {
       alert('Could not cancel session.')
+      setCancelModal(null)
     }
   }
 
@@ -1280,6 +1302,56 @@ const [sessionForm,      setSessionForm]      = useState({
       setGroupSessions(prev => prev.filter(g => g.group_id !== groupId))
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not cancel group session.')
+    }
+  }
+
+  const openTransferModal = async (params) => {
+    setTransferModal({ ...params, balance: null, soloPrice: null, groupPrice: null, submitting: false, error: null })
+    try {
+      const [balRes, priceRes] = await Promise.all([
+        coachingAPI.getHoursBalance(params.studentId),
+        coachingAPI.getStudentPrices(params.studentId),
+      ])
+      const balance   = balRes.data.balance
+      const soloPrice = priceRes.data.solo_price
+      const groupPrice = priceRes.data.group_price
+      const newPrice  = params.direction === 'to-solo' ? soloPrice : groupPrice
+      const weeks     = balance > 0 && newPrice > 0 ? Math.max(1, Math.floor(balance / newPrice)) : 1
+      setTransferModal(m => m && ({ ...m, balance, soloPrice, groupPrice, weeks }))
+    } catch {
+      setTransferModal(m => m && ({ ...m, error: 'Could not load student data.' }))
+    }
+  }
+
+  const handleConfirmTransfer = async () => {
+    if (!transferModal) return
+    const { direction, studentId, groupId, recurrenceId, targetGroupId,
+            coachId, startTime, endTime, fromDate, weeks, soloPrice, groupPrice } = transferModal
+    setTransferModal(m => ({ ...m, submitting: true, error: null }))
+    try {
+      // 1. Save student prices
+      await coachingAPI.updateStudentPrices(studentId, { solo_price: soloPrice, group_price: groupPrice })
+      if (direction === 'to-solo') {
+        // 2a. Remove from group
+        await coachingAPI.removeStudentFromGroup(groupId, studentId, fromDate)
+        // 3a. Create solo series
+        await coachingAPI.createSession({ coach_id: coachId, student_id: studentId, date: fromDate, start_time: startTime, end_time: endTime, weeks })
+      } else {
+        // 2b. Cancel solo recurrence
+        await coachingAPI.cancelRecurrence(recurrenceId)
+        // 3b. Add to group
+        await coachingAPI.addStudentToGroup(targetGroupId, studentId, fromDate)
+      }
+      // Reload
+      const [sd, gd] = await Promise.all([
+        coachingAPI.getSessions({ date: coachingDate }),
+        coachingAPI.getGroupSessions({ date: coachingDate }),
+      ])
+      setCoachingSessions(sd.data.sessions)
+      setGroupSessions(gd.data.groups)
+      setTransferModal(null)
+    } catch (err) {
+      setTransferModal(m => ({ ...m, submitting: false, error: err.response?.data?.message ?? 'Transfer failed.' }))
     }
   }
 
@@ -2942,7 +3014,21 @@ const [sessionForm,      setSessionForm]      = useState({
                                       <button onClick={() => handleAdminUndoCheckInCoaching(s.id, s.student_id)} className="text-xs font-medium text-emerald-600 hover:text-gray-400 transition-colors whitespace-nowrap" title="Undo">✓ In</button>
                                     )}
                                   </div>
-                                  <div className="mt-2 pt-1 border-t border-gray-100">
+                                  <div className="mt-2 pt-1 border-t border-gray-100 flex gap-2">
+                                    {s.recurrence_id && (
+                                      <button
+                                        onClick={() => openTransferModal({
+                                          direction: 'to-group',
+                                          studentId: s.student_id, studentName: s.student_name,
+                                          recurrenceId: s.recurrence_id,
+                                          coachId: s.coach_id, coachName: s.coach_name,
+                                          startTime: s.start_time, endTime: s.end_time,
+                                          fromDate: coachingDate,
+                                          targetGroupId: null,
+                                        })}
+                                        className="text-xs text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap"
+                                      >→ Group</button>
+                                    )}
                                     <button onClick={() => handleCancelSession(s.id)} className="text-xs text-red-600 hover:text-red-800 font-medium">Cancel</button>
                                   </div>
                                 </div>
@@ -2968,7 +3054,23 @@ const [sessionForm,      setSessionForm]      = useState({
                               <div className="flex flex-col divide-y divide-gray-100">
                                 {studentData.map(({ name, sid, bal }, i) => (
                                   <div key={i} className="py-2 first:pt-0 last:pb-0">
-                                    <button onClick={() => sid !== undefined && handleOpenMemberModal(sid)} className="font-medium text-gray-900 hover:text-blue-700 transition-colors text-sm text-left block">{name}</button>
+                                    <div className="flex items-center gap-1.5">
+                                      <button onClick={() => sid !== undefined && handleOpenMemberModal(sid)} className="font-medium text-gray-900 hover:text-blue-700 transition-colors text-sm text-left">{name}</button>
+                                      {sid !== undefined && (
+                                        <button
+                                          onClick={() => openTransferModal({
+                                            direction: 'to-solo',
+                                            studentId: sid, studentName: name,
+                                            groupId: g.group_id,
+                                            coachId: g.coach_id, coachName: g.coach_name,
+                                            startTime: g.start_time, endTime: g.end_time,
+                                            fromDate: coachingDate,
+                                          })}
+                                          className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 font-medium whitespace-nowrap"
+                                          title="Transfer to 1-on-1"
+                                        >→ 1:1</button>
+                                      )}
+                                    </div>
                                     {bal !== undefined && <span className={`text-[11px] font-mono ${bal < 0 ? 'text-red-600' : bal < 50 ? 'text-amber-600' : 'text-emerald-600'}`}>${bal.toFixed(0)}</span>}
                                   </div>
                                 ))}
@@ -4744,6 +4846,198 @@ const [sessionForm,      setSessionForm]      = useState({
                     </>
                   )
                 })()}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Cancel + Makeup Modal ─────────────────────────────────────────── */}
+      {cancelModal && (() => {
+        const cm = cancelModal
+        const makeupDate = (() => {
+          const d = new Date(cm.lastDate + 'T12:00:00Z')
+          d.setUTCDate(d.getUTCDate() + 7)
+          return fmtDate(d.toISOString().slice(0, 10))
+        })()
+        const canMakeup = !cm.session.checked_in
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={e => { if (e.target === e.currentTarget && !cm.submitting) setCancelModal(null) }}>
+            <div className="bg-gray-50 border border-gray-200 rounded-xl w-full max-w-sm p-6 space-y-4">
+              <div>
+                <h3 className="font-semibold text-gray-900">Cancel Session</h3>
+                <p className="text-sm text-gray-700 mt-1">{cm.session.student_name} · Coach: {cm.session.coach_name}</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {fmtDate(cm.session.date?.slice(0, 10))} · {fmtTime(cm.session.start_time)} – {fmtTime(cm.session.end_time)}
+                </p>
+              </div>
+
+              {canMakeup && (
+                <label className="flex items-start gap-2.5 cursor-pointer bg-white border border-gray-200 rounded-lg px-3 py-2.5">
+                  <input type="checkbox" className="mt-0.5 accent-blue-600" checked={cm.wantMakeup}
+                    onChange={e => setCancelModal(m => ({ ...m, wantMakeup: e.target.checked }))} />
+                  <div>
+                    <span className="text-sm text-gray-800 font-medium">Schedule makeup session</span>
+                    <p className="text-[11px] text-gray-400 mt-0.5">After {makeupDate} · same time</p>
+                  </div>
+                </label>
+              )}
+
+              <div className="flex justify-end gap-3 pt-1">
+                <button onClick={() => setCancelModal(null)} disabled={cm.submitting}
+                  className="btn-secondary px-4 py-2 text-sm">Keep Session</button>
+                <button onClick={handleConfirmCancelModal} disabled={cm.submitting}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 transition-colors">
+                  {cm.submitting ? 'Cancelling…' : 'Confirm Cancel'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Transfer Modal ────────────────────────────────────────────────── */}
+      {transferModal && (() => {
+        const tm = transferModal
+        const isToSolo = tm.direction === 'to-solo'
+        const newPrice = isToSolo ? tm.soloPrice : tm.groupPrice
+        const autoWeeks = (tm.balance != null && newPrice > 0) ? Math.max(1, Math.floor(tm.balance / newPrice)) : 1
+        const usedBalance = tm.weeks * (newPrice ?? 0)
+        const remaining = tm.balance != null ? tm.balance - usedBalance : null
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={e => { if (e.target === e.currentTarget && !tm.submitting) setTransferModal(null) }}>
+            <div className="bg-gray-50 border border-gray-200 rounded-xl w-full max-w-md p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-gray-900">Transfer: {isToSolo ? 'Group → 1-on-1' : '1-on-1 → Group'}</h3>
+                  <p className="text-sm text-gray-500 mt-0.5">Student: {tm.studentName}</p>
+                </div>
+                <button onClick={() => setTransferModal(null)} disabled={tm.submitting} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+              </div>
+
+              {/* From date */}
+              <div>
+                <label className="block text-xs text-gray-700 font-medium mb-1">From date</label>
+                <input type="date" className="input w-full" value={tm.fromDate}
+                  onChange={e => setTransferModal(m => ({ ...m, fromDate: e.target.value }))} />
+              </div>
+
+              {/* Per-student pricing */}
+              <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-2">
+                <p className="text-xs font-medium text-gray-700">Session pricing (this student)</p>
+                {tm.soloPrice == null ? (
+                  <p className="text-xs text-gray-400">Loading…</p>
+                ) : (
+                  <div className="flex gap-4">
+                    <div>
+                      <label className="block text-[11px] text-gray-500 mb-1">1-on-1 ($)</label>
+                      <input type="number" min="1" step="1" className="input w-20 text-sm" value={tm.soloPrice}
+                        onChange={e => {
+                          const v = parseFloat(e.target.value) || 0
+                          const np = isToSolo ? v : tm.groupPrice
+                          const w = np > 0 && tm.balance != null ? Math.max(1, Math.floor(tm.balance / np)) : 1
+                          setTransferModal(m => ({ ...m, soloPrice: v, weeks: w }))
+                        }} />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-gray-500 mb-1">Group ($)</label>
+                      <input type="number" min="1" step="1" className="input w-20 text-sm" value={tm.groupPrice}
+                        onChange={e => {
+                          const v = parseFloat(e.target.value) || 0
+                          const np = isToSolo ? tm.soloPrice : v
+                          const w = np > 0 && tm.balance != null ? Math.max(1, Math.floor(tm.balance / np)) : 1
+                          setTransferModal(m => ({ ...m, groupPrice: v, weeks: w }))
+                        }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Balance & sessions calculation */}
+              <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 space-y-2">
+                {tm.balance == null ? (
+                  <p className="text-xs text-gray-400">Loading balance…</p>
+                ) : (
+                  <>
+                    <div className="flex justify-between text-xs text-gray-600">
+                      <span>Current balance</span>
+                      <span className="font-mono font-semibold">${tm.balance.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-600">
+                      <span>New session price</span>
+                      <span className="font-mono">${(newPrice ?? 0).toFixed(0)}/session</span>
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <label className="text-xs text-gray-700 font-medium">Sessions to create</label>
+                      <input type="number" min="1" step="1" className="input w-20 text-sm" value={tm.weeks}
+                        onChange={e => setTransferModal(m => ({ ...m, weeks: Math.max(1, parseInt(e.target.value) || 1) }))} />
+                      <span className="text-[11px] text-gray-400">(auto: {autoWeeks})</span>
+                    </div>
+                    <div className="flex justify-between text-xs pt-1 border-t border-blue-100">
+                      <span className="text-gray-600">Balance after ({tm.weeks} × ${(newPrice ?? 0).toFixed(0)})</span>
+                      <span className={`font-mono font-semibold ${remaining != null && remaining < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                        ${remaining != null ? remaining.toFixed(2) : '—'}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Direction-specific inputs */}
+              {isToSolo ? (
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-xs text-gray-700 font-medium mb-1">Coach</label>
+                    <select className="input w-full" value={tm.coachId}
+                      onChange={e => setTransferModal(m => ({ ...m, coachId: e.target.value }))}>
+                      {coaches.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <label className="block text-xs text-gray-700 font-medium mb-1">Start time</label>
+                      <select className="input w-full" value={tm.startTime}
+                        onChange={e => setTransferModal(m => ({ ...m, startTime: e.target.value }))}>
+                        {TIMES.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs text-gray-700 font-medium mb-1">End time</label>
+                      <select className="input w-full" value={tm.endTime}
+                        onChange={e => setTransferModal(m => ({ ...m, endTime: e.target.value }))}>
+                        {TIMES.filter(t => t > tm.startTime).map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs text-gray-700 font-medium mb-1">Add to Group</label>
+                  <select className="input w-full" value={tm.targetGroupId ?? ''}
+                    onChange={e => setTransferModal(m => ({ ...m, targetGroupId: e.target.value || null }))}>
+                    <option value="">Select a group…</option>
+                    {groupSessions.map(g => (
+                      <option key={g.group_id} value={g.group_id}>
+                        {g.coach_name} · {fmtTime(g.start_time)}–{fmtTime(g.end_time)} ({g.student_names?.length ?? 0} students)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {tm.error && <p className="text-xs text-red-600 bg-red-50 rounded px-3 py-2">{tm.error}</p>}
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button onClick={() => setTransferModal(null)} disabled={tm.submitting}
+                  className="btn-secondary px-4 py-2 text-sm">Cancel</button>
+                <button
+                  onClick={handleConfirmTransfer}
+                  disabled={tm.submitting || tm.balance == null || (!isToSolo && !tm.targetGroupId)}
+                  className="btn-primary px-4 py-2 text-sm">
+                  {tm.submitting ? 'Transferring…' : 'Confirm Transfer'}
+                </button>
               </div>
             </div>
           </div>

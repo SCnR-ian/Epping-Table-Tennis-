@@ -1594,4 +1594,40 @@ router.put('/prices', requireAuth, requireAdmin, async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
+// GET /api/coaching/student-prices/:userId
+router.get('/student-prices/:userId', requireAuth, requireAdmin, async (req, res) => {
+  const userId = Number(req.params.userId)
+  try {
+    // Fallback to global prices if no student-specific row
+    const { rows: global } = await pool.query('SELECT session_type, price FROM coaching_prices')
+    const globalMap = Object.fromEntries(global.map(r => [r.session_type, parseFloat(r.price)]))
+    const { rows: student } = await pool.query(
+      'SELECT solo_price, group_price FROM student_coaching_prices WHERE user_id=$1',
+      [userId]
+    )
+    const row = student[0]
+    res.json({
+      solo_price:  row?.solo_price  != null ? parseFloat(row.solo_price)  : (globalMap.solo  ?? 70),
+      group_price: row?.group_price != null ? parseFloat(row.group_price) : (globalMap.group ?? 50),
+    })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// PUT /api/coaching/student-prices/:userId
+router.put('/student-prices/:userId', requireAuth, requireAdmin, async (req, res) => {
+  const userId = Number(req.params.userId)
+  const { solo_price, group_price } = req.body
+  if (!solo_price || !group_price || solo_price <= 0 || group_price <= 0)
+    return res.status(400).json({ message: 'solo_price and group_price are required and must be positive.' })
+  try {
+    await pool.query(
+      `INSERT INTO student_coaching_prices (user_id, solo_price, group_price)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id) DO UPDATE SET solo_price=$2, group_price=$3`,
+      [userId, solo_price, group_price]
+    )
+    res.json({ solo_price: parseFloat(solo_price), group_price: parseFloat(group_price) })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
 module.exports = router

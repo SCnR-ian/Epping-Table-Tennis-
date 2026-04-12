@@ -158,7 +158,9 @@ export const coachingAPI = {
   submitReview:     (data)      => api.post('/coaching/reviews', data),
   updateReview:     (id, data)  => api.put(`/coaching/reviews/${id}`, data),
   getMyReviews:     ()          => api.get('/coaching/reviews/my'),
-  getMyHistory:     ()          => api.get('/coaching/my-history'),
+  getMyHistory:        ()          => api.get('/coaching/my-history'),
+  getStudentPrices:    (userId)    => api.get(`/coaching/student-prices/${userId}`),
+  updateStudentPrices: (userId, data) => api.put(`/coaching/student-prices/${userId}`, data),
 }
 
 // ---------------------------------------------------------------------------

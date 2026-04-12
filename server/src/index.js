@@ -134,6 +134,11 @@ async function runMigrations() {
        hidden_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
        PRIMARY KEY (user_id, other_user_id)
      )`,
+    `CREATE TABLE IF NOT EXISTS student_coaching_prices (
+       user_id     INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+       solo_price  DECIMAL(8,2),
+       group_price DECIMAL(8,2)
+     )`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }
