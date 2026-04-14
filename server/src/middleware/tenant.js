@@ -23,7 +23,7 @@ function bustClubCache(subdomain) {
 }
 
 // Platform domains that are NOT club subdomains — fall back to DEV_SUBDOMAIN
-const PLATFORM_DOMAINS = ['onrender.com', 'vercel.app', 'netlify.app', 'railway.app', 'fly.dev']
+const PLATFORM_DOMAINS = ['onrender.com', 'vercel.app', 'netlify.app', 'railway.app', 'fly.dev', 'trycloudflare.com']
 
 async function tenantMiddleware(req, res, next) {
   const host = req.headers.host || ''
