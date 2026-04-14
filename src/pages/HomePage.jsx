@@ -76,7 +76,9 @@ export default function HomePage() {
   const [cards, setCards] = useState(DEFAULT_CARDS);
   const [hero, setHero] = useState(DEFAULT_HERO)
   const [contact, setContact] = useState(DEFAULT_CONTACT)
-  const [bannerImages, setBannerImages] = useState([])
+  const [bannerImages,  setBannerImages]  = useState([])
+  const [bannerImages2, setBannerImages2] = useState([])
+  const [bannerImages3, setBannerImages3] = useState([])
 
   // Seed defaults from ClubContext once it loads
   useEffect(() => {
@@ -103,6 +105,18 @@ export default function HomePage() {
       if (r.data.ids?.length) {
         const sorted = [...r.data.ids].sort()
         setBannerImages(sorted.map(id => pagesAPI.getImageUrl(id)))
+      }
+    }).catch(() => {})
+    pagesAPI.getImageIds('home_banner2').then(r => {
+      if (r.data.ids?.length) {
+        const sorted = [...r.data.ids].sort()
+        setBannerImages2(sorted.map(id => pagesAPI.getImageUrl(id)))
+      }
+    }).catch(() => {})
+    pagesAPI.getImageIds('home_banner3').then(r => {
+      if (r.data.ids?.length) {
+        const sorted = [...r.data.ids].sort()
+        setBannerImages3(sorted.map(id => pagesAPI.getImageUrl(id)))
       }
     }).catch(() => {})
   }, []);
@@ -177,7 +191,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Full-width photo ── */}
-      <BannerSlideshow className="w-full h-screen" />
+      <BannerSlideshow className="w-full h-screen" images={bannerImages2} />
 
       {/* ── Programs ── */}
       <section className="py-14 px-6 lg:px-10">
@@ -205,7 +219,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Full-width photo 2 ── */}
-      <BannerSlideshow className="w-full h-screen" />
+      <BannerSlideshow className="w-full h-screen" images={bannerImages3} />
 
       {/* ── Schedule ── */}
       <section className="py-12 px-6 lg:px-10">

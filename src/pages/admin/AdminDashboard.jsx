@@ -275,6 +275,45 @@ function HomepageCardsTab() {
   )
 }
 
+// ── Reusable banner slot grid ─────────────────────────────────────────────────
+function BannerSlotsGrid({ slots, prefix, onUpload, onDelete }) {
+  return (
+    <div className="grid grid-cols-3 gap-3">
+      {slots.map((slot, idx) => (
+        <div key={slot.key}
+          className="relative h-28 bg-gray-100 rounded-lg overflow-hidden border-2 border-dashed border-gray-300 group"
+          onDragOver={e => e.preventDefault()}
+          onDrop={e => { e.preventDefault(); onUpload(idx, e.dataTransfer.files[0]) }}
+        >
+          <label htmlFor={`${prefix}-input-${idx}`} className="absolute inset-0 flex items-center justify-center cursor-pointer">
+            {slot.hasImage ? (
+              <>
+                <img src={`${pagesAPI.getImageUrl(slot.key)}?t=${slot.ts}`} alt="" className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                <span className="absolute bottom-1 left-1 bg-black/50 text-white text-[10px] px-1 rounded">{idx + 1}</span>
+              </>
+            ) : (
+              <div className="text-center pointer-events-none">
+                {slot.uploading ? <span className="text-gray-400 text-xs">Uploading…</span> : (
+                  <>
+                    <svg className="w-6 h-6 text-gray-300 mx-auto mb-1" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.338-2.32 5.75 5.75 0 011.344 11.095" /></svg>
+                    <span className="text-gray-400 text-[10px]">Slot {idx + 1}</span>
+                  </>
+                )}
+              </div>
+            )}
+          </label>
+          {slot.hasImage && (
+            <button onClick={() => onDelete(idx)} className="absolute top-1 right-1 z-10 bg-black/60 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+          )}
+          <input id={`${prefix}-input-${idx}`} type="file" accept="image/*" className="hidden" disabled={slot.uploading}
+            onChange={e => { onUpload(idx, e.target.files[0]); e.target.value = '' }} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Club Settings Tab ─────────────────────────────────────────────────────────
 function ClubSettingsTab() {
   const { club, setClub } = useClub() ?? {}
@@ -584,8 +623,14 @@ function PagesTab() {
   const [heroSaving, setHeroSaving]       = React.useState(false); const [heroSaved, setHeroSaved] = React.useState(false)
   const [contactSaving, setContactSaving] = React.useState(false); const [contactSaved, setContactSaved] = React.useState(false)
   // banner slots: array of { key, hasImage, ts, uploading }
-  const [bannerSlots, setBannerSlots] = React.useState(
-    Array.from({ length: BANNER_SLOTS }, (_, i) => ({ key: `home_banner_${i}`, hasImage: false, ts: Date.now(), uploading: false }))
+  const [bannerSlots,  setBannerSlots]  = React.useState(
+    Array.from({ length: BANNER_SLOTS }, (_, i) => ({ key: `home_banner_${i}`,  hasImage: false, ts: Date.now(), uploading: false }))
+  )
+  const [bannerSlots2, setBannerSlots2] = React.useState(
+    Array.from({ length: BANNER_SLOTS }, (_, i) => ({ key: `home_banner2_${i}`, hasImage: false, ts: Date.now(), uploading: false }))
+  )
+  const [bannerSlots3, setBannerSlots3] = React.useState(
+    Array.from({ length: BANNER_SLOTS }, (_, i) => ({ key: `home_banner3_${i}`, hasImage: false, ts: Date.now(), uploading: false }))
   )
   const bannerSrcs = bannerSlots.filter(s => s.hasImage).map(s => `${pagesAPI.getImageUrl(s.key)}?t=${s.ts}`)
 
@@ -622,6 +667,14 @@ function PagesTab() {
       const populated = new Set(r.data.ids)
       setBannerSlots(prev => prev.map(s => ({ ...s, hasImage: populated.has(s.key) })))
     }).catch(() => {})
+    pagesAPI.getImageIds('home_banner2').then(r => {
+      const populated = new Set(r.data.ids)
+      setBannerSlots2(prev => prev.map(s => ({ ...s, hasImage: populated.has(s.key) })))
+    }).catch(() => {})
+    pagesAPI.getImageIds('home_banner3').then(r => {
+      const populated = new Set(r.data.ids)
+      setBannerSlots3(prev => prev.map(s => ({ ...s, hasImage: populated.has(s.key) })))
+    }).catch(() => {})
   }, [])
 
   const saveSection = async (id, data, setSaving, setSaved) => {
@@ -645,6 +698,38 @@ function PagesTab() {
   const deleteBanner = async (idx) => {
     const key = `home_banner_${idx}`
     try { await pagesAPI.deleteImage(key); setBannerSlots(prev => prev.map((s, i) => i === idx ? { ...s, hasImage: false } : s)) }
+    catch { alert('Delete failed.') }
+  }
+
+  const uploadBanner2 = async (idx, file) => {
+    if (!file) return
+    const key = `home_banner2_${idx}`
+    setBannerSlots2(prev => prev.map((s, i) => i === idx ? { ...s, uploading: true } : s))
+    try {
+      const fd = new FormData(); fd.append('image', file)
+      await pagesAPI.uploadImage(key, fd)
+      setBannerSlots2(prev => prev.map((s, i) => i === idx ? { ...s, hasImage: true, ts: Date.now(), uploading: false } : s))
+    } catch (err) { alert('Upload failed: ' + (err.response?.data?.message ?? err.message)); setBannerSlots2(prev => prev.map((s, i) => i === idx ? { ...s, uploading: false } : s)) }
+  }
+  const deleteBanner2 = async (idx) => {
+    const key = `home_banner2_${idx}`
+    try { await pagesAPI.deleteImage(key); setBannerSlots2(prev => prev.map((s, i) => i === idx ? { ...s, hasImage: false } : s)) }
+    catch { alert('Delete failed.') }
+  }
+
+  const uploadBanner3 = async (idx, file) => {
+    if (!file) return
+    const key = `home_banner3_${idx}`
+    setBannerSlots3(prev => prev.map((s, i) => i === idx ? { ...s, uploading: true } : s))
+    try {
+      const fd = new FormData(); fd.append('image', file)
+      await pagesAPI.uploadImage(key, fd)
+      setBannerSlots3(prev => prev.map((s, i) => i === idx ? { ...s, hasImage: true, ts: Date.now(), uploading: false } : s))
+    } catch (err) { alert('Upload failed: ' + (err.response?.data?.message ?? err.message)); setBannerSlots3(prev => prev.map((s, i) => i === idx ? { ...s, uploading: false } : s)) }
+  }
+  const deleteBanner3 = async (idx) => {
+    const key = `home_banner3_${idx}`
+    try { await pagesAPI.deleteImage(key); setBannerSlots3(prev => prev.map((s, i) => i === idx ? { ...s, hasImage: false } : s)) }
     catch { alert('Delete failed.') }
   }
 
@@ -705,43 +790,25 @@ function PagesTab() {
         <div className="flex gap-6 items-start">
           {/* Left: edit forms */}
           <div className="flex-1 min-w-0 space-y-8">
-          {/* Banner Images */}
+          {/* Banner 1 — Hero */}
           <div className="card space-y-3">
-            <h3 className="font-medium text-gray-900">Banner Photos</h3>
-            <p className="text-xs text-gray-400">Upload up to {BANNER_SLOTS} photos for the homepage slideshow. Drag & drop or click to upload. Leave slots empty to use the defaults.</p>
-            <div className="grid grid-cols-3 gap-3">
-              {bannerSlots.map((slot, idx) => (
-                <div key={slot.key}
-                  className="relative h-28 bg-gray-100 rounded-lg overflow-hidden border-2 border-dashed border-gray-300 group"
-                  onDragOver={e => e.preventDefault()}
-                  onDrop={e => { e.preventDefault(); uploadBanner(idx, e.dataTransfer.files[0]) }}
-                >
-                  <label htmlFor={`banner-input-${idx}`} className="absolute inset-0 flex items-center justify-center cursor-pointer">
-                    {slot.hasImage ? (
-                      <>
-                        <img src={`${pagesAPI.getImageUrl(slot.key)}?t=${slot.ts}`} alt="" className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
-                        <span className="absolute bottom-1 left-1 bg-black/50 text-white text-[10px] px-1 rounded">{idx + 1}</span>
-                      </>
-                    ) : (
-                      <div className="text-center pointer-events-none">
-                        {slot.uploading ? <span className="text-gray-400 text-xs">Uploading…</span> : (
-                          <>
-                            <svg className="w-6 h-6 text-gray-300 mx-auto mb-1" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.338-2.32 5.75 5.75 0 011.344 11.095" /></svg>
-                            <span className="text-gray-400 text-[10px]">Slot {idx + 1}</span>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </label>
-                  {slot.hasImage && (
-                    <button onClick={() => deleteBanner(idx)} className="absolute top-1 right-1 z-10 bg-black/60 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
-                  )}
-                  <input id={`banner-input-${idx}`} type="file" accept="image/*" className="hidden" disabled={slot.uploading}
-                    onChange={e => { uploadBanner(idx, e.target.files[0]); e.target.value = '' }} />
-                </div>
-              ))}
-            </div>
+            <h3 className="font-medium text-gray-900">Banner 1 — Hero Slideshow</h3>
+            <p className="text-xs text-gray-400">首頁最上方全螢幕的輪播圖。上傳最多 {BANNER_SLOTS} 張，留空使用預設圖片。</p>
+            <BannerSlotsGrid slots={bannerSlots} prefix="banner1" onUpload={uploadBanner} onDelete={deleteBanner} />
+          </div>
+
+          {/* Banner 2 — Mid page */}
+          <div className="card space-y-3">
+            <h3 className="font-medium text-gray-900">Banner 2 — 中段全寬圖</h3>
+            <p className="text-xs text-gray-400">介紹區塊下方的全寬圖片。上傳最多 {BANNER_SLOTS} 張，留空使用預設圖片。</p>
+            <BannerSlotsGrid slots={bannerSlots2} prefix="banner2" onUpload={uploadBanner2} onDelete={deleteBanner2} />
+          </div>
+
+          {/* Banner 3 — Bottom */}
+          <div className="card space-y-3">
+            <h3 className="font-medium text-gray-900">Banner 3 — 下段全寬圖</h3>
+            <p className="text-xs text-gray-400">課程卡片下方的全寬圖片。上傳最多 {BANNER_SLOTS} 張，留空使用預設圖片。</p>
+            <BannerSlotsGrid slots={bannerSlots3} prefix="banner3" onUpload={uploadBanner3} onDelete={deleteBanner3} />
           </div>
           {/* Hero */}
           <div className="card space-y-3">
