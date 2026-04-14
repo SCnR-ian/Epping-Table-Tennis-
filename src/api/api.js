@@ -12,9 +12,13 @@ const api = axios.create({
 });
 
 // Attach JWT on every request if present
+// Also strip Content-Type for FormData so the browser sets it (with boundary)
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
+  }
   return config;
 });
 
@@ -225,13 +229,34 @@ export const homepageAPI = {
   getStats:      ()           => api.get('/homepage/stats'),
   getCards:      ()           => api.get('/homepage/cards'),
   getImageUrl:   (id)         => `${api.defaults.baseURL}/homepage/cards/${id}/image`,
-  uploadImage:   (id, formData) => api.post(`/homepage/admin/cards/${id}/image`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  uploadImage:   (id, formData) => api.post(`/homepage/admin/cards/${id}/image`, formData, { headers: { 'Content-Type': undefined } }),
   deleteImage:   (id)         => api.delete(`/homepage/admin/cards/${id}/image`),
 }
 
 // ---------------------------------------------------------------------------
 // Messages
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Pages CMS
+// ---------------------------------------------------------------------------
+export const pagesAPI = {
+  getContent:    ()              => api.get('/pages/content'),
+  updateContent: (id, content)   => api.put(`/pages/content/${id}`, { content }),
+  getImageUrl:   (id)            => `${api.defaults.baseURL}/pages/images/${id}`,
+  getImageIds:   (prefix)        => api.get('/pages/image-ids', { params: prefix ? { prefix } : {} }),
+  uploadImage:   (id, formData)  => api.post(`/pages/images/${id}`, formData, { headers: { 'Content-Type': undefined } }),
+  deleteImage:   (id)            => api.delete(`/pages/images/${id}`),
+}
+
+// ---------------------------------------------------------------------------
+// Payments
+// ---------------------------------------------------------------------------
+export const paymentsAPI = {
+  getConfig:      ()     => api.get('/payments/config'),
+  createIntent:   (data) => api.post('/payments/create-intent', data),
+  confirm:        (paymentIntentId) => api.post('/payments/confirm', { paymentIntentId }),
+}
+
 export const messagesAPI = {
   getUnreadCount: ()             => api.get('/messages/unread-count'),
   getInbox:       ()             => api.get('/messages/inbox'),
@@ -242,6 +267,14 @@ export const messagesAPI = {
   editMessage:    (id, body)     => api.put(`/messages/${id}`, { body }),
   deleteMessage:  (id)           => api.delete(`/messages/${id}`),
   reactMessage:   (id, emoji)    => api.post(`/messages/${id}/react`, { emoji }),
+}
+
+// ---------------------------------------------------------------------------
+// Club (multi-tenancy)
+// ---------------------------------------------------------------------------
+export const clubAPI = {
+  getCurrent: ()       => api.get('/clubs/current'),
+  update:     (data)   => api.patch('/clubs/current', data),
 }
 
 export default api;

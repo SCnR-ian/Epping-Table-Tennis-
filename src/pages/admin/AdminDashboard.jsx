@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, homepageAPI } from '@/api/api'
+import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, homepageAPI, pagesAPI, clubAPI } from '@/api/api'
+import { useClub } from '@/context/ClubContext'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   LineChart, Line, CartesianGrid, Legend,
@@ -119,7 +120,7 @@ function groupByWeek(sessions) {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 
-const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Pay Report', 'Analytics', 'Homepage']
+const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Pay Report', 'Analytics', 'Pages', 'Club Settings']
 
 const BOOKABLE_COURTS = [
   { id: 1, label: 'Court 1' },
@@ -270,6 +271,651 @@ function HomepageCardsTab() {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+// ── Club Settings Tab ─────────────────────────────────────────────────────────
+function ClubSettingsTab() {
+  const { club, setClub } = useClub() ?? {}
+  const [form, setForm] = React.useState({
+    name:          '',
+    contactPhone:  '',
+    contactEmail:  '',
+    address:       '',
+    wechat:        '',
+    primaryColor:  '#2563eb',
+    primaryDark:   '#1d4ed8',
+    logoUrl:       '',
+  })
+  const [saving, setSaving] = React.useState(false)
+  const [saved,  setSaved]  = React.useState(false)
+
+  React.useEffect(() => {
+    if (!club) return
+    const s = club.settings ?? {}
+    const t = s.theme ?? {}
+    setForm({
+      name:         club.name          ?? '',
+      contactPhone: s.contactPhone     ?? '',
+      contactEmail: s.contactEmail     ?? '',
+      address:      s.address          ?? '',
+      wechat:       s.wechat           ?? '',
+      primaryColor: t.primaryColor     ?? '#2563eb',
+      primaryDark:  t.primaryDark      ?? '#1d4ed8',
+      logoUrl:      t.logoUrl          ?? '',
+    })
+  }, [club])
+
+  const handleSave = async () => {
+    setSaving(true); setSaved(false)
+    try {
+      const payload = {
+        name: form.name,
+        settings: {
+          ...(club?.settings ?? {}),
+          contactPhone: form.contactPhone,
+          contactEmail: form.contactEmail,
+          address:      form.address,
+          wechat:       form.wechat,
+          theme: {
+            ...(club?.settings?.theme ?? {}),
+            primaryColor: form.primaryColor,
+            primaryDark:  form.primaryDark,
+            logoUrl:      form.logoUrl,
+          },
+        },
+      }
+      const r = await clubAPI.update(payload)
+      setClub(r.data.club)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch { alert('Save failed.') }
+    finally { setSaving(false) }
+  }
+
+  const field = (label, key, type = 'text', extra = {}) => (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+      {type === 'textarea'
+        ? <textarea
+            rows={3}
+            value={form[key]}
+            onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            {...extra}
+          />
+        : <input
+            type={type}
+            value={form[key]}
+            onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            {...extra}
+          />
+      }
+    </div>
+  )
+
+  return (
+    <div className="max-w-xl mx-auto py-8 px-4 space-y-8">
+      <h2 className="text-lg font-semibold text-gray-900">Club Settings</h2>
+
+      {/* Identity */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider">Identity</h3>
+        {field('Club Name', 'name')}
+        {field('Logo URL', 'logoUrl', 'text', { placeholder: '/logo.png or https://…' })}
+      </section>
+
+      {/* Contact */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider">Contact</h3>
+        {field('Phone', 'contactPhone')}
+        {field('Email', 'contactEmail', 'email')}
+        {field('Address', 'address', 'textarea')}
+        {field('WeChat ID', 'wechat')}
+      </section>
+
+      {/* Theme */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider">Theme</h3>
+        <div className="flex gap-6">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Primary Colour</label>
+            <div className="flex items-center gap-2">
+              <input type="color" value={form.primaryColor} onChange={e => setForm(f => ({ ...f, primaryColor: e.target.value }))}
+                className="w-10 h-10 rounded cursor-pointer border border-gray-300" />
+              <span className="text-sm text-gray-500">{form.primaryColor}</span>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Primary Dark</label>
+            <div className="flex items-center gap-2">
+              <input type="color" value={form.primaryDark} onChange={e => setForm(f => ({ ...f, primaryDark: e.target.value }))}
+                className="w-10 h-10 rounded cursor-pointer border border-gray-300" />
+              <span className="text-sm text-gray-500">{form.primaryDark}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        className="px-6 py-2 bg-black text-white text-sm rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
+      >
+        {saving ? 'Saving…' : saved ? 'Saved!' : 'Save Changes'}
+      </button>
+    </div>
+  )
+}
+
+// ── Pages CMS Tab ─────────────────────────────────────────────────────────────
+const PAGE_SUBTABS = ['Cards', 'Home', 'About Us', 'Training']
+
+const DEFAULT_HOME_HERO    = { headline: 'Epping Table Tennis', subheadline: "Sydney's Premier Table Tennis Club" }
+const DEFAULT_HOME_CONTACT = {
+  phone: '(02) 9876 5432', email: 'info@eppingttclub.com.au',
+  address: '33 Oxford St\nEpping NSW 2121\nAustralia', wechat: '',
+  gettingHere: '2 min walk from Epping Station\nBus stop directly outside\nFree parking on-site',
+  schedule: [
+    { day: 'Mon', time: '4:00 – 8:30 PM' }, { day: 'Tue', time: '4:00 – 8:30 PM' },
+    { day: 'Wed', time: '4:00 – 8:30 PM' }, { day: 'Sat', time: '1:00 – 6:30 PM' },
+  ],
+}
+const DEFAULT_ABOUT_STORY    = { headline: 'More Than Just a Club', body1: '', body2: '' }
+const DEFAULT_ABOUT_COACHING = { headline: 'World-Class Coaching', body1: '', body2: '' }
+const DEFAULT_ABOUT_COACHES  = { coaches: [
+  { name: 'David Chen',  title: 'Head Coach',               bio: '' },
+  { name: 'Sarah Kim',   title: 'Junior Development Coach',  bio: '' },
+  { name: 'Marcus Liu',  title: 'Fitness & Strategy Coach',  bio: '' },
+] }
+const DEFAULT_TRAINING_INTRO = { headline: 'Training Programs', subheadline: 'From beginner to competitive — we have a program designed for every stage of your journey.' }
+const TRAINING_PROGRAM_IDS   = ['private', 'group', 'school', 'holiday']
+const DEFAULT_TRAINING_PROGRAMS = {
+  private: { label: 'One-on-One',       tagline: 'Personalised sessions tailored entirely to your game',       description: '', features: [] },
+  group:   { label: 'Group Session',    tagline: 'Learn together, improve together',                           description: '', features: [] },
+  school:  { label: 'School Coaching',  tagline: 'Bringing table tennis to the classroom',                     description: '', features: [] },
+  holiday: { label: 'School Holiday',   tagline: 'Fun, intensive programs during school holidays',             description: '', features: [] },
+}
+
+function ImageUploadBox({ imageUrl, fallback, onUpload, onDelete, uploading }) {
+  const uid = React.useId()
+  const [hasImg, setHasImg] = React.useState(false)
+  const [ts, setTs] = React.useState(Date.now())
+  React.useEffect(() => {
+    const img = new Image()
+    img.onload  = () => { setHasImg(true);  setTs(Date.now()) }
+    img.onerror = () => { setHasImg(false) }
+    img.src = imageUrl
+  }, [imageUrl])
+  const handleDrop = e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) { onUpload(f); setTs(Date.now()) } }
+  const handleChange = e => { const f = e.target.files[0]; if (f) { onUpload(f); setTs(Date.now()) }; e.target.value = '' }
+  return (
+    <div className="relative h-32 bg-gray-100 rounded-lg overflow-hidden border-2 border-dashed border-gray-300 group"
+      onDragOver={e => e.preventDefault()} onDrop={handleDrop}>
+      <label htmlFor={uid} className="absolute inset-0 flex items-center justify-center cursor-pointer">
+        {hasImg
+          ? <img src={`${imageUrl}?t=${ts}`} alt="" className="w-full h-full object-cover" onError={() => setHasImg(false)} />
+          : <span className="text-gray-400 text-xs text-center px-2">{uploading ? 'Uploading…' : fallback || 'Drag & drop or click to upload'}</span>
+        }
+      </label>
+      {hasImg && (
+        <button onClick={() => { onDelete(); setHasImg(false) }}
+          className="absolute top-1 right-1 z-10 bg-black/60 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+      )}
+      <input id={uid} type="file" accept="image/*" className="hidden" disabled={uploading} onChange={handleChange} />
+    </div>
+  )
+}
+
+function SaveButton({ onSave, saving, saved }) {
+  return (
+    <button onClick={onSave} disabled={saving} className="btn-primary text-sm py-1.5 px-4 mt-2">
+      {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}
+    </button>
+  )
+}
+
+const BANNER_SLOTS = 6
+const FALLBACK_BANNERS = ['/images/ETTC1.jpg','/images/ETTC2.jpg','/images/ETTC3.jpg','/images/ETTC4.jpg','/images/ETTC5.jpg','/images/ETTC6.jpg']
+
+function HomePagePreview({ hero, contact, bannerSrcs }) {
+  const srcs = bannerSrcs.length ? bannerSrcs : FALLBACK_BANNERS
+  const [cur, setCur] = React.useState(0)
+  React.useEffect(() => {
+    setCur(0)
+  }, [srcs.length])
+  React.useEffect(() => {
+    const t = setInterval(() => setCur(i => (i + 1) % srcs.length), 3000)
+    return () => clearInterval(t)
+  }, [srcs.length])
+  const schedule = contact.schedule ?? []
+  return (
+    <div className="rounded-xl overflow-hidden border border-gray-200 shadow-lg select-none" style={{ height: '72vh' }}>
+      {/* Browser chrome */}
+      <div className="bg-gray-100 px-3 py-2 flex items-center gap-1.5 border-b border-gray-200 flex-shrink-0">
+        <span className="w-2.5 h-2.5 rounded-full bg-red-400 block" />
+        <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 block" />
+        <span className="w-2.5 h-2.5 rounded-full bg-green-400 block" />
+        <div className="flex-1 mx-2 bg-white rounded text-[10px] text-gray-400 px-2 py-0.5 text-center truncate">eppingttclub.com.au</div>
+      </div>
+      {/* Scrollable page */}
+      <div className="overflow-y-auto bg-white" style={{ height: 'calc(72vh - 33px)' }}>
+        {/* Nav stub */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100">
+          <span className="text-[10px] tracking-widest text-gray-400 uppercase">Menu</span>
+          <span className="text-[11px] tracking-[0.15em] text-gray-900 font-medium">EPPING TABLE TENNIS</span>
+          <span className="w-5 h-5 rounded-full bg-gray-200" />
+        </div>
+        {/* Hero */}
+        <div className="relative overflow-hidden" style={{ height: 200 }}>
+          {srcs.map((src, i) => (
+            <img key={src} src={src} alt="" className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700" style={{ opacity: i === cur ? 1 : 0 }} />
+          ))}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-black/20" />
+          <div className="absolute inset-0 flex flex-col items-center justify-end pb-5 text-center px-3">
+            <p className="text-white/60 text-[8px] tracking-[0.35em] uppercase mb-1.5">{hero.subheadline}</p>
+            <p className="text-white text-base font-normal tracking-tight leading-none">{hero.headline}</p>
+          </div>
+        </div>
+        {/* Intro */}
+        <div className="px-5 py-6 text-center border-b border-gray-100">
+          <h2 className="text-sm font-bold text-black mb-2">More Than Just a Club</h2>
+          <p className="text-gray-500 text-[10px] leading-relaxed mb-4">Sydney's premier destination for players of all levels.</p>
+          <div className="grid grid-cols-3 gap-2 border-t border-gray-100 pt-4">
+            {[['—','Members'],['6','Courts'],['—','Social']].map(([v,l]) => (
+              <div key={l}><p className="text-base font-bold text-black">{v}</p><p className="text-gray-400 text-[9px] uppercase tracking-widest">{l}</p></div>
+            ))}
+          </div>
+        </div>
+        {/* Schedule */}
+        <div className="px-5 py-5 border-b border-gray-100">
+          <p className="text-[9px] tracking-[0.3em] uppercase text-gray-400 mb-1 text-center">Opening Hours</p>
+          <p className="text-sm font-bold text-black text-center mb-3">Weekly Schedule</p>
+          <div className="divide-y divide-gray-100 border-t border-gray-100">
+            {schedule.map(({ day, time }) => (
+              <div key={day} className="flex items-center justify-between py-2.5">
+                <span className="text-sm font-bold text-black">{day}</span>
+                <span className="text-gray-500 text-[10px]">Open Practice</span>
+                <span className="text-gray-700 text-[10px]">{time}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Location */}
+        <div className="px-5 py-5 bg-gray-50">
+          <p className="text-[9px] tracking-[0.3em] uppercase text-gray-400 mb-1 text-center">Location</p>
+          <p className="text-sm font-bold text-black text-center mb-4">Find Us</p>
+          <div className="grid grid-cols-2 gap-3 text-[10px]">
+            <div>
+              <p className="font-semibold text-gray-700 mb-1 uppercase text-[9px] tracking-wide">Address</p>
+              <p className="text-gray-600 whitespace-pre-line">{contact.address}</p>
+            </div>
+            <div>
+              <p className="font-semibold text-gray-700 mb-1 uppercase text-[9px] tracking-wide">Contact</p>
+              <p className="text-gray-600">{contact.phone}</p>
+              <p className="text-gray-600">{contact.email}</p>
+              {contact.wechat && <p className="text-gray-600">WeChat: {contact.wechat}</p>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PagesTab() {
+  const [sub, setSub] = React.useState('Cards')
+  const { club } = useClub() ?? {}
+
+  // ── Home state ──
+  const [hero, setHero] = React.useState(() => ({
+    ...DEFAULT_HOME_HERO,
+    headline: club?.name ?? DEFAULT_HOME_HERO.headline,
+  }))
+  const [contact, setContact] = React.useState(() => ({
+    ...DEFAULT_HOME_CONTACT,
+    phone:   club?.settings?.contactPhone || DEFAULT_HOME_CONTACT.phone,
+    email:   club?.settings?.contactEmail || DEFAULT_HOME_CONTACT.email,
+    address: club?.settings?.address      || DEFAULT_HOME_CONTACT.address,
+    wechat:  club?.settings?.wechat       ?? DEFAULT_HOME_CONTACT.wechat,
+  }))
+  const [heroSaving, setHeroSaving]       = React.useState(false); const [heroSaved, setHeroSaved] = React.useState(false)
+  const [contactSaving, setContactSaving] = React.useState(false); const [contactSaved, setContactSaved] = React.useState(false)
+  // banner slots: array of { key, hasImage, ts, uploading }
+  const [bannerSlots, setBannerSlots] = React.useState(
+    Array.from({ length: BANNER_SLOTS }, (_, i) => ({ key: `home_banner_${i}`, hasImage: false, ts: Date.now(), uploading: false }))
+  )
+  const bannerSrcs = bannerSlots.filter(s => s.hasImage).map(s => `${pagesAPI.getImageUrl(s.key)}?t=${s.ts}`)
+
+  // ── About state ──
+  const [story,    setStory]    = React.useState(DEFAULT_ABOUT_STORY)
+  const [coaching, setCoaching] = React.useState(DEFAULT_ABOUT_COACHING)
+  const [coaches,  setCoaches]  = React.useState(DEFAULT_ABOUT_COACHES.coaches)
+  const [storySaving,    setStorySaving]    = React.useState(false); const [storySaved,    setStorySaved]    = React.useState(false)
+  const [coachingSaving, setCoachingSaving] = React.useState(false); const [coachingSaved, setCoachingSaved] = React.useState(false)
+  const [coachesSaving,  setCoachesSaving]  = React.useState(false); const [coachesSaved,  setCoachesSaved]  = React.useState(false)
+  const [imgUploading, setImgUploading] = React.useState({})
+
+  // ── Training state ──
+  const [trainingIntro,    setTrainingIntro]    = React.useState(DEFAULT_TRAINING_INTRO)
+  const [trainingPrograms, setTrainingPrograms] = React.useState(DEFAULT_TRAINING_PROGRAMS)
+  const [trainingIntroSaving, setTrainingIntroSaving] = React.useState(false); const [trainingIntroSaved, setTrainingIntroSaved] = React.useState(false)
+  const [trainingSaving, setTrainingSaving] = React.useState({}); const [trainingSaved, setTrainingSaved] = React.useState({})
+  const [cardUploading, setCardUploading] = React.useState({})
+
+  React.useEffect(() => {
+    pagesAPI.getContent().then(r => {
+      const c = r.data.content
+      if (c.home_hero)       setHero(h => ({ ...h, ...c.home_hero }))
+      if (c.home_contact)    setContact(h => ({ ...h, ...c.home_contact }))
+      if (c.about_story)     setStory(h => ({ ...h, ...c.about_story }))
+      if (c.about_coaching)  setCoaching(h => ({ ...h, ...c.about_coaching }))
+      if (c.about_coaches?.coaches) setCoaches(c.about_coaches.coaches)
+      if (c.training_intro)  setTrainingIntro(h => ({ ...h, ...c.training_intro }))
+      TRAINING_PROGRAM_IDS.forEach(id => {
+        if (c[`training_${id}`]) setTrainingPrograms(p => ({ ...p, [id]: { ...p[id], ...c[`training_${id}`] } }))
+      })
+    }).catch(() => {})
+    pagesAPI.getImageIds('home_banner').then(r => {
+      const populated = new Set(r.data.ids)
+      setBannerSlots(prev => prev.map(s => ({ ...s, hasImage: populated.has(s.key) })))
+    }).catch(() => {})
+  }, [])
+
+  const saveSection = async (id, data, setSaving, setSaved) => {
+    setSaving(true); setSaved(false)
+    try { await pagesAPI.updateContent(id, data); setSaved(true); setTimeout(() => setSaved(false), 3000) }
+    catch { alert('Save failed.') }
+    finally { setSaving(false) }
+  }
+
+  const uploadBanner = async (idx, file) => {
+    if (!file) return
+    const key = `home_banner_${idx}`
+    setBannerSlots(prev => prev.map((s, i) => i === idx ? { ...s, uploading: true } : s))
+    try {
+      const fd = new FormData(); fd.append('image', file)
+      await pagesAPI.uploadImage(key, fd)
+      setBannerSlots(prev => prev.map((s, i) => i === idx ? { ...s, hasImage: true, ts: Date.now(), uploading: false } : s))
+    } catch (err) { alert('Upload failed: ' + (err.response?.data?.message ?? err.message)); setBannerSlots(prev => prev.map((s, i) => i === idx ? { ...s, uploading: false } : s)) }
+  }
+
+  const deleteBanner = async (idx) => {
+    const key = `home_banner_${idx}`
+    try { await pagesAPI.deleteImage(key); setBannerSlots(prev => prev.map((s, i) => i === idx ? { ...s, hasImage: false } : s)) }
+    catch { alert('Delete failed.') }
+  }
+
+  const uploadImg = async (key, file) => {
+    setImgUploading(p => ({ ...p, [key]: true }))
+    try { const fd = new FormData(); fd.append('image', file); await pagesAPI.uploadImage(key, fd) }
+    catch (err) { alert('Upload failed: ' + (err.response?.data?.message ?? err.message)) }
+    finally { setImgUploading(p => ({ ...p, [key]: false })) }
+  }
+
+  const deleteImg = async (key) => {
+    try { await pagesAPI.deleteImage(key) } catch { alert('Delete failed.') }
+  }
+
+  const uploadCard = async (id, file) => {
+    setCardUploading(p => ({ ...p, [id]: true }))
+    try { const fd = new FormData(); fd.append('image', file); await homepageAPI.uploadImage(id, fd) }
+    catch (err) { alert('Upload failed: ' + (err.response?.data?.message ?? err.message)) }
+    finally { setCardUploading(p => ({ ...p, [id]: false })) }
+  }
+
+  const deleteCard = async (id) => {
+    try { await homepageAPI.deleteImage(id) } catch { alert('Delete failed.') }
+  }
+
+  const updateCoach = (i, field, val) => setCoaches(prev => prev.map((c, ci) => ci === i ? { ...c, [field]: val } : c))
+
+  const updateScheduleRow = (i, field, val) =>
+    setContact(c => ({ ...c, schedule: c.schedule.map((r, ri) => ri === i ? { ...r, [field]: val } : r) }))
+
+  const updateFeature = (progId, i, val) =>
+    setTrainingPrograms(p => ({ ...p, [progId]: { ...p[progId], features: p[progId].features.map((f, fi) => fi === i ? val : f) } }))
+
+  const addFeature = (progId) =>
+    setTrainingPrograms(p => ({ ...p, [progId]: { ...p[progId], features: [...(p[progId].features || []), ''] } }))
+
+  const removeFeature = (progId, i) =>
+    setTrainingPrograms(p => ({ ...p, [progId]: { ...p[progId], features: p[progId].features.filter((_, fi) => fi !== i) } }))
+
+  return (
+    <div className="animate-fade-in space-y-4">
+      <h2 className="text-gray-900 text-lg font-medium">Pages CMS</h2>
+      {/* Sub-tab bar */}
+      <div className="flex gap-1 border-b border-gray-200">
+        {PAGE_SUBTABS.map(t => (
+          <button key={t} onClick={() => setSub(t)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${sub === t ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-black'}`}>
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Cards sub-tab (existing) ── */}
+      {sub === 'Cards' && <HomepageCardsTab />}
+
+      {/* ── Home sub-tab ── */}
+      {sub === 'Home' && (
+        <div className="flex gap-6 items-start">
+          {/* Left: edit forms */}
+          <div className="flex-1 min-w-0 space-y-8">
+          {/* Banner Images */}
+          <div className="card space-y-3">
+            <h3 className="font-medium text-gray-900">Banner Photos</h3>
+            <p className="text-xs text-gray-400">Upload up to {BANNER_SLOTS} photos for the homepage slideshow. Drag & drop or click to upload. Leave slots empty to use the defaults.</p>
+            <div className="grid grid-cols-3 gap-3">
+              {bannerSlots.map((slot, idx) => (
+                <div key={slot.key}
+                  className="relative h-28 bg-gray-100 rounded-lg overflow-hidden border-2 border-dashed border-gray-300 group"
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => { e.preventDefault(); uploadBanner(idx, e.dataTransfer.files[0]) }}
+                >
+                  <label htmlFor={`banner-input-${idx}`} className="absolute inset-0 flex items-center justify-center cursor-pointer">
+                    {slot.hasImage ? (
+                      <>
+                        <img src={`${pagesAPI.getImageUrl(slot.key)}?t=${slot.ts}`} alt="" className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                        <span className="absolute bottom-1 left-1 bg-black/50 text-white text-[10px] px-1 rounded">{idx + 1}</span>
+                      </>
+                    ) : (
+                      <div className="text-center pointer-events-none">
+                        {slot.uploading ? <span className="text-gray-400 text-xs">Uploading…</span> : (
+                          <>
+                            <svg className="w-6 h-6 text-gray-300 mx-auto mb-1" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.338-2.32 5.75 5.75 0 011.344 11.095" /></svg>
+                            <span className="text-gray-400 text-[10px]">Slot {idx + 1}</span>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </label>
+                  {slot.hasImage && (
+                    <button onClick={() => deleteBanner(idx)} className="absolute top-1 right-1 z-10 bg-black/60 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+                  )}
+                  <input id={`banner-input-${idx}`} type="file" accept="image/*" className="hidden" disabled={slot.uploading}
+                    onChange={e => { uploadBanner(idx, e.target.files[0]); e.target.value = '' }} />
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Hero */}
+          <div className="card space-y-3">
+            <h3 className="font-medium text-gray-900">Hero Text</h3>
+            <label className="block"><span className="text-xs text-gray-500">Headline</span>
+              <input className="input mt-1 w-full" value={hero.headline} onChange={e => setHero(h => ({ ...h, headline: e.target.value }))} />
+            </label>
+            <label className="block"><span className="text-xs text-gray-500">Subheadline</span>
+              <input className="input mt-1 w-full" value={hero.subheadline} onChange={e => setHero(h => ({ ...h, subheadline: e.target.value }))} />
+            </label>
+            <SaveButton onSave={() => saveSection('home_hero', hero, setHeroSaving, setHeroSaved)} saving={heroSaving} saved={heroSaved} />
+          </div>
+          {/* Contact */}
+          <div className="card space-y-3">
+            <h3 className="font-medium text-gray-900">Contact & Hours</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block"><span className="text-xs text-gray-500">Phone</span>
+                <input className="input mt-1 w-full" value={contact.phone} onChange={e => setContact(c => ({ ...c, phone: e.target.value }))} />
+              </label>
+              <label className="block"><span className="text-xs text-gray-500">Email</span>
+                <input className="input mt-1 w-full" value={contact.email} onChange={e => setContact(c => ({ ...c, email: e.target.value }))} />
+              </label>
+            </div>
+            <label className="block"><span className="text-xs text-gray-500">WeChat</span>
+              <input className="input mt-1 w-full" value={contact.wechat} onChange={e => setContact(c => ({ ...c, wechat: e.target.value }))} />
+            </label>
+            <label className="block"><span className="text-xs text-gray-500">Address</span>
+              <textarea className="input mt-1 w-full h-20 resize-none" value={contact.address} onChange={e => setContact(c => ({ ...c, address: e.target.value }))} />
+            </label>
+            <label className="block"><span className="text-xs text-gray-500">Getting Here</span>
+              <textarea className="input mt-1 w-full h-20 resize-none" value={contact.gettingHere} onChange={e => setContact(c => ({ ...c, gettingHere: e.target.value }))} />
+            </label>
+            <div>
+              <p className="text-xs text-gray-500 mb-2">Schedule</p>
+              {(contact.schedule || []).map((row, i) => (
+                <div key={i} className="flex gap-2 mb-2">
+                  <input className="input w-20" value={row.day} onChange={e => updateScheduleRow(i, 'day', e.target.value)} placeholder="Day" />
+                  <input className="input flex-1" value={row.time} onChange={e => updateScheduleRow(i, 'time', e.target.value)} placeholder="Time" />
+                  <button onClick={() => setContact(c => ({ ...c, schedule: c.schedule.filter((_, ri) => ri !== i) }))} className="text-red-500 text-sm px-2">✕</button>
+                </div>
+              ))}
+              <button onClick={() => setContact(c => ({ ...c, schedule: [...(c.schedule || []), { day: '', time: '' }] }))} className="text-sm text-gray-500 hover:text-black">+ Add row</button>
+            </div>
+            <SaveButton onSave={() => saveSection('home_contact', contact, setContactSaving, setContactSaved)} saving={contactSaving} saved={contactSaved} />
+          </div>
+          </div>{/* end left forms */}
+
+          {/* Right: sticky full-page preview */}
+          <div className="w-80 flex-shrink-0 hidden lg:block">
+            <div className="sticky top-4 space-y-2">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-widest">Live Preview</p>
+              <HomePagePreview hero={hero} contact={contact} bannerSrcs={bannerSrcs} />
+              <p className="text-[11px] text-gray-400 text-center">Updates as you type · Save to publish</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── About Us sub-tab ── */}
+      {sub === 'About Us' && (
+        <div className="space-y-8 max-w-2xl">
+          {/* Story */}
+          <div className="card space-y-3">
+            <h3 className="font-medium text-gray-900">Story Section</h3>
+            <label className="block"><span className="text-xs text-gray-500">Headline</span>
+              <input className="input mt-1 w-full" value={story.headline} onChange={e => setStory(s => ({ ...s, headline: e.target.value }))} />
+            </label>
+            <label className="block"><span className="text-xs text-gray-500">Paragraph 1</span>
+              <textarea className="input mt-1 w-full h-24 resize-none" value={story.body1} onChange={e => setStory(s => ({ ...s, body1: e.target.value }))} />
+            </label>
+            <label className="block"><span className="text-xs text-gray-500">Paragraph 2</span>
+              <textarea className="input mt-1 w-full h-24 resize-none" value={story.body2} onChange={e => setStory(s => ({ ...s, body2: e.target.value }))} />
+            </label>
+            <div>
+              <p className="text-xs text-gray-500 mb-1">Section Image</p>
+              <ImageUploadBox imageUrl={pagesAPI.getImageUrl('about_story')} fallback="Story image" uploading={imgUploading['about_story']} onUpload={f => uploadImg('about_story', f)} onDelete={() => deleteImg('about_story')} />
+            </div>
+            <SaveButton onSave={() => saveSection('about_story', story, setStorySaving, setStorySaved)} saving={storySaving} saved={storySaved} />
+          </div>
+          {/* Coaching */}
+          <div className="card space-y-3">
+            <h3 className="font-medium text-gray-900">Coaching Section</h3>
+            <label className="block"><span className="text-xs text-gray-500">Headline</span>
+              <input className="input mt-1 w-full" value={coaching.headline} onChange={e => setCoaching(s => ({ ...s, headline: e.target.value }))} />
+            </label>
+            <label className="block"><span className="text-xs text-gray-500">Paragraph 1</span>
+              <textarea className="input mt-1 w-full h-24 resize-none" value={coaching.body1} onChange={e => setCoaching(s => ({ ...s, body1: e.target.value }))} />
+            </label>
+            <label className="block"><span className="text-xs text-gray-500">Paragraph 2</span>
+              <textarea className="input mt-1 w-full h-24 resize-none" value={coaching.body2} onChange={e => setCoaching(s => ({ ...s, body2: e.target.value }))} />
+            </label>
+            <div>
+              <p className="text-xs text-gray-500 mb-1">Section Image</p>
+              <ImageUploadBox imageUrl={pagesAPI.getImageUrl('about_coaching')} fallback="Coaching image" uploading={imgUploading['about_coaching']} onUpload={f => uploadImg('about_coaching', f)} onDelete={() => deleteImg('about_coaching')} />
+            </div>
+            <SaveButton onSave={() => saveSection('about_coaching', coaching, setCoachingSaving, setCoachingSaved)} saving={coachingSaving} saved={coachingSaved} />
+          </div>
+          {/* Coaches */}
+          <div className="card space-y-4">
+            <h3 className="font-medium text-gray-900">Coaches</h3>
+            {coaches.map((coach, i) => (
+              <div key={i} className="border border-gray-100 rounded-lg p-3 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block"><span className="text-xs text-gray-500">Name</span>
+                    <input className="input mt-1 w-full" value={coach.name || ''} onChange={e => updateCoach(i, 'name', e.target.value)} />
+                  </label>
+                  <label className="block"><span className="text-xs text-gray-500">Title</span>
+                    <input className="input mt-1 w-full" value={coach.title || ''} onChange={e => updateCoach(i, 'title', e.target.value)} />
+                  </label>
+                </div>
+                <label className="block"><span className="text-xs text-gray-500">Bio</span>
+                  <textarea className="input mt-1 w-full h-20 resize-none" value={coach.bio || ''} onChange={e => updateCoach(i, 'bio', e.target.value)} />
+                </label>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Photo</p>
+                  <ImageUploadBox imageUrl={pagesAPI.getImageUrl(`about_coach_${i}`)} fallback={`Coach ${i + 1} photo`} uploading={imgUploading[`about_coach_${i}`]} onUpload={f => uploadImg(`about_coach_${i}`, f)} onDelete={() => deleteImg(`about_coach_${i}`)} />
+                </div>
+              </div>
+            ))}
+            <button onClick={() => setCoaches(prev => [...prev, { name: '', title: '', bio: '' }])} className="text-sm text-gray-500 hover:text-black">+ Add Coach</button>
+            <SaveButton onSave={() => saveSection('about_coaches', { coaches }, setCoachesSaving, setCoachesSaved)} saving={coachesSaving} saved={coachesSaved} />
+          </div>
+        </div>
+      )}
+
+      {/* ── Training sub-tab ── */}
+      {sub === 'Training' && (
+        <div className="space-y-8 max-w-2xl">
+          {/* Intro */}
+          <div className="card space-y-3">
+            <h3 className="font-medium text-gray-900">Page Header</h3>
+            <label className="block"><span className="text-xs text-gray-500">Headline</span>
+              <input className="input mt-1 w-full" value={trainingIntro.headline} onChange={e => setTrainingIntro(s => ({ ...s, headline: e.target.value }))} />
+            </label>
+            <label className="block"><span className="text-xs text-gray-500">Subheadline</span>
+              <input className="input mt-1 w-full" value={trainingIntro.subheadline} onChange={e => setTrainingIntro(s => ({ ...s, subheadline: e.target.value }))} />
+            </label>
+            <SaveButton onSave={() => saveSection('training_intro', trainingIntro, setTrainingIntroSaving, setTrainingIntroSaved)} saving={trainingIntroSaving} saved={trainingIntroSaved} />
+          </div>
+          {/* Programs */}
+          {TRAINING_PROGRAM_IDS.map(id => {
+            const prog = trainingPrograms[id]
+            return (
+              <div key={id} className="card space-y-3">
+                <h3 className="font-medium text-gray-900 capitalize">{prog.label}</h3>
+                <label className="block"><span className="text-xs text-gray-500">Label</span>
+                  <input className="input mt-1 w-full" value={prog.label || ''} onChange={e => setTrainingPrograms(p => ({ ...p, [id]: { ...p[id], label: e.target.value } }))} />
+                </label>
+                <label className="block"><span className="text-xs text-gray-500">Tagline</span>
+                  <input className="input mt-1 w-full" value={prog.tagline || ''} onChange={e => setTrainingPrograms(p => ({ ...p, [id]: { ...p[id], tagline: e.target.value } }))} />
+                </label>
+                <label className="block"><span className="text-xs text-gray-500">Description</span>
+                  <textarea className="input mt-1 w-full h-24 resize-none" value={prog.description || ''} onChange={e => setTrainingPrograms(p => ({ ...p, [id]: { ...p[id], description: e.target.value } }))} />
+                </label>
+                <div>
+                  <p className="text-xs text-gray-500 mb-2">Features</p>
+                  {(prog.features || []).map((f, fi) => (
+                    <div key={fi} className="flex gap-2 mb-1">
+                      <input className="input flex-1" value={f} onChange={e => updateFeature(id, fi, e.target.value)} />
+                      <button onClick={() => removeFeature(id, fi)} className="text-red-500 text-sm px-2">✕</button>
+                    </div>
+                  ))}
+                  <button onClick={() => addFeature(id)} className="text-sm text-gray-500 hover:text-black">+ Add feature</button>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Card Image</p>
+                  <ImageUploadBox imageUrl={homepageAPI.getImageUrl(id)} fallback={`${prog.label} image`} uploading={cardUploading[id]} onUpload={f => uploadCard(id, f)} onDelete={() => deleteCard(id)} />
+                </div>
+                <SaveButton onSave={() => saveSection(`training_${id}`, prog, s => setTrainingSaving(p => ({ ...p, [id]: s })), s => setTrainingSaved(p => ({ ...p, [id]: s })))} saving={trainingSaving[id]} saved={trainingSaved[id]} />
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -1788,8 +2434,8 @@ const [sessionForm,      setSessionForm]      = useState({
           <>
             <div className="fixed inset-0 z-30" onClick={() => setShowMoreMenu(false)} />
             <div className="absolute bottom-full inset-x-0 bg-white border-t border-gray-200 shadow-2xl z-40">
-              <div className="grid grid-cols-3 divide-x divide-gray-100">
-                {['Pay Report', 'Analytics', 'Homepage'].map(tab => (
+              <div className="grid grid-cols-4 divide-x divide-gray-100">
+                {['Pay Report', 'Analytics', 'Pages', 'Club Settings'].map(tab => (
                   <button
                     key={tab}
                     onClick={() => { setActiveTab(tab); setShowMoreMenu(false) }}
@@ -1807,9 +2453,15 @@ const [sessionForm,      setSessionForm]      = useState({
                         <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zm9.75-4.5c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zm-9.75 4.5a1.125 1.125 0 00-1.125 1.125v4.5c0 .621.504 1.125 1.125 1.125h2.25c.621 0 1.125-.504 1.125-1.125v-4.5a1.125 1.125 0 00-1.125-1.125H3z" />
                       </svg>
                     )}
-                    {tab === 'Homepage' && (
+                    {tab === 'Pages' && (
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+                      </svg>
+                    )}
+                    {tab === 'Club Settings' && (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                       </svg>
                     )}
                     {tab}
@@ -1868,7 +2520,7 @@ const [sessionForm,      setSessionForm]      = useState({
           {/* More */}
           <button
             onClick={() => setShowMoreMenu(v => !v)}
-            className={`flex flex-col items-center justify-center gap-1.5 transition-colors ${['Pay Report','Analytics','Homepage'].includes(activeTab) ? 'text-black' : showMoreMenu ? 'text-black' : 'text-gray-400'}`}
+            className={`flex flex-col items-center justify-center gap-1.5 transition-colors ${['Pay Report','Analytics','Pages','Club Settings'].includes(activeTab) ? 'text-black' : showMoreMenu ? 'text-black' : 'text-gray-400'}`}
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM18.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
@@ -4243,9 +4895,13 @@ const [sessionForm,      setSessionForm]      = useState({
         </div>
       )}
 
-      {/* ── Homepage Cards ───────────────────────────────────────────────── */}
-      {activeTab === 'Homepage' && (
-        <HomepageCardsTab />
+      {/* ── Pages CMS ────────────────────────────────────────────────────── */}
+      {activeTab === 'Pages' && (
+        <PagesTab />
+      )}
+
+      {activeTab === 'Club Settings' && (
+        <ClubSettingsTab />
       )}
 
       {/* ── Calendar Reschedule Modal ─────────────────────────────────────── */}

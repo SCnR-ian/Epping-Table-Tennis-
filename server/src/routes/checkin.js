@@ -93,14 +93,16 @@ router.post('/coaching/:sessionId', requireAuth, async (req, res) => {
     // Deduct session price when first checked in
     if (rowCount > 0) {
       const sessionType = rows[0].group_id ? 'group' : 'solo'
+      const clubId = req.club?.id ?? 1
       const { rows: [priceRow] } = await client.query(
-        'SELECT price FROM coaching_prices WHERE session_type=$1', [sessionType]
+        'SELECT price FROM coaching_prices WHERE session_type=$1 AND club_id=$2',
+        [sessionType, clubId]
       )
       const amount = priceRow?.price ?? (sessionType === 'group' ? 50 : 70)
       await client.query(
-        `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_type, session_id, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [studentId, -amount, 'Coaching session attended', sessionType, req.params.sessionId, req.user.id]
+        `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_type, session_id, created_by, club_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [studentId, -amount, 'Coaching session attended', sessionType, req.params.sessionId, req.user.id, clubId]
       )
     }
     await client.query('COMMIT')
@@ -139,15 +141,17 @@ router.post('/coaching/:sessionId/no-show', requireAuth, async (req, res) => {
       [studentId, req.params.sessionId, rows[0].date, req.user.id]
     )
     if (rowCount > 0) {
+      const clubId = req.club?.id ?? 1
       const sessionType = rows[0].group_id ? 'group' : 'solo'
       const { rows: [priceRow] } = await client.query(
-        'SELECT price FROM coaching_prices WHERE session_type=$1', [sessionType]
+        'SELECT price FROM coaching_prices WHERE session_type=$1 AND club_id=$2',
+        [sessionType, clubId]
       )
       const amount = priceRow?.price ?? (sessionType === 'group' ? 50 : 70)
       await client.query(
-        `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_type, session_id, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [studentId, -amount, 'No show — fee deducted', sessionType, req.params.sessionId, req.user.id]
+        `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_type, session_id, created_by, club_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [studentId, -amount, 'No show — fee deducted', sessionType, req.params.sessionId, req.user.id, clubId]
       )
     }
     await client.query('COMMIT')
@@ -181,14 +185,15 @@ router.get('/admin', requireAuth, async (req, res) => {
   const { date } = req.query
   if (!date) return res.status(400).json({ message: 'date is required.' })
   try {
+    const clubId = req.club?.id ?? 1
     const { rows } = await pool.query(
       `SELECT ci.type, ci.reference_id, ci.user_id, ci.checked_in_at, ci.no_show,
               u.name AS user_name
        FROM check_ins ci
        JOIN users u ON u.id = ci.user_id
-       WHERE ci.date=$1
+       WHERE ci.date=$1 AND ci.club_id=$2
        ORDER BY ci.checked_in_at ASC`,
-      [date]
+      [date, clubId]
     )
     res.json({ checkIns: rows })
   } catch { res.status(500).json({ message: 'Server error.' }) }
@@ -200,6 +205,7 @@ router.get('/today-summary', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin')
     return res.status(403).json({ message: 'Admin only.' })
   const date = req.query.date ?? TODAY()
+  const clubId = req.club?.id ?? 1
   try {
     // ── Bookings ─────────────────────────────────────────────────────────────
     const { rows: bookings } = await pool.query(`
@@ -219,10 +225,10 @@ router.get('/today-summary', requireAuth, async (req, res) => {
       FROM bookings b
       JOIN users  u  ON u.id  = b.user_id
       JOIN courts ct ON ct.id = b.court_id
-      WHERE b.date = $1 AND b.status = 'confirmed'
+      WHERE b.date = $1 AND b.status = 'confirmed' AND b.club_id = $2
       GROUP BY b.booking_group_id, ct.name, u.id, u.name
       ORDER BY start_time ASC, u.name ASC
-    `, [date])
+    `, [date, clubId])
 
     // ── Coaching sessions ─────────────────────────────────────────────────────
     const { rows: coaching } = await pool.query(`
@@ -258,9 +264,9 @@ router.get('/today-summary', requireAuth, async (req, res) => {
       JOIN coaches co ON co.id = cs.coach_id
       LEFT JOIN users co_u ON co_u.id = co.user_id
       JOIN courts ct ON ct.id = cs.court_id
-      WHERE cs.date = $1 AND cs.status = 'confirmed'
+      WHERE cs.date = $1 AND cs.status = 'confirmed' AND cs.club_id = $2
       ORDER BY cs.start_time ASC
-    `, [date])
+    `, [date, clubId])
 
     // ── Social play ───────────────────────────────────────────────────────────
     const { rows: social } = await pool.query(`
@@ -279,9 +285,9 @@ router.get('/today-summary', requireAuth, async (req, res) => {
       FROM social_play_sessions sps
       JOIN social_play_participants spp ON spp.session_id = sps.id
       JOIN users u ON u.id = spp.user_id
-      WHERE sps.date = $1 AND sps.status = 'open'
+      WHERE sps.date = $1 AND sps.status = 'open' AND sps.club_id = $2
       ORDER BY sps.start_time ASC, u.name ASC
-    `, [date])
+    `, [date, clubId])
 
     res.json({ bookings, coaching, social })
   } catch (err) {

@@ -6,7 +6,7 @@ const pool     = require('../db')
 
 const sign = (user) =>
   jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
+    { id: user.id, email: user.email, role: user.role, club_id: user.club_id },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
   )
@@ -14,11 +14,14 @@ const sign = (user) =>
 const safeUser = (u) => ({
   id: u.id, name: u.name, email: u.email,
   role: u.role, phone: u.phone, avatar_url: u.avatar_url,
+  club_id: u.club_id,
   name_changed_at: u.name_changed_at ?? null,
 })
 
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
+  if (!req.club) return res.status(400).json({ message: 'Club not found.' })
+
   const { name, password, phone } = req.body
   const email = req.body.email?.toLowerCase().trim()
   if (!name || !email || !password)
@@ -27,8 +30,8 @@ router.post('/register', async (req, res) => {
   try {
     const hash = await bcrypt.hash(password, 12)
     const { rows } = await pool.query(
-      'INSERT INTO users (name, email, password_hash, phone) VALUES ($1,$2,$3,$4) RETURNING *',
-      [name, email, hash, phone || null]
+      'INSERT INTO users (name, email, password_hash, phone, club_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [name, email, hash, phone || null, req.club.id]
     )
     const user = rows[0]
     res.status(201).json({ token: sign(user), user: safeUser(user) })
@@ -43,14 +46,16 @@ router.post('/register', async (req, res) => {
 // POST /api/auth/login
 // `identifier` accepts either an email address or a phone number
 router.post('/login', async (req, res) => {
+  if (!req.club) return res.status(400).json({ message: 'Club not found.' })
+
   const { identifier, password } = req.body
   if (!identifier || !password)
     return res.status(400).json({ message: 'Email/phone and password are required.' })
 
   try {
     const { rows } = await pool.query(
-      'SELECT * FROM users WHERE email=$1 OR phone=$1',
-      [identifier.toLowerCase().trim()]
+      'SELECT * FROM users WHERE (email=$1 OR phone=$1) AND club_id=$2',
+      [identifier.toLowerCase().trim(), req.club.id]
     )
     const user = rows[0]
     if (!user || !user.password_hash)
@@ -75,7 +80,11 @@ router.post('/logout', (req, res) => {
 // GET /api/auth/me
 router.get('/me', require('../middleware/auth').requireAuth, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM users WHERE id=$1', [req.user.id])
+    const clubId = req.club?.id ?? req.user.club_id
+    const { rows } = await pool.query(
+      'SELECT * FROM users WHERE id=$1 AND club_id=$2',
+      [req.user.id, clubId]
+    )
     if (!rows[0]) return res.status(404).json({ message: 'User not found.' })
     res.json({ user: safeUser(rows[0]) })
   } catch (err) {
@@ -84,9 +93,12 @@ router.get('/me', require('../middleware/auth').requireAuth, async (req, res) =>
 })
 
 // ── Google OAuth ─────────────────────────────────────────────────────────────
-router.get('/google',
-  passport.authenticate('google', { scope: ['profile', 'email'] })
-)
+router.get('/google', (req, res, next) => {
+  // Store the current club in session so the OAuth callback knows which club
+  // to create/link the user against
+  req.session.oauthClubId = req.club?.id ?? 1
+  passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next)
+})
 
 router.get('/google/callback',
   passport.authenticate('google', { failureRedirect: `${process.env.FRONTEND_URL}/login?error=oauth_failed`, session: false }),

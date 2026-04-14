@@ -11,8 +11,13 @@ const { checkOpenHours } = require('../utils/scheduleCheck')
 function softAuth(req) {
   try {
     const h = req.headers.authorization
-    if (h?.startsWith('Bearer '))
-      req.user = jwt.verify(h.slice(7), process.env.JWT_SECRET)
+    if (h?.startsWith('Bearer ')) {
+      const payload = jwt.verify(h.slice(7), process.env.JWT_SECRET)
+      // Validate club isolation before setting user context
+      if (!req.club || payload.club_id === undefined || payload.club_id === req.club.id) {
+        req.user = payload
+      }
+    }
   } catch { /* no token or invalid — proceed as guest */ }
 }
 
@@ -28,20 +33,17 @@ function minsToTime(mins) {
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
 // GET /api/bookings/available?date=YYYY-MM-DD
-// Returns all confirmed 30-min slots for a date.
-// If a valid JWT is present, also returns the user's own booked windows
-// as `user_booked` so the UI can disable already-booked time slots.
 router.get('/available', async (req, res) => {
   const { date } = req.query
   if (!date) return res.status(400).json({ message: 'date query param required.' })
   softAuth(req)
+  const clubId = req.club?.id ?? 1
   try {
     const { rows: bookedRows } = await pool.query(
       `SELECT court_id, start_time, end_time FROM bookings
-       WHERE date=$1 AND status='confirmed'`,
-      [date]
+       WHERE date=$1 AND status='confirmed' AND club_id=$2`,
+      [date, clubId]
     )
-    // Expand coaching sessions into 30-min slots so coached courts appear occupied
     const { rows: coachingRows } = await pool.query(
       `SELECT
          cs.court_id,
@@ -54,10 +56,9 @@ router.get('/available', async (req, res) => {
           - EXTRACT(HOUR   FROM cs.start_time)::int * 60 - EXTRACT(MINUTE FROM cs.start_time)::int
          ) / 30 - 1
        ) AS gs
-       WHERE cs.date=$1 AND cs.status='confirmed'`,
-      [date]
+       WHERE cs.date=$1 AND cs.status='confirmed' AND cs.club_id=$2`,
+      [date, clubId]
     )
-    // Expand social play sessions — block courts 1…num_courts for each time slot
     const { rows: socialRows } = await pool.query(
       `SELECT
          c.court_id,
@@ -71,8 +72,8 @@ router.get('/available', async (req, res) => {
          ) / 30 - 1
        ) AS gs,
        LATERAL generate_series(1, sps.num_courts) AS c(court_id)
-       WHERE sps.date=$1 AND sps.status='open'`,
-      [date]
+       WHERE sps.date=$1 AND sps.status='open' AND sps.club_id=$2`,
+      [date, clubId]
     )
     const seen = new Set()
     const booked = [...bookedRows, ...coachingRows, ...socialRows].filter(r => {
@@ -85,20 +86,20 @@ router.get('/available', async (req, res) => {
     if (req.user) {
       const { rows: ubBookings } = await pool.query(
         `SELECT start_time, end_time FROM bookings
-         WHERE date=$1 AND user_id=$2 AND status='confirmed'`,
-        [date, req.user.id]
+         WHERE date=$1 AND user_id=$2 AND status='confirmed' AND club_id=$3`,
+        [date, req.user.id, clubId]
       )
       const { rows: ubCoaching } = await pool.query(
         `SELECT start_time, end_time FROM coaching_sessions
-         WHERE date=$1 AND student_id=$2 AND status='confirmed'`,
-        [date, req.user.id]
+         WHERE date=$1 AND student_id=$2 AND status='confirmed' AND club_id=$3`,
+        [date, req.user.id, clubId]
       )
       const { rows: ubSocial } = await pool.query(
         `SELECT sps.start_time, sps.end_time
          FROM social_play_sessions sps
          JOIN social_play_participants spp ON spp.session_id = sps.id
-         WHERE sps.date=$1 AND spp.user_id=$2 AND sps.status='open'`,
-        [date, req.user.id]
+         WHERE sps.date=$1 AND spp.user_id=$2 AND sps.status='open' AND sps.club_id=$3`,
+        [date, req.user.id, clubId]
       )
       userBooked = [...ubBookings, ...ubCoaching, ...ubSocial]
     }
@@ -107,9 +108,9 @@ router.get('/available', async (req, res) => {
 })
 
 // GET /api/bookings/my
-// Returns the user's booking sessions, grouped by booking_group_id.
 router.get('/my', requireAuth, async (req, res) => {
   try {
+    const clubId = req.club?.id ?? 1
     const { rows } = await pool.query(
       `SELECT
          b.booking_group_id,
@@ -127,11 +128,11 @@ router.get('/my', requireAuth, async (req, res) => {
          MIN(b.created_at) AS created_at
        FROM bookings b
        JOIN courts c ON c.id = b.court_id
-       WHERE b.user_id = $1
+       WHERE b.user_id = $1 AND b.club_id = $2
          AND b.date >= CURRENT_DATE
        GROUP BY b.booking_group_id, b.court_id, b.date, c.name
        ORDER BY b.date ASC, MIN(b.start_time) ASC`,
-      [req.user.id]
+      [req.user.id, clubId]
     )
     res.json({ bookings: rows })
   } catch { res.status(500).json({ message: 'Server error.' }) }
@@ -140,10 +141,11 @@ router.get('/my', requireAuth, async (req, res) => {
 // GET /api/bookings/:id
 router.get('/:id', requireAuth, async (req, res) => {
   try {
+    const clubId = req.club?.id ?? 1
     const { rows } = await pool.query(
       `SELECT b.*, c.name AS court_name FROM bookings b
-       JOIN courts c ON c.id=b.court_id WHERE b.id=$1`,
-      [req.params.id]
+       JOIN courts c ON c.id=b.court_id WHERE b.id=$1 AND b.club_id=$2`,
+      [req.params.id, clubId]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Booking not found.' })
     if (rows[0].user_id !== req.user.id && req.user.role !== 'admin')
@@ -153,7 +155,6 @@ router.get('/:id', requireAuth, async (req, res) => {
 })
 
 // POST /api/bookings
-// Accepts start_time + end_time; splits into 30-min slots and inserts each.
 router.post('/', requireAuth, async (req, res) => {
   const { court_id, date, start_time, end_time } = req.body
   if (!court_id || !date || !start_time || !end_time)
@@ -170,49 +171,47 @@ router.post('/', requireAuth, async (req, res) => {
     slots.push([minsToTime(t), minsToTime(t + 30)])
 
   const groupId = randomUUID()
+  const clubId  = req.club?.id ?? 1
   const client  = await pool.connect()
 
   try {
     await client.query('BEGIN')
 
-    const scheduleError = await checkOpenHours(date, start_time, end_time)
+    const scheduleError = await checkOpenHours(date, start_time, end_time, clubId)
     if (scheduleError) {
       await client.query('ROLLBACK')
       return res.status(409).json({ message: scheduleError })
     }
 
-    // Ensure no coaching session for this member overlaps the requested time
     const { rows: coachConflict } = await client.query(
       `SELECT 1 FROM coaching_sessions
-       WHERE student_id=$1 AND date=$2 AND status='confirmed'
-         AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
-      [req.user.id, date, start_time, end_time]
+       WHERE student_id=$1 AND date=$2 AND status='confirmed' AND club_id=$3
+         AND start_time < $5::time AND end_time > $4::time LIMIT 1`,
+      [req.user.id, date, clubId, start_time, end_time]
     )
     if (coachConflict.length) {
       await client.query('ROLLBACK')
       return res.status(409).json({ message: 'You have a coaching session during that time.' })
     }
 
-    // Ensure no social play sign-up for this member overlaps the requested time
     const { rows: socialConflict } = await client.query(
       `SELECT 1 FROM social_play_sessions sps
        JOIN social_play_participants spp ON spp.session_id = sps.id
-       WHERE spp.user_id=$1 AND sps.date=$2 AND sps.status='open'
-         AND sps.start_time < $4::time AND sps.end_time > $3::time LIMIT 1`,
-      [req.user.id, date, start_time, end_time]
+       WHERE spp.user_id=$1 AND sps.date=$2 AND sps.status='open' AND sps.club_id=$3
+         AND sps.start_time < $5::time AND sps.end_time > $4::time LIMIT 1`,
+      [req.user.id, date, clubId, start_time, end_time]
     )
     if (socialConflict.length) {
       await client.query('ROLLBACK')
       return res.status(409).json({ message: 'You are signed up for social play during that time.' })
     }
 
-    // Ensure the user (if they are a coach) is not teaching during this time
     const { rows: coachTeachConflict } = await client.query(
       `SELECT 1 FROM coaching_sessions cs
        JOIN coaches co ON co.id = cs.coach_id
-       WHERE co.user_id=$1 AND cs.date=$2 AND cs.status='confirmed'
-         AND cs.start_time < $4::time AND cs.end_time > $3::time LIMIT 1`,
-      [req.user.id, date, start_time, end_time]
+       WHERE co.user_id=$1 AND cs.date=$2 AND cs.status='confirmed' AND cs.club_id=$3
+         AND cs.start_time < $5::time AND cs.end_time > $4::time LIMIT 1`,
+      [req.user.id, date, clubId, start_time, end_time]
     )
     if (coachTeachConflict.length) {
       await client.query('ROLLBACK')
@@ -221,9 +220,9 @@ router.post('/', requireAuth, async (req, res) => {
 
     for (const [s, e] of slots) {
       await client.query(
-        `INSERT INTO bookings (user_id, court_id, date, start_time, end_time, booking_group_id)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [req.user.id, court_id, date, s, e, groupId]
+        `INSERT INTO bookings (user_id, court_id, date, start_time, end_time, booking_group_id, club_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [req.user.id, court_id, date, s, e, groupId, clubId]
       )
     }
     await client.query('COMMIT')
@@ -242,17 +241,17 @@ router.post('/', requireAuth, async (req, res) => {
 })
 
 // POST /api/bookings/group/:groupId/extend
-// Appends extra 30-min slots to an existing session on the same court.
 router.post('/group/:groupId/extend', requireAuth, async (req, res) => {
   const extra = Number(req.body.extra_minutes)
   if (!extra || extra % 30 !== 0 || extra <= 0)
     return res.status(400).json({ message: 'extra_minutes must be a positive multiple of 30.' })
 
+  const clubId = req.club?.id ?? 1
   try {
     const { rows } = await pool.query(
       `SELECT court_id, date, MAX(end_time) AS end_time, MIN(user_id) AS user_id
-       FROM bookings WHERE booking_group_id=$1 GROUP BY court_id, date`,
-      [req.params.groupId]
+       FROM bookings WHERE booking_group_id=$1 AND club_id=$2 GROUP BY court_id, date`,
+      [req.params.groupId, clubId]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Booking not found.' })
     if (rows[0].user_id !== req.user.id && req.user.role !== 'admin')
@@ -269,9 +268,9 @@ router.post('/group/:groupId/extend', requireAuth, async (req, res) => {
       await client.query('BEGIN')
       for (const [s, e] of slots) {
         await client.query(
-          `INSERT INTO bookings (user_id, court_id, date, start_time, end_time, booking_group_id)
-           VALUES ($1,$2,$3,$4,$5,$6)`,
-          [req.user.id, court_id, date, s, e, req.params.groupId]
+          `INSERT INTO bookings (user_id, court_id, date, start_time, end_time, booking_group_id, club_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [req.user.id, court_id, date, s, e, req.params.groupId, clubId]
         )
       }
       await client.query('COMMIT')
@@ -290,29 +289,34 @@ router.post('/group/:groupId/extend', requireAuth, async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
-// DELETE /api/bookings/group/:groupId  (cancel all slots in a session)
+// DELETE /api/bookings/group/:groupId
 router.delete('/group/:groupId', requireAuth, async (req, res) => {
   try {
+    const clubId = req.club?.id ?? 1
     const { rows } = await pool.query(
-      'SELECT user_id FROM bookings WHERE booking_group_id=$1 AND status=$2 LIMIT 1',
-      [req.params.groupId, 'confirmed']
+      'SELECT user_id FROM bookings WHERE booking_group_id=$1 AND status=$2 AND club_id=$3 LIMIT 1',
+      [req.params.groupId, 'confirmed', clubId]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Booking not found.' })
     if (rows[0].user_id !== req.user.id && req.user.role !== 'admin')
       return res.status(403).json({ message: 'Forbidden.' })
 
     await pool.query(
-      "UPDATE bookings SET status='cancelled' WHERE booking_group_id=$1",
-      [req.params.groupId]
+      "UPDATE bookings SET status='cancelled' WHERE booking_group_id=$1 AND club_id=$2",
+      [req.params.groupId, clubId]
     )
     res.json({ message: 'Booking cancelled.' })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
-// DELETE /api/bookings/:id  (cancel a single 30-min slot — used by admin)
+// DELETE /api/bookings/:id
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM bookings WHERE id=$1', [req.params.id])
+    const clubId = req.club?.id ?? 1
+    const { rows } = await pool.query(
+      'SELECT * FROM bookings WHERE id=$1 AND club_id=$2',
+      [req.params.id, clubId]
+    )
     if (!rows[0]) return res.status(404).json({ message: 'Booking not found.' })
     if (rows[0].user_id !== req.user.id && req.user.role !== 'admin')
       return res.status(403).json({ message: 'Forbidden.' })

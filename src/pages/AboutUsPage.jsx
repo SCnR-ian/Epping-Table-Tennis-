@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { homepageAPI } from "@/api/api";
+import { homepageAPI, pagesAPI } from "@/api/api";
 
 const BANNER_IMAGES = [
   "/images/ETTC1.jpg",
@@ -32,60 +32,53 @@ function BannerSlideshow({ className = "" }) {
   )
 }
 
-const COACHES = [
+const DEFAULT_STORY = {
+  headline: 'More Than Just a Club',
+  body1: 'Founded in 2025 and located at 33 Oxford St, Epping NSW, Epping Table Tennis Club was born out of a shared passion for the sport and a vision to create a home for players of every level in Sydney\'s north-west. From our first session, we have welcomed beginners picking up a paddle for the very first time alongside seasoned competitors chasing their next ranking point.',
+  body2: 'Situated just two minutes from Epping Station, our fully air-conditioned venue houses six competition-grade courts, professional coaching programs, weekly social play nights, and a growing tournament calendar. Whether you are here to compete, improve, or simply enjoy the game in great company, you will find your place at Epping Table Tennis Club.',
+}
+const DEFAULT_COACHING = {
+  headline: 'World-Class Coaching',
+  body1: 'Our nationally accredited coaches bring decades of competitive and teaching experience to every session. From complete beginners to competitive players, we have a program tailored for you.',
+  body2: 'One-on-one, group, school, and holiday programs are available across the week, led by coaches with national team experience.',
+}
+const DEFAULT_COACHES = [
   {
-    id: 1,
     name: "David Chen",
     title: "Head Coach",
     bio: "A two-time national champion turned elite coach, David has spent over 15 years shaping Australia's top table tennis talent. His precision-focused training philosophy and deep technical knowledge have produced five Australian national representatives under his direct guidance.",
-    image: "/images/coach-4.jpg",
-    achievements: [
-      "2× Australian National Singles Champion",
-      "ITTF Level 3 Certified Head Coach",
-      "NSW Coach of the Year — 2019 & 2021",
-      "Peak world ranking: #38 (2009)",
-    ],
+    fallbackImage: "/images/coach-4.jpg",
   },
   {
-    id: 2,
     name: "Sarah Kim",
     title: "Junior Development Coach",
     bio: "Former Australian U21 representative and three-time NSW State Women's Champion, Sarah brings world-class experience to every junior session. Her engaging teaching style has made her one of the most sought-after development coaches in the country.",
-    image: "/images/coach-4.jpg",
-    achievements: [
-      "3× NSW State Women's Singles Champion",
-      "ITTF Level 2 Certified Coach",
-      "Australian U21 National Representative",
-      "40+ state-ranked junior players developed",
-    ],
+    fallbackImage: "/images/coach-4.jpg",
   },
   {
-    id: 3,
     name: "Marcus Liu",
     title: "Fitness & Strategy Coach",
     bio: "Armed with a Bachelor of Sports Science and a former top-50 NSW ranking, Marcus bridges physical athleticism with tactical intelligence. His data-driven training programs form the backbone of the club's competitive conditioning system.",
-    image: "/images/coach-4.jpg",
-    achievements: [
-      "Bachelor of Sports Science — University of Sydney",
-      "ITTF Level 2 Certified Coach",
-      "Certified Strength & Conditioning Specialist",
-      "Former NSW top-50 ranked player",
-    ],
+    fallbackImage: "/images/coach-4.jpg",
   },
 ];
 
 export default function AboutUsPage() {
-  const [stats, setStats] = useState({
-    membersDisplay: "—",
-    coachingSessions: "—",
-    socialSessions: "—",
-  });
+  const [stats, setStats] = useState({ membersDisplay: "—", coachingSessions: "—", socialSessions: "—" });
+  const [story, setStory] = useState(DEFAULT_STORY)
+  const [coaching, setCoaching] = useState(DEFAULT_COACHING)
+  const [coaches, setCoaches] = useState(DEFAULT_COACHES)
+  const [imageTs, setImageTs] = useState(Date.now())
 
   useEffect(() => {
-    homepageAPI
-      .getStats()
-      .then((r) => setStats(r.data))
-      .catch(() => {});
+    homepageAPI.getStats().then((r) => setStats(r.data)).catch(() => {})
+    pagesAPI.getContent().then(r => {
+      const c = r.data.content
+      if (c.about_story)   setStory(s => ({ ...s, ...c.about_story }))
+      if (c.about_coaching) setCoaching(s => ({ ...s, ...c.about_coaching }))
+      if (c.about_coaches?.coaches) setCoaches(c.about_coaches.coaches.map((coach, i) => ({ ...DEFAULT_COACHES[i], ...coach })))
+      setImageTs(Date.now())
+    }).catch(() => {})
   }, []);
 
   return (
@@ -117,24 +110,10 @@ export default function AboutUsPage() {
             Who We Are
           </p>
           <h2 className="font-display text-4xl md:text-5xl font-normal text-black mb-6 leading-tight">
-            More Than Just a Club
+            {story.headline}
           </h2>
-          <p className="text-gray-600 leading-relaxed mb-4">
-            Founded in 2025 and located at 33 Oxford St, Epping NSW, Epping
-            Table Tennis Club was born out of a shared passion for the sport and
-            a vision to create a home for players of every level in Sydney's
-            north-west. From our first session, we have welcomed beginners
-            picking up a paddle for the very first time alongside seasoned
-            competitors chasing their next ranking point.
-          </p>
-          <p className="text-gray-600 leading-relaxed mb-8">
-            Situated just two minutes from Epping Station, our fully
-            air-conditioned venue houses six competition-grade courts,
-            professional coaching programs, weekly social play nights, and a
-            growing tournament calendar. Whether you are here to compete,
-            improve, or simply enjoy the game in great company, you will find
-            your place at Epping Table Tennis Club.
-          </p>
+          <p className="text-gray-600 leading-relaxed mb-4">{story.body1}</p>
+          <p className="text-gray-600 leading-relaxed mb-8">{story.body2}</p>
           <div className="grid grid-cols-3 gap-6 border-t border-gray-100 pt-8">
             {[
               { value: stats.membersDisplay, label: "Members" },
@@ -154,9 +133,10 @@ export default function AboutUsPage() {
         </div>
         <div className="overflow-hidden h-[560px] lg:h-auto">
           <img
-            src="/images/banner2.jpg"
+            src={`${pagesAPI.getImageUrl('about_story')}?t=${imageTs}`}
             alt="Club"
             className="w-full h-full object-cover"
+            onError={e => { e.target.src = '/images/banner2.jpg' }}
           />
         </div>
       </section>
@@ -165,9 +145,10 @@ export default function AboutUsPage() {
       <section className="grid grid-cols-1 lg:grid-cols-2 min-h-[560px]">
         <div className="overflow-hidden h-[560px] lg:h-auto order-2 lg:order-1">
           <img
-            src="/images/training/group.png"
+            src={`${pagesAPI.getImageUrl('about_coaching')}?t=${imageTs}`}
             alt="Coaching"
             className="w-full h-full object-cover"
+            onError={e => { e.target.src = '/images/training/group.png' }}
           />
         </div>
         <div className="flex flex-col justify-center px-12 lg:px-20 py-16 order-1 lg:order-2">
@@ -175,17 +156,10 @@ export default function AboutUsPage() {
             Expert Guidance
           </p>
           <h2 className="font-display text-4xl md:text-5xl font-normal text-black mb-6 leading-tight">
-            World-Class Coaching
+            {coaching.headline}
           </h2>
-          <p className="text-gray-600 leading-relaxed mb-4">
-            Our nationally accredited coaches bring decades of competitive and
-            teaching experience to every session. From complete beginners to
-            competitive players, we have a program tailored for you.
-          </p>
-          <p className="text-gray-600 leading-relaxed mb-8">
-            One-on-one, group, school, and holiday programs are available across
-            the week, led by coaches with national team experience.
-          </p>
+          <p className="text-gray-600 leading-relaxed mb-4">{coaching.body1}</p>
+          <p className="text-gray-600 leading-relaxed mb-8">{coaching.body2}</p>
           <Link
             to="/training"
             className="inline-block border border-black rounded-full px-10 py-3 text-sm text-black hover:bg-black hover:text-white transition-colors duration-200 self-start"
@@ -206,9 +180,9 @@ export default function AboutUsPage() {
           </h2>
         </div>
 
-        {COACHES.map((coach, idx) => (
+        {coaches.map((coach, idx) => (
           <div
-            key={coach.id}
+            key={coach.name}
             className="flex flex-col md:flex-row border-t border-gray-100"
           >
             {/* Image */}
@@ -216,9 +190,10 @@ export default function AboutUsPage() {
               className={`w-full md:w-1/2 self-start ${idx % 2 === 1 ? "md:order-2" : ""}`}
             >
               <img
-                src={coach.image}
+                src={`${pagesAPI.getImageUrl(`about_coach_${idx}`)}?t=${imageTs}`}
                 alt={coach.name}
                 className="w-full"
+                onError={e => { e.target.src = coach.fallbackImage || '/images/coach-4.jpg' }}
               />
             </div>
             {/* Content */}

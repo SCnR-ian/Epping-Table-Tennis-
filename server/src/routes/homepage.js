@@ -22,10 +22,11 @@ const CARDS = [
 // GET /api/homepage/stats — public club stats
 router.get('/stats', async (req, res) => {
   try {
+    const clubId = req.club?.id ?? 1
     const [members, coaching, social] = await Promise.all([
-      pool.query(`SELECT COUNT(*)::int AS count FROM users WHERE role != 'admin'`),
-      pool.query(`SELECT COUNT(DISTINCT date || coach_id::text)::int AS count FROM coaching_sessions WHERE status = 'confirmed' AND date >= DATE_TRUNC('week', CURRENT_DATE) AND date < DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days'`),
-      pool.query(`SELECT COUNT(*)::int AS count FROM social_play_sessions WHERE status IN ('open','closed') AND date >= DATE_TRUNC('week', CURRENT_DATE) AND date < DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days'`),
+      pool.query(`SELECT COUNT(*)::int AS count FROM users WHERE role != 'admin' AND club_id=$1`, [clubId]),
+      pool.query(`SELECT COUNT(DISTINCT date || coach_id::text)::int AS count FROM coaching_sessions WHERE status = 'confirmed' AND club_id=$1 AND date >= DATE_TRUNC('week', CURRENT_DATE) AND date < DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days'`, [clubId]),
+      pool.query(`SELECT COUNT(*)::int AS count FROM social_play_sessions WHERE status IN ('open','closed') AND club_id=$1 AND date >= DATE_TRUNC('week', CURRENT_DATE) AND date < DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days'`, [clubId]),
     ])
     const memberCount   = members.rows[0].count
     const memberRounded = Math.floor(memberCount / 10) * 10
@@ -40,7 +41,11 @@ router.get('/stats', async (req, res) => {
 // GET /api/homepage/cards
 router.get('/cards', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT id, image_filename FROM homepage_cards')
+    const clubId = req.club?.id ?? 1
+    const { rows } = await pool.query(
+      'SELECT id, image_filename FROM homepage_cards WHERE club_id=$1',
+      [clubId]
+    )
     const imageMap = Object.fromEntries(rows.map(r => [r.id, r]))
     const cards = CARDS.map(c => ({
       ...c,
@@ -53,9 +58,10 @@ router.get('/cards', async (req, res) => {
 // GET /api/homepage/cards/:id/image
 router.get('/cards/:id/image', async (req, res) => {
   try {
+    const clubId = req.club?.id ?? 1
     const { rows } = await pool.query(
-      'SELECT image_data, image_filename FROM homepage_cards WHERE id=$1',
-      [req.params.id]
+      'SELECT image_data, image_filename FROM homepage_cards WHERE id=$1 AND club_id=$2',
+      [req.params.id, clubId]
     )
     if (!rows[0]?.image_data) return res.status(404).json({ message: 'No image.' })
     const buf  = Buffer.from(rows[0].image_data, 'base64')
@@ -73,12 +79,13 @@ router.post('/admin/cards/:id/image', requireAuth, requireAdmin, upload.single('
   const validIds = CARDS.map(c => c.id)
   if (!validIds.includes(req.params.id)) return res.status(404).json({ message: 'Card not found.' })
   try {
+    const clubId = req.club?.id ?? 1
     const imageData = req.file.buffer.toString('base64')
     await pool.query(
-      `INSERT INTO homepage_cards (id, image_data, image_filename, updated_at)
-       VALUES ($1,$2,$3,NOW())
-       ON CONFLICT (id) DO UPDATE SET image_data=$2, image_filename=$3, updated_at=NOW()`,
-      [req.params.id, imageData, req.file.originalname]
+      `INSERT INTO homepage_cards (id, club_id, image_data, image_filename, updated_at)
+       VALUES ($1,$2,$3,$4,NOW())
+       ON CONFLICT (club_id, id) DO UPDATE SET image_data=$3, image_filename=$4, updated_at=NOW()`,
+      [req.params.id, clubId, imageData, req.file.originalname]
     )
     res.json({ message: 'Image updated.' })
   } catch { res.status(500).json({ message: 'Server error.' }) }
@@ -87,7 +94,11 @@ router.post('/admin/cards/:id/image', requireAuth, requireAdmin, upload.single('
 // DELETE /api/homepage/admin/cards/:id/image  (admin only)
 router.delete('/admin/cards/:id/image', requireAuth, requireAdmin, async (req, res) => {
   try {
-    await pool.query('DELETE FROM homepage_cards WHERE id=$1', [req.params.id])
+    const clubId = req.club?.id ?? 1
+    await pool.query(
+      'DELETE FROM homepage_cards WHERE id=$1 AND club_id=$2',
+      [req.params.id, clubId]
+    )
     res.json({ message: 'Image removed.' })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })

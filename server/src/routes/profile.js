@@ -12,7 +12,11 @@ const safeUser = (u) => ({
 // GET /api/profile
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM users WHERE id=$1', [req.user.id])
+    const clubId = req.club?.id ?? req.user.club_id ?? 1
+    const { rows } = await pool.query(
+      'SELECT * FROM users WHERE id=$1 AND club_id=$2',
+      [req.user.id, clubId]
+    )
     if (!rows[0]) return res.status(404).json({ message: 'Not found.' })
     res.json({ user: safeUser(rows[0]) })
   } catch { res.status(500).json({ message: 'Server error.' }) }
@@ -47,8 +51,10 @@ router.put('/', requireAuth, async (req, res) => {
 
     // Notify all admins via message
     if (nameChanging) {
+      const clubId = req.club?.id ?? req.user.club_id ?? 1
       const { rows: admins } = await pool.query(
-        `SELECT id FROM users WHERE role='admin'`
+        `SELECT id FROM users WHERE role='admin' AND club_id=$1`,
+        [clubId]
       )
       const body = `${current.name} has changed their name to "${name.trim()}".`
       for (const admin of admins) {

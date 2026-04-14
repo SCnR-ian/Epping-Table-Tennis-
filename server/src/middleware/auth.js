@@ -7,7 +7,17 @@ function requireAuth(req, res, next) {
   }
   const token = header.slice(7)
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET)
+    const payload = jwt.verify(token, process.env.JWT_SECRET)
+
+    // Validate club isolation: token must belong to the current club.
+    // Tokens without club_id (issued before multi-tenancy) are allowed through
+    // as a one-time transition grace period — users will get a new token on
+    // next login.
+    if (req.club && payload.club_id !== undefined && payload.club_id !== req.club.id) {
+      return res.status(403).json({ message: 'Token not valid for this club.' })
+    }
+
+    req.user = payload
     next()
   } catch {
     return res.status(401).json({ message: 'Invalid or expired token.' })

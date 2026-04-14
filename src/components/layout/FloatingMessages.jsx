@@ -461,7 +461,7 @@ export default function FloatingMessages() {
                                     {msg.attachment_data && (
                                       <img src={msg.attachment_data} alt="attachment" className="max-w-full rounded-xl mb-1" />
                                     )}
-                                    {msg.body && <span>{msg.body}</span>}
+                                    {msg.body && <span className="whitespace-pre-line">{msg.body}</span>}
                                     {msg.edited_at && !msg.deleted && (
                                       <span className={`text-[10px] ml-1 ${isMe ? 'text-white/60' : 'text-gray-400'}`}>edited</span>
                                     )}

@@ -12,6 +12,8 @@ router.use(requireAuth, requireAdmin)
 //   attendance     – per-member activity count + last active date
 router.get('/overview', async (req, res) => {
   try {
+    const clubId = req.club?.id ?? 1
+
     // ── 1. Member growth (last 12 weeks, grouped by week) ─────────────────────
     const { rows: growthRows } = await pool.query(`
       SELECT
@@ -19,30 +21,27 @@ router.get('/overview', async (req, res) => {
         COUNT(*)::int AS new_members
       FROM users
       WHERE role != 'admin'
+        AND club_id = $1
         AND created_at >= NOW() - INTERVAL '12 weeks'
       GROUP BY week
       ORDER BY week ASC
-    `)
+    `, [clubId])
 
     // ── 2. Slot popularity ────────────────────────────────────────────────────
-    // Combine bookings, coaching sessions, and social play into one activity stream.
-    // Social play: count num_courts worth of activity for each slot, not specific courts.
     const { rows: slotRows } = await pool.query(`
       WITH activities AS (
-        -- Regular bookings
-        SELECT date, start_time FROM bookings WHERE status = 'confirmed'
+        SELECT date, start_time FROM bookings WHERE status = 'confirmed' AND club_id = $1
         UNION ALL
-        -- Coaching sessions (deduplicate group sessions — one slot per group)
-        SELECT date, start_time FROM coaching_sessions WHERE status = 'confirmed' AND group_id IS NULL
+        SELECT date, start_time FROM coaching_sessions
+          WHERE status = 'confirmed' AND club_id = $1 AND group_id IS NULL
         UNION ALL
         SELECT date, start_time FROM (
           SELECT DISTINCT ON (group_id, date, start_time) date, start_time
-          FROM coaching_sessions WHERE status = 'confirmed' AND group_id IS NOT NULL
+          FROM coaching_sessions WHERE status = 'confirmed' AND club_id = $1 AND group_id IS NOT NULL
           ORDER BY group_id, date, start_time
         ) cg
         UNION ALL
-        -- Social play (each session counts once regardless of courts)
-        SELECT date, start_time FROM social_play_sessions WHERE status = 'open'
+        SELECT date, start_time FROM social_play_sessions WHERE status = 'open' AND club_id = $1
       )
       SELECT
         TO_CHAR(date, 'Dy') AS day_label,
@@ -52,22 +51,20 @@ router.get('/overview', async (req, res) => {
       FROM activities
       GROUP BY dow, day_label, slot
       ORDER BY dow ASC, slot ASC
-    `)
+    `, [clubId])
 
     // ── 3. Member attendance ──────────────────────────────────────────────────
     const { rows: attendanceRows } = await pool.query(`
       WITH activity AS (
-        -- Bookings
-        SELECT user_id, date FROM bookings WHERE status = 'confirmed'
+        SELECT user_id, date FROM bookings WHERE status = 'confirmed' AND club_id = $1
         UNION ALL
-        -- Coaching (student)
-        SELECT student_id AS user_id, date FROM coaching_sessions WHERE status = 'confirmed'
+        SELECT student_id AS user_id, date FROM coaching_sessions
+          WHERE status = 'confirmed' AND club_id = $1
         UNION ALL
-        -- Social play participants
         SELECT spp.user_id, sps.date
         FROM social_play_participants spp
         JOIN social_play_sessions sps ON sps.id = spp.session_id
-        WHERE sps.status != 'cancelled'
+        WHERE sps.status != 'cancelled' AND sps.club_id = $1
       )
       SELECT
         u.id,
@@ -78,10 +75,10 @@ router.get('/overview', async (req, res) => {
         MAX(a.date)               AS last_active
       FROM users u
       LEFT JOIN activity a ON a.user_id = u.id
-      WHERE u.role != 'admin'
+      WHERE u.role != 'admin' AND u.club_id = $1
       GROUP BY u.id, u.name, u.email, u.created_at
       ORDER BY total_activities DESC, u.name ASC
-    `)
+    `, [clubId])
 
     res.json({
       memberGrowth:   growthRows,

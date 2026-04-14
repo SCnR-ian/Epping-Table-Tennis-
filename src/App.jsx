@@ -1,5 +1,6 @@
 import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import { AuthProvider } from '@/context/AuthContext'
+import { ClubProvider } from '@/context/ClubContext'
 import { ProtectedRoute, AdminRoute } from '@/routes/ProtectedRoute'
 import RootLayout          from '@/components/layout/RootLayout'
 import HomePage            from '@/pages/HomePage'
@@ -62,8 +63,10 @@ const router = createBrowserRouter([
 
 export default function App() {
   return (
-    <AuthProvider>
-      <RouterProvider router={router} />
-    </AuthProvider>
+    <ClubProvider>
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>
+    </ClubProvider>
   )
 }

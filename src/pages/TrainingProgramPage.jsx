@@ -1,6 +1,13 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { homepageAPI, pagesAPI } from "@/api/api";
 
-const PROGRAMS = [
+const DEFAULT_INTRO = {
+  headline: 'Training Programs',
+  subheadline: 'From beginner to competitive — we have a program designed for every stage of your journey.',
+}
+
+const DEFAULT_PROGRAMS = [
   {
     id: "private",
     label: "One-on-One",
@@ -64,28 +71,43 @@ const PROGRAMS = [
 ];
 
 export default function TrainingProgramPage() {
+  const [intro, setIntro] = useState(DEFAULT_INTRO)
+  const [programs, setPrograms] = useState(DEFAULT_PROGRAMS)
+
+  useEffect(() => {
+    pagesAPI.getContent().then(r => {
+      const c = r.data.content
+      if (c.training_intro) setIntro(s => ({ ...s, ...c.training_intro }))
+      DEFAULT_PROGRAMS.forEach(def => {
+        const key = `training_${def.id}`
+        if (c[key]) setPrograms(prev => prev.map(p => p.id === def.id ? { ...p, ...c[key] } : p))
+      })
+    }).catch(() => {})
+  }, [])
+
   return (
     <div className="bg-white">
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <section className="pt-28 pb-14 px-6 text-center border-b border-gray-100">
         <h1 className="font-display text-2xl md:text-3xl font-normal text-black mb-4 leading-snug">
-          Training Programs
+          {intro.headline}
         </h1>
         <p className="text-gray-500 text-sm max-w-md mx-auto leading-relaxed">
-          From beginner to competitive — we have a program designed for every stage of your journey.
+          {intro.subheadline}
         </p>
       </section>
 
       {/* ── Programs ─────────────────────────────────────────────────────── */}
-      {PROGRAMS.map((prog, idx) => (
+      {programs.map((prog, idx) => (
         <div key={prog.id} id={prog.id} className="flex flex-col md:flex-row border-b border-gray-100 scroll-mt-16">
           {/* Image */}
           <div className={`w-full md:w-1/2 overflow-hidden ${idx % 2 === 1 ? "md:order-2" : ""}`} style={{ height: '50vh' }}>
             <img
-              src={prog.image}
+              src={homepageAPI.getImageUrl(prog.id)}
               alt={prog.label}
               className="w-full h-full object-cover hover:scale-105 transition-transform duration-700"
+              onError={e => { e.target.src = prog.image }}
             />
           </div>
 

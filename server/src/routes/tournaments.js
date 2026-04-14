@@ -5,12 +5,15 @@ const { requireAuth } = require('../middleware/auth')
 // GET /api/tournaments
 router.get('/', async (req, res) => {
   try {
+    const clubId = req.club?.id ?? 1
     const { rows } = await pool.query(
       `SELECT t.*,
          COUNT(tr.id)::int AS participants
        FROM tournaments t
        LEFT JOIN tournament_registrations tr ON tr.tournament_id=t.id
-       GROUP BY t.id ORDER BY t.date DESC`
+       WHERE t.club_id=$1
+       GROUP BY t.id ORDER BY t.date DESC`,
+      [clubId]
     )
     res.json({ tournaments: rows })
   } catch { res.status(500).json({ message: 'Server error.' }) }
@@ -19,12 +22,13 @@ router.get('/', async (req, res) => {
 // GET /api/tournaments/:id
 router.get('/:id', async (req, res) => {
   try {
+    const clubId = req.club?.id ?? 1
     const { rows } = await pool.query(
       `SELECT t.*, COUNT(tr.id)::int AS participants
        FROM tournaments t
        LEFT JOIN tournament_registrations tr ON tr.tournament_id=t.id
-       WHERE t.id=$1 GROUP BY t.id`,
-      [req.params.id]
+       WHERE t.id=$1 AND t.club_id=$2 GROUP BY t.id`,
+      [req.params.id, clubId]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Tournament not found.' })
     res.json({ tournament: rows[0] })
@@ -33,6 +37,7 @@ router.get('/:id', async (req, res) => {
 
 // POST /api/tournaments/:id/register
 router.post('/:id/register', requireAuth, async (req, res) => {
+  const clubId = req.club?.id ?? 1
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
@@ -40,9 +45,9 @@ router.post('/:id/register', requireAuth, async (req, res) => {
       `SELECT t.max_participants, COUNT(tr.id)::int AS registered
        FROM tournaments t
        LEFT JOIN tournament_registrations tr ON tr.tournament_id = t.id
-       WHERE t.id = $1
+       WHERE t.id = $1 AND t.club_id = $2
        GROUP BY t.id`,
-      [req.params.id]
+      [req.params.id, clubId]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Tournament not found.' })
     if (rows[0].max_participants && rows[0].registered >= rows[0].max_participants)

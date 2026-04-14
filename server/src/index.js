@@ -19,7 +19,7 @@ app.use(cors({
   origin: (origin, cb) => {
     // Allow requests with no origin (mobile apps, curl, server-to-server)
     if (!origin) return cb(null, true)
-    if (ALLOWED_ORIGINS.some(o => origin === o) || origin.endsWith('.vercel.app') || origin.endsWith('.devtunnels.ms') || /^http:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?$/.test(origin))
+    if (ALLOWED_ORIGINS.some(o => origin === o) || origin.endsWith('.vercel.app') || origin.endsWith('.devtunnels.ms') || /^http:\/\/[a-z0-9-]+\.localhost(:\d+)?$/.test(origin) || /^http:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?$/.test(origin))
       return cb(null, true)
     cb(new Error(`CORS: origin ${origin} not allowed`))
   },
@@ -37,6 +37,10 @@ app.use(session({
 app.use(passport.initialize())
 app.use(passport.session())
 
+// Resolve club from subdomain and attach to req.club on every request
+const { tenantMiddleware } = require('./middleware/tenant')
+app.use(tenantMiddleware)
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api/auth',          require('./routes/auth'))
 app.use('/api/profile',       require('./routes/profile'))
@@ -53,12 +57,27 @@ app.use('/api/schedule',      require('./routes/schedule'))
 app.use('/api/announcements', require('./routes/announcements'))
 app.use('/api/homepage',      require('./routes/homepage'))
 app.use('/api/messages',     require('./routes/messages'))
+app.use('/api/pages',        require('./routes/pages'))
+app.use('/api/payments',     require('./routes/payments'))
+app.use('/api/clubs',        require('./routes/clubs'))
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }))
 
+// ── Debug: manually trigger reminders (dev only) ──────────────────────────────
+if (process.env.NODE_ENV !== 'production') {
+  app.post('/api/debug/send-reminders', async (_req, res) => {
+    const { sendReminders } = require('./jobs/reminders')
+    await sendReminders()
+    res.json({ ok: true })
+  })
+}
+
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ message: 'Not found.' }))
+
+// ── Jobs ──────────────────────────────────────────────────────────────────────
+require('./jobs/reminders')
 
 // ── Migrations ────────────────────────────────────────────────────────────────
 // Idempotent schema patches applied at startup so new columns are never missing.
@@ -139,6 +158,103 @@ async function runMigrations() {
        solo_price  DECIMAL(8,2),
        group_price DECIMAL(8,2)
      )`,
+    `CREATE TABLE IF NOT EXISTS page_content (
+       id         VARCHAR(60)  PRIMARY KEY,
+       content    JSONB        NOT NULL DEFAULT '{}',
+       updated_at TIMESTAMPTZ  DEFAULT NOW()
+     )`,
+    `CREATE TABLE IF NOT EXISTS page_images (
+       id             VARCHAR(60)  PRIMARY KEY,
+       image_data     TEXT,
+       image_filename VARCHAR(255),
+       updated_at     TIMESTAMPTZ  DEFAULT NOW()
+     )`,
+    // ── Payment columns on bookings ──────────────────────────────────────────
+    `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS payment_intent_id VARCHAR(255)`,
+    `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS amount_paid DECIMAL(8,2)`,
+    `CREATE INDEX IF NOT EXISTS idx_bookings_payment_intent ON bookings(payment_intent_id)`,
+
+    // ── Phase A: Multi-tenancy — clubs table + club_id columns ────────────────
+
+    // 1. clubs table
+    `CREATE TABLE IF NOT EXISTS clubs (
+       id         SERIAL       PRIMARY KEY,
+       name       VARCHAR(120) NOT NULL,
+       subdomain  VARCHAR(63)  NOT NULL UNIQUE,
+       settings   JSONB        NOT NULL DEFAULT '{}',
+       is_active  BOOLEAN      NOT NULL DEFAULT TRUE,
+       created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+     )`,
+
+    // 2. Seed Epping as the first club (id=1)
+    `INSERT INTO clubs (id, name, subdomain, settings)
+     VALUES (1, 'Epping Table Tennis Club', 'epping',
+       '{"contactEmail":"info@eppingttclub.com.au","contactPhone":"(02) 9876 5432","address":"33 Oxford St\\nEpping NSW 2121","timezone":"Australia/Sydney"}')
+     ON CONFLICT DO NOTHING`,
+
+    // 3. Add club_id to all tenant-scoped tables (DEFAULT 1 preserves existing data)
+    `ALTER TABLE users              ADD COLUMN IF NOT EXISTS club_id INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id)`,
+    `CREATE INDEX IF NOT EXISTS idx_users_club              ON users(club_id)`,
+    `ALTER TABLE courts             ADD COLUMN IF NOT EXISTS club_id INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id)`,
+    `CREATE INDEX IF NOT EXISTS idx_courts_club             ON courts(club_id)`,
+    `ALTER TABLE bookings           ADD COLUMN IF NOT EXISTS club_id INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id)`,
+    `CREATE INDEX IF NOT EXISTS idx_bookings_club           ON bookings(club_id)`,
+    `ALTER TABLE coaches            ADD COLUMN IF NOT EXISTS club_id INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id)`,
+    `CREATE INDEX IF NOT EXISTS idx_coaches_club            ON coaches(club_id)`,
+    `ALTER TABLE coaching_sessions  ADD COLUMN IF NOT EXISTS club_id INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id)`,
+    `CREATE INDEX IF NOT EXISTS idx_coaching_sessions_club  ON coaching_sessions(club_id)`,
+    `ALTER TABLE coaching_hour_ledger ADD COLUMN IF NOT EXISTS club_id INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id)`,
+    `CREATE INDEX IF NOT EXISTS idx_chl_club                ON coaching_hour_ledger(club_id)`,
+    `ALTER TABLE social_play_sessions ADD COLUMN IF NOT EXISTS club_id INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id)`,
+    `CREATE INDEX IF NOT EXISTS idx_social_sessions_club    ON social_play_sessions(club_id)`,
+    `ALTER TABLE tournaments        ADD COLUMN IF NOT EXISTS club_id INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id)`,
+    `CREATE INDEX IF NOT EXISTS idx_tournaments_club        ON tournaments(club_id)`,
+    `ALTER TABLE schedule           ADD COLUMN IF NOT EXISTS club_id INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id)`,
+    `CREATE INDEX IF NOT EXISTS idx_schedule_club           ON schedule(club_id)`,
+    `ALTER TABLE announcements      ADD COLUMN IF NOT EXISTS club_id INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id)`,
+    `CREATE INDEX IF NOT EXISTS idx_announcements_club      ON announcements(club_id)`,
+    `ALTER TABLE homepage_cards     ADD COLUMN IF NOT EXISTS club_id INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id)`,
+    `ALTER TABLE page_content       ADD COLUMN IF NOT EXISTS club_id INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id)`,
+    `ALTER TABLE page_images        ADD COLUMN IF NOT EXISTS club_id INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id)`,
+    `ALTER TABLE check_ins          ADD COLUMN IF NOT EXISTS club_id INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id)`,
+    `CREATE INDEX IF NOT EXISTS idx_checkins_club           ON check_ins(club_id)`,
+
+    // 4. coaching_prices: add club_id then change PK to (club_id, session_type)
+    `ALTER TABLE coaching_prices ADD COLUMN IF NOT EXISTS club_id INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id)`,
+    `ALTER TABLE coaching_prices DROP CONSTRAINT IF EXISTS coaching_prices_pkey`,
+    `ALTER TABLE coaching_prices ADD PRIMARY KEY (club_id, session_type)`,
+
+    // 5. homepage_cards, page_content, page_images: composite PK (club_id, id)
+    `ALTER TABLE homepage_cards DROP CONSTRAINT IF EXISTS homepage_cards_pkey`,
+    `ALTER TABLE homepage_cards ADD PRIMARY KEY (club_id, id)`,
+    `ALTER TABLE page_content DROP CONSTRAINT IF EXISTS page_content_pkey`,
+    `ALTER TABLE page_content ADD PRIMARY KEY (club_id, id)`,
+    `ALTER TABLE page_images DROP CONSTRAINT IF EXISTS page_images_pkey`,
+    `ALTER TABLE page_images ADD PRIMARY KEY (club_id, id)`,
+
+    // 6. bookings unique constraints: scope to club
+    `ALTER TABLE bookings DROP CONSTRAINT IF EXISTS no_overlap`,
+    `ALTER TABLE bookings DROP CONSTRAINT IF EXISTS user_no_double_book`,
+    `ALTER TABLE bookings ADD CONSTRAINT no_overlap         UNIQUE (club_id, court_id, date, start_time)`,
+    `ALTER TABLE bookings ADD CONSTRAINT user_no_double_book UNIQUE (club_id, user_id,  date, start_time)`,
+
+    // 7. coaching_sessions partial unique indexes: scope to club
+    `DROP INDEX IF EXISTS coaching_no_court_overlap`,
+    `DROP INDEX IF EXISTS coaching_no_coach_overlap`,
+    `DROP INDEX IF EXISTS coaching_no_student_overlap`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS coaching_no_court_overlap
+       ON coaching_sessions (club_id, court_id, date, start_time)
+       WHERE status = 'confirmed' AND group_id IS NULL`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS coaching_no_coach_overlap
+       ON coaching_sessions (club_id, coach_id, date, start_time)
+       WHERE status = 'confirmed' AND group_id IS NULL`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS coaching_no_student_overlap
+       ON coaching_sessions (club_id, student_id, date, start_time)
+       WHERE status = 'confirmed'`,
+
+    // 8. users.email uniqueness: per-club (same email can join two different clubs)
+    `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key`,
+    `ALTER TABLE users ADD CONSTRAINT users_email_club_unique UNIQUE (club_id, email)`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }

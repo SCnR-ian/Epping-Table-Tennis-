@@ -23,10 +23,11 @@ const safeUser = (u) => ({
 // GET /api/admin/stats
 router.get('/stats', async (req, res) => {
   try {
+    const clubId = req.club?.id ?? 1
     const [members, bookings, tournaments] = await Promise.all([
-      pool.query("SELECT COUNT(*)::int FROM users WHERE role='member'"),
-      pool.query("SELECT COUNT(*)::int FROM bookings WHERE status='confirmed'"),
-      pool.query("SELECT COUNT(*)::int FROM tournaments"),
+      pool.query("SELECT COUNT(*)::int FROM users WHERE role='member' AND club_id=$1", [clubId]),
+      pool.query("SELECT COUNT(*)::int FROM bookings WHERE status='confirmed' AND club_id=$1", [clubId]),
+      pool.query("SELECT COUNT(*)::int FROM tournaments WHERE club_id=$1", [clubId]),
     ])
     res.json({
       members:     members.rows[0].count,
@@ -42,10 +43,11 @@ router.post('/members', async (req, res) => {
   if (!name?.trim() || !email?.trim() || !password)
     return res.status(400).json({ message: 'Name, email and password are required.' })
   try {
+    const clubId = req.club?.id ?? 1
     const hash = await bcrypt.hash(password, 12)
     const { rows } = await pool.query(
-      'INSERT INTO users (name, email, password_hash, phone) VALUES ($1,$2,$3,$4) RETURNING *',
-      [name.trim(), email.toLowerCase().trim(), hash, phone?.trim() || null]
+      'INSERT INTO users (name, email, password_hash, phone, club_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [name.trim(), email.toLowerCase().trim(), hash, phone?.trim() || null, clubId]
     )
     res.status(201).json({ member: safeUser(rows[0]) })
   } catch (err) {
@@ -57,7 +59,11 @@ router.post('/members', async (req, res) => {
 // GET /api/admin/members
 router.get('/members', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM users WHERE is_walkin IS NOT TRUE ORDER BY created_at DESC')
+    const clubId = req.club?.id ?? 1
+    const { rows } = await pool.query(
+      'SELECT * FROM users WHERE is_walkin IS NOT TRUE AND club_id=$1 ORDER BY created_at DESC',
+      [clubId]
+    )
     res.json({ members: rows.map(safeUser) })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
@@ -68,12 +74,14 @@ router.patch('/members/:id', async (req, res) => {
   if (!name?.trim() && !email?.trim())
     return res.status(400).json({ message: 'Nothing to update.' })
   try {
+    const clubId = req.club?.id ?? 1
     const updates = [], values = []
     if (name?.trim())  { updates.push(`name=$${values.length+1}`);  values.push(name.trim()) }
     if (email?.trim()) { updates.push(`email=$${values.length+1}`); values.push(email.toLowerCase().trim()) }
     values.push(req.params.id)
+    values.push(clubId)
     const { rows } = await pool.query(
-      `UPDATE users SET ${updates.join(', ')} WHERE id=$${values.length} RETURNING *`,
+      `UPDATE users SET ${updates.join(', ')} WHERE id=$${values.length - 1} AND club_id=$${values.length} RETURNING *`,
       values
     )
     if (!rows.length) return res.status(404).json({ message: 'Member not found.' })
@@ -89,6 +97,7 @@ router.put('/members/:id/role', async (req, res) => {
   const { role } = req.body
   if (!['member', 'admin', 'coach'].includes(role))
     return res.status(400).json({ message: 'Invalid role.' })
+  const clubId = req.club?.id ?? 1
   const client = await pool.connect()
   try {
     // Block demotion if the coach has future confirmed sessions
@@ -96,8 +105,8 @@ router.put('/members/:id/role', async (req, res) => {
       const { rows: futureSessions } = await client.query(
         `SELECT COUNT(*)::int AS count FROM coaching_sessions cs
          JOIN coaches co ON co.id = cs.coach_id
-         WHERE co.user_id = $1 AND cs.status = 'confirmed' AND cs.date >= CURRENT_DATE`,
-        [req.params.id]
+         WHERE co.user_id = $1 AND cs.status = 'confirmed' AND cs.date >= CURRENT_DATE AND cs.club_id = $2`,
+        [req.params.id, clubId]
       )
       if (futureSessions[0].count > 0)
         return res.status(409).json({
@@ -105,8 +114,8 @@ router.put('/members/:id/role', async (req, res) => {
         })
     }
     const { rows } = await client.query(
-      'UPDATE users SET role=$1, updated_at=NOW() WHERE id=$2 RETURNING *',
-      [role, req.params.id]
+      'UPDATE users SET role=$1, updated_at=NOW() WHERE id=$2 AND club_id=$3 RETURNING *',
+      [role, req.params.id, clubId]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Member not found.' })
     if (role !== 'coach') {
@@ -123,23 +132,27 @@ router.post('/members/:id/make-coach', upload.single('resume'), async (req, res)
   const availability_end   = req.body.availability_end   || null
   const bio                = req.body.bio                || null
   const userId = req.params.id
+  const clubId = req.club?.id ?? 1
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
-    const userRes = await client.query('SELECT * FROM users WHERE id=$1', [userId])
+    const userRes = await client.query(
+      'SELECT * FROM users WHERE id=$1 AND club_id=$2',
+      [userId, clubId]
+    )
     if (!userRes.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ message: 'Member not found.' }) }
     const userName = userRes.rows[0].name
     const resumeFilename = req.file ? req.file.originalname : null
     const resumeData     = req.file ? req.file.buffer.toString('base64') : null
     const { rows } = await client.query(
-      `INSERT INTO coaches (user_id, name, bio, availability_start, availability_end, resume_filename, resume_data)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `INSERT INTO coaches (user_id, name, bio, availability_start, availability_end, resume_filename, resume_data, club_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        ON CONFLICT (user_id) WHERE user_id IS NOT NULL DO UPDATE SET
          bio=$3, availability_start=$4, availability_end=$5,
          resume_filename=COALESCE($6, coaches.resume_filename),
          resume_data=COALESCE($7, coaches.resume_data)
        RETURNING *`,
-      [userId, userName, bio, availability_start, availability_end, resumeFilename, resumeData]
+      [userId, userName, bio, availability_start, availability_end, resumeFilename, resumeData, clubId]
     )
     await client.query("UPDATE users SET role='coach', updated_at=NOW() WHERE id=$1", [userId])
     await client.query('COMMIT')
@@ -154,7 +167,11 @@ router.post('/members/:id/make-coach', upload.single('resume'), async (req, res)
 // GET /api/admin/coaches/:id/resume
 router.get('/coaches/:id/resume', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT resume_filename, resume_data FROM coaches WHERE id=$1', [req.params.id])
+    const clubId = req.club?.id ?? 1
+    const { rows } = await pool.query(
+      'SELECT resume_filename, resume_data FROM coaches WHERE id=$1 AND club_id=$2',
+      [req.params.id, clubId]
+    )
     if (!rows[0] || !rows[0].resume_data) return res.status(404).json({ message: 'No resume found.' })
     const buf = Buffer.from(rows[0].resume_data, 'base64')
     res.setHeader('Content-Type', 'application/pdf')
@@ -168,7 +185,11 @@ router.delete('/members/:id', async (req, res) => {
   if (String(req.params.id) === String(req.user.id))
     return res.status(400).json({ message: 'You cannot delete your own account.' })
   try {
-    const { rowCount } = await pool.query('DELETE FROM users WHERE id=$1', [req.params.id])
+    const clubId = req.club?.id ?? 1
+    const { rowCount } = await pool.query(
+      'DELETE FROM users WHERE id=$1 AND club_id=$2',
+      [req.params.id, clubId]
+    )
     if (rowCount === 0) return res.status(404).json({ message: 'Member not found.' })
     res.json({ message: 'Member deleted.' })
   } catch (err) {
@@ -180,10 +201,11 @@ router.delete('/members/:id', async (req, res) => {
 // GET /api/admin/members/:userId/activities
 router.get('/members/:userId/activities', async (req, res) => {
   const { userId } = req.params
+  const clubId = req.club?.id ?? 1
   try {
     const userRes = await pool.query(
-      'SELECT id,name,email,role,phone,avatar_url,created_at FROM users WHERE id=$1',
-      [userId]
+      'SELECT id,name,email,role,phone,avatar_url,created_at FROM users WHERE id=$1 AND club_id=$2',
+      [userId, clubId]
     )
     if (!userRes.rows[0]) return res.status(404).json({ message: 'Member not found.' })
 
@@ -192,11 +214,11 @@ router.get('/members/:userId/activities', async (req, res) => {
         `SELECT b.booking_group_id, b.court_id,
                 b.date, MIN(b.start_time) AS start_time, MAX(b.end_time) AS end_time, b.status
          FROM bookings b
-         WHERE b.user_id=$1 AND b.status='confirmed'
+         WHERE b.user_id=$1 AND b.status='confirmed' AND b.club_id=$2
          GROUP BY b.booking_group_id, b.court_id, b.date, b.status
          ORDER BY b.date DESC, MIN(b.start_time) ASC
          LIMIT 50`,
-        [userId]
+        [userId, clubId]
       ),
       pool.query(
         `SELECT cs.id, cs.coach_id, cs.student_id, cs.date, cs.start_time, cs.end_time, cs.notes,
@@ -213,27 +235,26 @@ router.get('/members/:userId/activities', async (req, res) => {
                 ), FALSE) AS no_show
          FROM coaching_sessions cs
          JOIN coaches co ON co.id = cs.coach_id
-         WHERE cs.student_id=$1 AND cs.status='confirmed'
+         WHERE cs.student_id=$1 AND cs.status='confirmed' AND cs.club_id=$2
          ORDER BY cs.date DESC, cs.start_time ASC
          LIMIT 50`,
-        [userId]
+        [userId, clubId]
       ),
       pool.query(
         `SELECT sps.id, sps.date, sps.start_time, sps.end_time,
                 sps.status, sps.num_courts, sps.title
          FROM social_play_sessions sps
          JOIN social_play_participants spp ON spp.session_id = sps.id
-         WHERE spp.user_id=$1 AND sps.status != 'cancelled'
+         WHERE spp.user_id=$1 AND sps.status != 'cancelled' AND sps.club_id=$2
          ORDER BY sps.date DESC, sps.start_time ASC
          LIMIT 50`,
-        [userId]
+        [userId, clubId]
       ),
       pool.query(
         `SELECT COALESCE(SUM(delta), 0)::numeric AS balance
-         FROM coaching_hour_ledger WHERE user_id=$1`,
-        [userId]
+         FROM coaching_hour_ledger WHERE user_id=$1 AND club_id=$2`,
+        [userId, clubId]
       ),
-      // Sessions this user coaches (only if they have a coaches record)
       pool.query(
         `SELECT cs.id, cs.date, cs.start_time, cs.end_time, cs.notes, cs.group_id,
                 u.id AS student_id, u.name AS student_name,
@@ -244,10 +265,10 @@ router.get('/members/:userId/activities', async (req, res) => {
          FROM coaching_sessions cs
          JOIN users u ON u.id = cs.student_id
          WHERE cs.coach_id = (SELECT id FROM coaches WHERE user_id=$1 LIMIT 1)
-           AND cs.status='confirmed'
+           AND cs.status='confirmed' AND cs.club_id=$2
          ORDER BY cs.date DESC, cs.start_time ASC
          LIMIT 100`,
-        [userId]
+        [userId, clubId]
       ),
     ])
 
@@ -266,12 +287,11 @@ router.get('/members/:userId/activities', async (req, res) => {
 })
 
 // GET /api/admin/bookings?date=YYYY-MM-DD
-// Returns one row per booking session (grouped by booking_group_id),
-// with the full time span (min start → max end) so each session appears
-// as a single block in the admin calendar view.
 router.get('/bookings', async (req, res) => {
   const { date } = req.query
+  const clubId = req.club?.id ?? 1
   try {
+    const params = date ? [clubId, date] : [clubId]
     const { rows } = await pool.query(
       `SELECT
          b.booking_group_id,
@@ -287,10 +307,10 @@ router.get('/bookings', async (req, res) => {
        FROM bookings b
        JOIN users u ON u.id  = b.user_id
        JOIN courts c ON c.id = b.court_id
-       WHERE b.status = 'confirmed' ${date ? 'AND b.date = $1' : ''}
+       WHERE b.status = 'confirmed' AND b.club_id = $1 ${date ? 'AND b.date = $2' : ''}
        GROUP BY b.booking_group_id, b.court_id, b.date, b.user_id, b.status, u.name, u.email, c.name
        ORDER BY b.date DESC, MIN(b.start_time) DESC`,
-      date ? [date] : []
+      params
     )
     res.json({ bookings: rows })
   } catch { res.status(500).json({ message: 'Server error.' }) }
@@ -299,11 +319,12 @@ router.get('/bookings', async (req, res) => {
 // POST /api/admin/tournaments
 router.post('/tournaments', async (req, res) => {
   const { name, date, prize, status, max_participants, format } = req.body
+  const clubId = req.club?.id ?? 1
   try {
     const { rows } = await pool.query(
-      `INSERT INTO tournaments (name, date, prize, status, max_participants, format)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [name, date, prize, status || 'upcoming', max_participants || 32, format || 'Singles']
+      `INSERT INTO tournaments (name, date, prize, status, max_participants, format, club_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [name, date, prize, status || 'upcoming', max_participants || 32, format || 'Singles', clubId]
     )
     res.status(201).json({ tournament: rows[0] })
   } catch { res.status(500).json({ message: 'Server error.' }) }
@@ -312,11 +333,12 @@ router.post('/tournaments', async (req, res) => {
 // PUT /api/admin/tournaments/:id
 router.put('/tournaments/:id', async (req, res) => {
   const { name, date, prize, status, max_participants, format } = req.body
+  const clubId = req.club?.id ?? 1
   try {
     const { rows } = await pool.query(
       `UPDATE tournaments SET name=$1, date=$2, prize=$3, status=$4,
-       max_participants=$5, format=$6 WHERE id=$7 RETURNING *`,
-      [name, date, prize, status, max_participants, format, req.params.id]
+       max_participants=$5, format=$6 WHERE id=$7 AND club_id=$8 RETURNING *`,
+      [name, date, prize, status, max_participants, format, req.params.id, clubId]
     )
     res.json({ tournament: rows[0] })
   } catch { res.status(500).json({ message: 'Server error.' }) }
@@ -325,7 +347,11 @@ router.put('/tournaments/:id', async (req, res) => {
 // DELETE /api/admin/tournaments/:id
 router.delete('/tournaments/:id', async (req, res) => {
   try {
-    await pool.query('DELETE FROM tournaments WHERE id=$1', [req.params.id])
+    const clubId = req.club?.id ?? 1
+    await pool.query(
+      'DELETE FROM tournaments WHERE id=$1 AND club_id=$2',
+      [req.params.id, clubId]
+    )
     res.json({ message: 'Tournament deleted.' })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })

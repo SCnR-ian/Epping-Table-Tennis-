@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { bookingsAPI } from "@/api/api";
+import { bookingsAPI, paymentsAPI } from "@/api/api";
 import { useAuth } from "@/context/AuthContext";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -87,6 +87,16 @@ export default function BookingPage({ embedded = false }) {
   const [submitting,   setSubmitting]   = useState(false);
   const [confirmed,    setConfirmed]    = useState(false);
 
+  // ── Payment state ─────────────────────────────────────────────────────────
+  const [clientSecret,   setClientSecret]   = useState(null);
+  const [amountCents,    setAmountCents]     = useState(0);
+  const [stripeInstance, setStripeInstance] = useState(null);
+  const [cardElement,    setCardElement]    = useState(null);
+  const [paymentError,   setPaymentError]   = useState(null);
+  const [payingNow,      setPayingNow]      = useState(false);
+  const [intentLoading,  setIntentLoading]  = useState(false);
+  const cardRef = useRef(null);
+
   // Split open dates into this week / next week
   const openDates = getOpenDates();
   const cutoff = new Date();
@@ -129,32 +139,92 @@ export default function BookingPage({ embedded = false }) {
   const freeCourts     = selectedTime ? getFreeCourts(selectedTime, duration, bookedSlots) : COURTS;
   const availableCount = freeCourts.length;
 
-  const handleSubmit = async () => {
+  // ── Move to payment step: create PaymentIntent ───────────────────────────
+  const handleProceedToPayment = async () => {
     const free = getFreeCourts(selectedTime, duration, bookedSlots);
     if (free.length === 0) {
       alert("Sorry, this slot is no longer available. Please choose another time.");
       setStep(1);
       return;
     }
-    setSubmitting(true);
+    setIntentLoading(true);
+    setPaymentError(null);
     try {
-      await bookingsAPI.create({
+      const { data } = await paymentsAPI.createIntent({
         court_id:   free[0].id,
         date:       selectedDate,
         start_time: selectedTime,
         end_time:   addMins(selectedTime, duration),
       });
-      setConfirmed(true);
+      setClientSecret(data.clientSecret);
+      setAmountCents(data.amount);
+      setStep(3);
     } catch (err) {
-      alert(err.response?.data?.message || "Booking failed. Please try again.");
+      alert(err.response?.data?.message || "Could not start payment. Please try again.");
     } finally {
-      setSubmitting(false);
+      setIntentLoading(false);
+    }
+  };
+
+  // ── Mount Stripe card element when Step 3 renders ────────────────────────
+  useEffect(() => {
+    if (step !== 3 || !clientSecret || cardElement) return;
+    const stripe = window.Stripe?.(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
+    if (!stripe) { setPaymentError("Payment system failed to load. Please refresh the page."); return; }
+    setStripeInstance(stripe);
+    const elements = stripe.elements();
+    const card = elements.create("card", {
+      style: {
+        base: {
+          color: "#f1f5f9",
+          fontFamily: "DM Sans, sans-serif",
+          fontSize: "16px",
+          "::placeholder": { color: "#64748b" },
+        },
+        invalid: { color: "#f87171" },
+      },
+    });
+    // Mount after the DOM node is available
+    setTimeout(() => {
+      if (cardRef.current) {
+        card.mount(cardRef.current);
+        setCardElement(card);
+      }
+    }, 50);
+    return () => { card.destroy(); setCardElement(null); };
+  }, [step, clientSecret]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Process payment ───────────────────────────────────────────────────────
+  const handlePay = async () => {
+    if (!stripeInstance || !cardElement || !clientSecret) return;
+    setPayingNow(true);
+    setPaymentError(null);
+    try {
+      const { paymentIntent, error } = await stripeInstance.confirmCardPayment(clientSecret, {
+        payment_method: { card: cardElement },
+      });
+      if (error) {
+        setPaymentError(error.message);
+        setPayingNow(false);
+        return;
+      }
+      if (paymentIntent.status === "succeeded") {
+        // Tell backend to create the booking
+        await paymentsAPI.confirm(paymentIntent.id);
+        setConfirmed(true);
+      }
+    } catch (err) {
+      setPaymentError(err.response?.data?.message || "Payment failed. Please try again.");
+    } finally {
+      setPayingNow(false);
     }
   };
 
   const reset = () => {
     setStep(1); setSelectedDate(""); setSelectedTime(""); setDuration(60);
     setBookedSlots([]); setUserBookedSlots([]); setConfirmed(false);
+    setClientSecret(null); setAmountCents(0); setStripeInstance(null);
+    setCardElement(null); setPaymentError(null);
   };
 
   // ── Confirmed screen ──────────────────────────────────────────────────────
@@ -188,7 +258,7 @@ export default function BookingPage({ embedded = false }) {
   }
 
   // ── Step indicator ────────────────────────────────────────────────────────
-  const STEPS = ["Date & Time", "Confirm"];
+  const STEPS = ["Date & Time", "Review", "Payment"];
 
   return (
     <div className={`${embedded ? "" : "page-wrapper"} py-10 px-4 max-w-2xl mx-auto`}>
@@ -409,11 +479,76 @@ export default function BookingPage({ embedded = false }) {
           ) : (
             <div className="flex gap-3">
               <button onClick={() => setStep(1)} className="btn-secondary flex-1">← Back</button>
-              <button onClick={handleSubmit} disabled={submitting} className="btn-primary flex-1">
-                {submitting ? "Confirming…" : "Confirm Booking"}
+              <button
+                onClick={handleProceedToPayment}
+                disabled={intentLoading}
+                className="btn-primary flex-1"
+              >
+                {intentLoading ? "Loading…" : "Proceed to Payment →"}
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Step 3: Payment ──────────────────────────────────────────────────── */}
+      {step === 3 && (
+        <div className="card max-w-lg mx-auto space-y-6 animate-fade-in">
+          <h2 className="font-normal text-white">Payment</h2>
+
+          {/* Booking summary */}
+          <div className="bg-court-light/50 rounded-lg px-4 py-3 text-sm space-y-1">
+            <div className="flex justify-between">
+              <span className="text-slate-400">Date</span>
+              <span className="text-white">{selectedDate}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Time</span>
+              <span className="text-white">{fmtTime(selectedTime)} · {duration} min</span>
+            </div>
+            <div className="flex justify-between border-t border-court-light pt-2 mt-2">
+              <span className="text-slate-300 font-medium">Total</span>
+              <span className="text-white font-semibold text-base">
+                AUD ${(amountCents / 100).toFixed(2)}
+              </span>
+            </div>
+          </div>
+
+          {/* Stripe card element */}
+          <div>
+            <label className="block text-xs text-slate-400 uppercase tracking-wider mb-2">
+              Card Details
+            </label>
+            <div
+              ref={cardRef}
+              className="bg-court-dark border border-court-light rounded-lg px-4 py-3.5 min-h-[46px]"
+            />
+            {paymentError && (
+              <p className="text-red-400 text-xs mt-2">{paymentError}</p>
+            )}
+          </div>
+
+          <p className="text-[11px] text-slate-600 flex items-center gap-1.5">
+            <svg className="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+            </svg>
+            Secured by Stripe. Your card details are never stored on our servers.
+          </p>
+
+          <div className="flex gap-3">
+            <button onClick={() => setStep(2)} className="btn-secondary flex-1" disabled={payingNow}>
+              ← Back
+            </button>
+            <button
+              onClick={handlePay}
+              disabled={payingNow || !cardElement}
+              className="btn-primary flex-1"
+            >
+              {payingNow
+                ? "Processing…"
+                : `Pay AUD $${(amountCents / 100).toFixed(2)}`}
+            </button>
+          </div>
         </div>
       )}
     </div>

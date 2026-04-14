@@ -4,12 +4,12 @@ const pool = require('../db')
  * Checks whether a given date + time window falls within the club's open schedule.
  * Returns null if OK, or an error message string if the time is outside open hours.
  */
-async function checkOpenHours(date, start_time, end_time) {
+async function checkOpenHours(date, start_time, end_time, clubId = 1) {
   const { rows } = await pool.query(
     `SELECT day, start_time, end_time FROM schedule
-     WHERE day = TO_CHAR($1::date, 'Dy') AND is_active = TRUE
+     WHERE day = TO_CHAR($1::date, 'Dy') AND is_active = TRUE AND club_id = $2
      LIMIT 1`,
-    [date]
+    [date, clubId]
   )
 
   const dayName = new Date(date + 'T12:00:00Z')
