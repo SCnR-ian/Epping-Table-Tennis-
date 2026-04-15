@@ -1,7 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { Camera, Plus, Trash2 } from 'lucide-react'
 import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, homepageAPI, pagesAPI, clubAPI } from '@/api/api'
 import { useClub } from '@/context/ClubContext'
+import { EditModeContext } from '@/context/EditModeContext'
+import EditableText from '@/components/cms/EditableText'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   LineChart, Line, CartesianGrid, Legend,
@@ -453,6 +456,7 @@ function ClubSettingsTab() {
 const PAGE_SUBTABS = ['Cards', 'Home', 'About Us', 'Training']
 
 const DEFAULT_HOME_HERO    = { headline: 'Epping Table Tennis', subheadline: "Sydney's Premier Table Tennis Club" }
+const DEFAULT_HOME_INTRO   = { headline: 'More Than Just a Club', body1: "Founded in 2015, Epping Table Tennis Club has grown into Sydney's premier destination for players of all levels.", body2: "We offer six competition-grade courts, certified coaching, weekly social nights, and a vibrant tournament calendar." }
 const DEFAULT_HOME_CONTACT = {
   phone: '(02) 9876 5432', email: 'info@eppingttclub.com.au',
   address: '33 Oxford St\nEpping NSW 2121\nAustralia', wechat: '',
@@ -519,88 +523,159 @@ function SaveButton({ onSave, saving, saved }) {
 const BANNER_SLOTS = 6
 const FALLBACK_BANNERS = ['/images/ETTC1.jpg','/images/ETTC2.jpg','/images/ETTC3.jpg','/images/ETTC4.jpg','/images/ETTC5.jpg','/images/ETTC6.jpg']
 
-function HomePagePreview({ hero, contact, bannerSrcs }) {
-  const srcs = bannerSrcs.length ? bannerSrcs : FALLBACK_BANNERS
-  const [cur, setCur] = React.useState(0)
-  React.useEffect(() => {
-    setCur(0)
-  }, [srcs.length])
+function HomePagePreview({
+  hero, setHero,
+  intro, setIntro,
+  contact, setContact,
+  bannerSrcs, bannerSrcs2, bannerSrcs3,
+  onUploadBanner1, onUploadBanner2, onUploadBanner3,
+}) {
+  const srcs  = bannerSrcs?.length  ? bannerSrcs  : FALLBACK_BANNERS
+  const srcs2 = bannerSrcs2?.length ? bannerSrcs2 : FALLBACK_BANNERS
+  const srcs3 = bannerSrcs3?.length ? bannerSrcs3 : FALLBACK_BANNERS
+  const [cur,  setCur]  = React.useState(0)
+  const [cur2, setCur2] = React.useState(0)
+  const [cur3, setCur3] = React.useState(0)
+  const b1Ref = React.useRef(); const b2Ref = React.useRef(); const b3Ref = React.useRef()
+  React.useEffect(() => { setCur(0)  }, [srcs.length])
+  React.useEffect(() => { setCur2(0) }, [srcs2.length])
+  React.useEffect(() => { setCur3(0) }, [srcs3.length])
   React.useEffect(() => {
     const t = setInterval(() => setCur(i => (i + 1) % srcs.length), 3000)
     return () => clearInterval(t)
   }, [srcs.length])
-  const schedule = contact.schedule ?? []
+  React.useEffect(() => {
+    const t = setInterval(() => setCur2(i => (i + 1) % srcs2.length), 3500)
+    return () => clearInterval(t)
+  }, [srcs2.length])
+  React.useEffect(() => {
+    const t = setInterval(() => setCur3(i => (i + 1) % srcs3.length), 4000)
+    return () => clearInterval(t)
+  }, [srcs3.length])
+
+  const saveHero    = (h) => pagesAPI.updateContent('home_hero',    h).catch(() => {})
+  const saveIntro   = (d) => pagesAPI.updateContent('home_intro',   d).catch(() => {})
+  const saveContact = (c) => pagesAPI.updateContent('home_contact', c).catch(() => {})
+
+  const schedule = contact?.schedule ?? []
+
   return (
-    <div className="rounded-xl overflow-hidden border border-gray-200 shadow-lg select-none" style={{ height: '72vh' }}>
-      {/* Browser chrome */}
-      <div className="bg-gray-100 px-3 py-2 flex items-center gap-1.5 border-b border-gray-200 flex-shrink-0">
-        <span className="w-2.5 h-2.5 rounded-full bg-red-400 block" />
-        <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 block" />
-        <span className="w-2.5 h-2.5 rounded-full bg-green-400 block" />
-        <div className="flex-1 mx-2 bg-white rounded text-[10px] text-gray-400 px-2 py-0.5 text-center truncate">eppingttclub.com.au</div>
-      </div>
-      {/* Scrollable page */}
-      <div className="overflow-y-auto bg-white" style={{ height: 'calc(72vh - 33px)' }}>
-        {/* Nav stub */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100">
-          <span className="text-[10px] tracking-widest text-gray-400 uppercase">Menu</span>
-          <span className="text-[11px] tracking-[0.15em] text-gray-900 font-medium">EPPING TABLE TENNIS</span>
-          <span className="w-5 h-5 rounded-full bg-gray-200" />
+    <EditModeContext.Provider value={{ isEditing: true, setIsEditing: () => {} }}>
+      <div className="rounded-xl overflow-hidden border border-gray-200 shadow-lg" style={{ height: '88vh' }}>
+        {/* Browser chrome */}
+        <div className="bg-gray-100 px-3 py-2 flex items-center gap-2 border-b border-gray-200 flex-shrink-0">
+          <span className="w-2.5 h-2.5 rounded-full bg-red-400 block" />
+          <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 block" />
+          <span className="w-2.5 h-2.5 rounded-full bg-green-400 block" />
+          <div className="flex-1 mx-2 bg-white rounded text-[10px] text-gray-400 px-2 py-0.5 text-center truncate">eppingttclub.com.au</div>
+          <span className="text-[9px] text-blue-500 font-medium whitespace-nowrap">✎ Click to edit</span>
         </div>
-        {/* Hero */}
-        <div className="relative overflow-hidden" style={{ height: 200 }}>
-          {srcs.map((src, i) => (
-            <img key={src} src={src} alt="" className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700" style={{ opacity: i === cur ? 1 : 0 }} />
-          ))}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-black/20" />
-          <div className="absolute inset-0 flex flex-col items-center justify-end pb-5 text-center px-3">
-            <p className="text-white/60 text-[8px] tracking-[0.35em] uppercase mb-1.5">{hero.subheadline}</p>
-            <p className="text-white text-base font-normal tracking-tight leading-none">{hero.headline}</p>
+        {/* Scrollable page */}
+        <div className="overflow-y-auto bg-white" style={{ height: 'calc(88vh - 33px)' }}>
+          {/* Nav stub */}
+          <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100">
+            <span className="text-xs tracking-widest text-gray-400 uppercase">Menu</span>
+            <span className="text-sm tracking-[0.15em] text-gray-900 font-medium">EPPING TABLE TENNIS</span>
+            <span className="w-6 h-6 rounded-full bg-gray-200" />
           </div>
-        </div>
-        {/* Intro */}
-        <div className="px-5 py-6 text-center border-b border-gray-100">
-          <h2 className="text-sm font-bold text-black mb-2">More Than Just a Club</h2>
-          <p className="text-gray-500 text-[10px] leading-relaxed mb-4">Sydney's premier destination for players of all levels.</p>
-          <div className="grid grid-cols-3 gap-2 border-t border-gray-100 pt-4">
-            {[['—','Members'],['6','Courts'],['—','Social']].map(([v,l]) => (
-              <div key={l}><p className="text-base font-bold text-black">{v}</p><p className="text-gray-400 text-[9px] uppercase tracking-widest">{l}</p></div>
+
+          {/* Hero — Banner 1 */}
+          <div className="relative overflow-hidden group" style={{ height: 260 }}>
+            {srcs.map((src, i) => (
+              <img key={src} src={src} alt="" className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700" style={{ opacity: i === cur ? 1 : 0 }} />
             ))}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-black/20 pointer-events-none" />
+            <button onClick={() => b1Ref.current?.click()} className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs font-medium px-3 py-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+              <Camera size={12} /> Replace Image
+            </button>
+            <input ref={b1Ref} type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files[0]) onUploadBanner1?.(e.target.files[0]); e.target.value = '' }} />
+            <div className="absolute inset-0 flex flex-col items-center justify-end pb-8 text-center px-6">
+              <EditableText as="p" value={hero?.subheadline ?? ''} onChange={v => setHero(h => ({...h, subheadline: v}))} onSave={v => setHero(h => { const u = {...h, subheadline: v}; saveHero(u); return u })} className="text-white/60 text-xs tracking-[0.3em] uppercase mb-2" />
+              <EditableText as="p" value={hero?.headline ?? ''} onChange={v => setHero(h => ({...h, headline: v}))} onSave={v => setHero(h => { const u = {...h, headline: v}; saveHero(u); return u })} className="text-white text-2xl font-normal tracking-tight leading-tight" />
+            </div>
           </div>
-        </div>
-        {/* Schedule */}
-        <div className="px-5 py-5 border-b border-gray-100">
-          <p className="text-[9px] tracking-[0.3em] uppercase text-gray-400 mb-1 text-center">Opening Hours</p>
-          <p className="text-sm font-bold text-black text-center mb-3">Weekly Schedule</p>
-          <div className="divide-y divide-gray-100 border-t border-gray-100">
-            {schedule.map(({ day, time }) => (
-              <div key={day} className="flex items-center justify-between py-2.5">
-                <span className="text-sm font-bold text-black">{day}</span>
-                <span className="text-gray-500 text-[10px]">Open Practice</span>
-                <span className="text-gray-700 text-[10px]">{time}</span>
+
+          {/* Intro */}
+          <div className="px-8 py-10 text-center border-b border-gray-100">
+            <EditableText as="h2" value={intro?.headline ?? ''} onChange={v => setIntro(d => ({...d, headline: v}))} onSave={v => setIntro(d => { const u = {...d, headline: v}; saveIntro(u); return u })} className="text-3xl font-bold text-black mb-4" />
+            <EditableText as="p" value={intro?.body1 ?? ''} onChange={v => setIntro(d => ({...d, body1: v}))} onSave={v => setIntro(d => { const u = {...d, body1: v}; saveIntro(u); return u })} multiline className="text-gray-600 leading-relaxed mb-3" />
+            <EditableText as="p" value={intro?.body2 ?? ''} onChange={v => setIntro(d => ({...d, body2: v}))} onSave={v => setIntro(d => { const u = {...d, body2: v}; saveIntro(u); return u })} multiline className="text-gray-600 leading-relaxed" />
+          </div>
+
+          {/* Banner 2 */}
+          <div className="relative overflow-hidden group" style={{ height: 180 }}>
+            {srcs2.map((src, i) => (
+              <img key={src} src={src} alt="" className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700" style={{ opacity: i === cur2 ? 1 : 0 }} />
+            ))}
+            <button onClick={() => b2Ref.current?.click()} className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs font-medium px-3 py-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+              <Camera size={12} /> Replace Image
+            </button>
+            <input ref={b2Ref} type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files[0]) onUploadBanner2?.(e.target.files[0]); e.target.value = '' }} />
+          </div>
+
+          {/* Training programs */}
+          <div className="px-8 py-8 border-b border-gray-100">
+            <p className="text-xs font-bold text-black text-center mb-6 tracking-widest uppercase">Training Programs</p>
+            <div className="grid grid-cols-4 gap-4">
+              {['One-on-One','Group','School','Holiday'].map(t => (
+                <div key={t} className="bg-gray-100 aspect-[3/4] rounded flex items-end p-2">
+                  <p className="text-xs text-gray-500 text-center w-full">{t}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Banner 3 */}
+          <div className="relative overflow-hidden group" style={{ height: 180 }}>
+            {srcs3.map((src, i) => (
+              <img key={src} src={src} alt="" className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700" style={{ opacity: i === cur3 ? 1 : 0 }} />
+            ))}
+            <button onClick={() => b3Ref.current?.click()} className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs font-medium px-3 py-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+              <Camera size={12} /> Replace Image
+            </button>
+            <input ref={b3Ref} type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files[0]) onUploadBanner3?.(e.target.files[0]); e.target.value = '' }} />
+          </div>
+
+          {/* Schedule */}
+          <div className="px-8 py-8 border-b border-gray-100">
+            <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-2 text-center">Opening Hours</p>
+            <p className="text-xl font-bold text-black text-center mb-6">Weekly Schedule</p>
+            <div className="divide-y divide-gray-100 border-t border-gray-100 mb-4">
+              {schedule.map((row, i) => (
+                <div key={i} className="flex items-center gap-3 py-3">
+                  <EditableText as="span" value={row.day} onChange={v => setContact(c => ({...c, schedule: c.schedule.map((r, ri) => ri === i ? {...r, day: v} : r)}))} onSave={v => setContact(c => { const s = c.schedule.map((r, ri) => ri === i ? {...r, day: v} : r); const u = {...c, schedule: s}; saveContact(u); return u })} className="font-bold text-black text-sm w-10 flex-shrink-0" />
+                  <span className="text-gray-400 text-xs flex-1 text-center">Open Practice</span>
+                  <EditableText as="span" value={row.time} onChange={v => setContact(c => ({...c, schedule: c.schedule.map((r, ri) => ri === i ? {...r, time: v} : r)}))} onSave={v => setContact(c => { const s = c.schedule.map((r, ri) => ri === i ? {...r, time: v} : r); const u = {...c, schedule: s}; saveContact(u); return u })} className="text-gray-600 text-xs w-32 text-right flex-shrink-0" />
+                  <button onClick={() => setContact(c => { const u = {...c, schedule: c.schedule.filter((_, ri) => ri !== i)}; saveContact(u); return u })} className="text-gray-300 hover:text-red-400 transition-colors">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setContact(c => { const u = {...c, schedule: [...c.schedule, {day: 'New', time: '9:00 – 5:00 PM'}]}; saveContact(u); return u })} className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-black transition-colors">
+              <Plus size={13} /> Add row
+            </button>
+          </div>
+
+          {/* Location */}
+          <div className="px-8 py-8 bg-gray-50">
+            <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-2 text-center">Location</p>
+            <p className="text-xl font-bold text-black text-center mb-6">Find Us</p>
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <p className="font-semibold text-gray-700 mb-2 uppercase text-xs tracking-wide">Address</p>
+                <EditableText as="p" value={contact?.address ?? ''} onChange={v => setContact(c => ({...c, address: v}))} onSave={v => setContact(c => { const u = {...c, address: v}; saveContact(u); return u })} multiline className="text-gray-600 text-sm whitespace-pre-line" />
               </div>
-            ))}
-          </div>
-        </div>
-        {/* Location */}
-        <div className="px-5 py-5 bg-gray-50">
-          <p className="text-[9px] tracking-[0.3em] uppercase text-gray-400 mb-1 text-center">Location</p>
-          <p className="text-sm font-bold text-black text-center mb-4">Find Us</p>
-          <div className="grid grid-cols-2 gap-3 text-[10px]">
-            <div>
-              <p className="font-semibold text-gray-700 mb-1 uppercase text-[9px] tracking-wide">Address</p>
-              <p className="text-gray-600 whitespace-pre-line">{contact.address}</p>
-            </div>
-            <div>
-              <p className="font-semibold text-gray-700 mb-1 uppercase text-[9px] tracking-wide">Contact</p>
-              <p className="text-gray-600">{contact.phone}</p>
-              <p className="text-gray-600">{contact.email}</p>
-              {contact.wechat && <p className="text-gray-600">WeChat: {contact.wechat}</p>}
+              <div>
+                <p className="font-semibold text-gray-700 mb-2 uppercase text-xs tracking-wide">Contact</p>
+                <EditableText as="p" value={contact?.phone ?? ''} onChange={v => setContact(c => ({...c, phone: v}))} onSave={v => setContact(c => { const u = {...c, phone: v}; saveContact(u); return u })} className="text-gray-600 text-sm" />
+                <EditableText as="p" value={contact?.email ?? ''} onChange={v => setContact(c => ({...c, email: v}))} onSave={v => setContact(c => { const u = {...c, email: v}; saveContact(u); return u })} className="text-gray-600 text-sm mt-1" />
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </EditModeContext.Provider>
   )
 }
 
@@ -620,6 +695,7 @@ function PagesTab() {
     address: club?.settings?.address      || DEFAULT_HOME_CONTACT.address,
     wechat:  club?.settings?.wechat       ?? DEFAULT_HOME_CONTACT.wechat,
   }))
+  const [intro, setIntro] = React.useState(DEFAULT_HOME_INTRO)
   const [heroSaving, setHeroSaving]       = React.useState(false); const [heroSaved, setHeroSaved] = React.useState(false)
   const [contactSaving, setContactSaving] = React.useState(false); const [contactSaved, setContactSaved] = React.useState(false)
   // banner slots: array of { key, hasImage, ts, uploading }
@@ -632,7 +708,9 @@ function PagesTab() {
   const [bannerSlots3, setBannerSlots3] = React.useState(
     Array.from({ length: BANNER_SLOTS }, (_, i) => ({ key: `home_banner3_${i}`, hasImage: false, ts: Date.now(), uploading: false }))
   )
-  const bannerSrcs = bannerSlots.filter(s => s.hasImage).map(s => `${pagesAPI.getImageUrl(s.key)}?t=${s.ts}`)
+  const bannerSrcs  = bannerSlots.filter(s => s.hasImage).map(s => `${pagesAPI.getImageUrl(s.key)}?t=${s.ts}`)
+  const bannerSrcs2 = bannerSlots2.filter(s => s.hasImage).map(s => `${pagesAPI.getImageUrl(s.key)}?t=${s.ts}`)
+  const bannerSrcs3 = bannerSlots3.filter(s => s.hasImage).map(s => `${pagesAPI.getImageUrl(s.key)}?t=${s.ts}`)
 
   // ── About state ──
   const [story,    setStory]    = React.useState(DEFAULT_ABOUT_STORY)
@@ -654,6 +732,7 @@ function PagesTab() {
     pagesAPI.getContent().then(r => {
       const c = r.data.content
       if (c.home_hero)       setHero(h => ({ ...h, ...c.home_hero }))
+      if (c.home_intro)      setIntro(d => ({ ...d, ...c.home_intro }))
       if (c.home_contact)    setContact(h => ({ ...h, ...c.home_contact }))
       if (c.about_story)     setStory(h => ({ ...h, ...c.about_story }))
       if (c.about_coaching)  setCoaching(h => ({ ...h, ...c.about_coaching }))
@@ -663,7 +742,7 @@ function PagesTab() {
         if (c[`training_${id}`]) setTrainingPrograms(p => ({ ...p, [id]: { ...p[id], ...c[`training_${id}`] } }))
       })
     }).catch(() => {})
-    pagesAPI.getImageIds('home_banner').then(r => {
+    pagesAPI.getImageIds('home_banner_').then(r => {
       const populated = new Set(r.data.ids)
       setBannerSlots(prev => prev.map(s => ({ ...s, hasImage: populated.has(s.key) })))
     }).catch(() => {})
@@ -733,6 +812,11 @@ function PagesTab() {
     catch { alert('Delete failed.') }
   }
 
+  // Quick-replace slot 0 of each banner (used by the visual editor "Replace Image" buttons)
+  const replaceBanner1 = (file) => uploadBanner(0, file)
+  const replaceBanner2 = (file) => uploadBanner2(0, file)
+  const replaceBanner3 = (file) => uploadBanner3(0, file)
+
   const uploadImg = async (key, file) => {
     setImgUploading(p => ({ ...p, [key]: true }))
     try { const fd = new FormData(); fd.append('image', file); await pagesAPI.uploadImage(key, fd) }
@@ -782,95 +866,46 @@ function PagesTab() {
         ))}
       </div>
 
-      {/* ── Cards sub-tab (existing) ── */}
+      {/* ── Cards sub-tab ── */}
       {sub === 'Cards' && <HomepageCardsTab />}
 
-      {/* ── Home sub-tab ── */}
+      {/* ── Home sub-tab: banner strip + full-width visual editor ── */}
       {sub === 'Home' && (
-        <div className="flex gap-6 items-start">
-          {/* Left: edit forms */}
-          <div className="flex-1 min-w-0 space-y-8">
-          {/* Banner 1 — Hero */}
-          <div className="card space-y-3">
-            <h3 className="font-medium text-gray-900">Banner 1 — Hero Slideshow</h3>
-            <p className="text-xs text-gray-400">首頁最上方全螢幕的輪播圖。上傳最多 {BANNER_SLOTS} 張，留空使用預設圖片。</p>
-            <BannerSlotsGrid slots={bannerSlots} prefix="banner1" onUpload={uploadBanner} onDelete={deleteBanner} />
-          </div>
-
-          {/* Banner 2 — Mid page */}
-          <div className="card space-y-3">
-            <h3 className="font-medium text-gray-900">Banner 2 — 中段全寬圖</h3>
-            <p className="text-xs text-gray-400">介紹區塊下方的全寬圖片。上傳最多 {BANNER_SLOTS} 張，留空使用預設圖片。</p>
-            <BannerSlotsGrid slots={bannerSlots2} prefix="banner2" onUpload={uploadBanner2} onDelete={deleteBanner2} />
-          </div>
-
-          {/* Banner 3 — Bottom */}
-          <div className="card space-y-3">
-            <h3 className="font-medium text-gray-900">Banner 3 — 下段全寬圖</h3>
-            <p className="text-xs text-gray-400">課程卡片下方的全寬圖片。上傳最多 {BANNER_SLOTS} 張，留空使用預設圖片。</p>
-            <BannerSlotsGrid slots={bannerSlots3} prefix="banner3" onUpload={uploadBanner3} onDelete={deleteBanner3} />
-          </div>
-          {/* Hero */}
-          <div className="card space-y-3">
-            <h3 className="font-medium text-gray-900">Hero Text</h3>
-            <label className="block"><span className="text-xs text-gray-500">Headline</span>
-              <input className="input mt-1 w-full" value={hero.headline} onChange={e => setHero(h => ({ ...h, headline: e.target.value }))} />
-            </label>
-            <label className="block"><span className="text-xs text-gray-500">Subheadline</span>
-              <input className="input mt-1 w-full" value={hero.subheadline} onChange={e => setHero(h => ({ ...h, subheadline: e.target.value }))} />
-            </label>
-            <SaveButton onSave={() => saveSection('home_hero', hero, setHeroSaving, setHeroSaved)} saving={heroSaving} saved={heroSaved} />
-          </div>
-          {/* Contact */}
-          <div className="card space-y-3">
-            <h3 className="font-medium text-gray-900">Contact & Hours</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block"><span className="text-xs text-gray-500">Phone</span>
-                <input className="input mt-1 w-full" value={contact.phone} onChange={e => setContact(c => ({ ...c, phone: e.target.value }))} />
-              </label>
-              <label className="block"><span className="text-xs text-gray-500">Email</span>
-                <input className="input mt-1 w-full" value={contact.email} onChange={e => setContact(c => ({ ...c, email: e.target.value }))} />
-              </label>
+        <div className="space-y-4">
+          {/* Banner image management — 3 columns */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="card space-y-2">
+              <h3 className="text-sm font-medium text-gray-900">Banner 1 — Hero</h3>
+              <p className="text-xs text-gray-400">Up to {BANNER_SLOTS} images. Use "Replace Image" in the preview to quick-swap, or manage all slots here.</p>
+              <BannerSlotsGrid slots={bannerSlots} prefix="banner1" onUpload={uploadBanner} onDelete={deleteBanner} />
             </div>
-            <label className="block"><span className="text-xs text-gray-500">WeChat</span>
-              <input className="input mt-1 w-full" value={contact.wechat} onChange={e => setContact(c => ({ ...c, wechat: e.target.value }))} />
-            </label>
-            <label className="block"><span className="text-xs text-gray-500">Address</span>
-              <textarea className="input mt-1 w-full h-20 resize-none" value={contact.address} onChange={e => setContact(c => ({ ...c, address: e.target.value }))} />
-            </label>
-            <label className="block"><span className="text-xs text-gray-500">Getting Here</span>
-              <textarea className="input mt-1 w-full h-20 resize-none" value={contact.gettingHere} onChange={e => setContact(c => ({ ...c, gettingHere: e.target.value }))} />
-            </label>
-            <div>
-              <p className="text-xs text-gray-500 mb-2">Schedule</p>
-              {(contact.schedule || []).map((row, i) => (
-                <div key={i} className="flex gap-2 mb-2">
-                  <input className="input w-20" value={row.day} onChange={e => updateScheduleRow(i, 'day', e.target.value)} placeholder="Day" />
-                  <input className="input flex-1" value={row.time} onChange={e => updateScheduleRow(i, 'time', e.target.value)} placeholder="Time" />
-                  <button onClick={() => setContact(c => ({ ...c, schedule: c.schedule.filter((_, ri) => ri !== i) }))} className="text-red-500 text-sm px-2">✕</button>
-                </div>
-              ))}
-              <button onClick={() => setContact(c => ({ ...c, schedule: [...(c.schedule || []), { day: '', time: '' }] }))} className="text-sm text-gray-500 hover:text-black">+ Add row</button>
+            <div className="card space-y-2">
+              <h3 className="text-sm font-medium text-gray-900">Banner 2 — Mid</h3>
+              <p className="text-xs text-gray-400">Full-width image below the intro section.</p>
+              <BannerSlotsGrid slots={bannerSlots2} prefix="banner2" onUpload={uploadBanner2} onDelete={deleteBanner2} />
             </div>
-            <SaveButton onSave={() => saveSection('home_contact', contact, setContactSaving, setContactSaved)} saving={contactSaving} saved={contactSaved} />
-          </div>
-          </div>{/* end left forms */}
-
-          {/* Right: sticky full-page preview */}
-          <div className="w-80 flex-shrink-0 hidden lg:block">
-            <div className="sticky top-4 space-y-2">
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-widest">Live Preview</p>
-              <HomePagePreview hero={hero} contact={contact} bannerSrcs={bannerSrcs} />
-              <p className="text-[11px] text-gray-400 text-center">Updates as you type · Save to publish</p>
+            <div className="card space-y-2">
+              <h3 className="text-sm font-medium text-gray-900">Banner 3 — Bottom</h3>
+              <p className="text-xs text-gray-400">Full-width image below the training programs.</p>
+              <BannerSlotsGrid slots={bannerSlots3} prefix="banner3" onUpload={uploadBanner3} onDelete={deleteBanner3} />
             </div>
           </div>
+          {/* Full-width visual editor */}
+          <HomePagePreview
+            hero={hero} setHero={setHero}
+            intro={intro} setIntro={setIntro}
+            contact={contact} setContact={setContact}
+            bannerSrcs={bannerSrcs} bannerSrcs2={bannerSrcs2} bannerSrcs3={bannerSrcs3}
+            onUploadBanner1={replaceBanner1}
+            onUploadBanner2={replaceBanner2}
+            onUploadBanner3={replaceBanner3}
+          />
         </div>
       )}
 
       {/* ── About Us sub-tab ── */}
       {sub === 'About Us' && (
         <div className="space-y-8 max-w-2xl">
-          {/* Story */}
           <div className="card space-y-3">
             <h3 className="font-medium text-gray-900">Story Section</h3>
             <label className="block"><span className="text-xs text-gray-500">Headline</span>
@@ -888,7 +923,6 @@ function PagesTab() {
             </div>
             <SaveButton onSave={() => saveSection('about_story', story, setStorySaving, setStorySaved)} saving={storySaving} saved={storySaved} />
           </div>
-          {/* Coaching */}
           <div className="card space-y-3">
             <h3 className="font-medium text-gray-900">Coaching Section</h3>
             <label className="block"><span className="text-xs text-gray-500">Headline</span>
@@ -906,7 +940,6 @@ function PagesTab() {
             </div>
             <SaveButton onSave={() => saveSection('about_coaching', coaching, setCoachingSaving, setCoachingSaved)} saving={coachingSaving} saved={coachingSaved} />
           </div>
-          {/* Coaches */}
           <div className="card space-y-4">
             <h3 className="font-medium text-gray-900">Coaches</h3>
             {coaches.map((coach, i) => (
@@ -937,7 +970,6 @@ function PagesTab() {
       {/* ── Training sub-tab ── */}
       {sub === 'Training' && (
         <div className="space-y-8 max-w-2xl">
-          {/* Intro */}
           <div className="card space-y-3">
             <h3 className="font-medium text-gray-900">Page Header</h3>
             <label className="block"><span className="text-xs text-gray-500">Headline</span>
@@ -948,7 +980,6 @@ function PagesTab() {
             </label>
             <SaveButton onSave={() => saveSection('training_intro', trainingIntro, setTrainingIntroSaving, setTrainingIntroSaved)} saving={trainingIntroSaving} saved={trainingIntroSaved} />
           </div>
-          {/* Programs */}
           {TRAINING_PROGRAM_IDS.map(id => {
             const prog = trainingPrograms[id]
             return (

@@ -49,7 +49,7 @@ router.get('/image-ids', async (req, res) => {
     const { prefix } = req.query
     let q = 'SELECT id FROM page_images WHERE image_data IS NOT NULL AND club_id=$1'
     const params = [clubId]
-    if (prefix) { q += ' AND id LIKE $2'; params.push(`${prefix}%`) }
+    if (prefix) { q += " AND id LIKE $2 ESCAPE '\\'"; params.push(`${prefix.replace(/[_%]/g, c => '\\' + c)}%`) }
     const { rows } = await pool.query(q, params)
     res.json({ ids: rows.map(r => r.id) })
   } catch { res.status(500).json({ message: 'Server error.' }) }
