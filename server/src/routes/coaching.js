@@ -1585,6 +1585,35 @@ router.post('/hours/:userId', requireAuth, requireAdmin, async (req, res) => {
 
 // ── Coaching Reviews ──────────────────────────────────────────────────────────
 
+// GET /api/coaching/reviews/recent  — admin: recent sessions with any feedback (coach or student)
+router.get('/reviews/recent', requireAuth, requireAdmin, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  const limit  = Math.min(parseInt(req.query.limit) || 50, 100)
+  try {
+    const { rows } = await pool.query(
+      `SELECT cs.id AS session_id, cs.date, cs.start_time, cs.end_time,
+              u.name  AS student_name,
+              co.name AS coach_name,
+              cr.body             AS review_body,
+              cr.skills           AS review_skills,
+              cr.student_rating   AS student_rating,
+              cr.student_comment  AS student_comment,
+              cr.updated_at       AS coach_updated_at,
+              cr.student_submitted_at
+       FROM coaching_reviews cr
+       JOIN coaching_sessions cs ON cs.id = cr.session_id
+       JOIN users   u  ON u.id  = cs.student_id
+       JOIN coaches co ON co.id = cs.coach_id
+       WHERE cs.club_id = $1
+         AND (cr.body IS NOT NULL AND cr.body != '' OR cr.skills != '[]' OR cr.student_rating IS NOT NULL)
+       ORDER BY GREATEST(cr.updated_at, COALESCE(cr.student_submitted_at, cr.updated_at)) DESC
+       LIMIT $2`,
+      [clubId, limit]
+    )
+    res.json({ reviews: rows })
+  } catch (e) { res.status(500).json({ message: 'Server error.' }) }
+})
+
 // GET /api/coaching/reviews/session/:sessionId  — get review for a specific session
 router.get('/reviews/session/:sessionId', requireAuth, async (req, res) => {
   try {
