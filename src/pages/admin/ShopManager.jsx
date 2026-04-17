@@ -85,8 +85,8 @@ function ProductModal({ product, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[88px] bg-black/40 overflow-y-auto">
+      <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl mb-4">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
@@ -331,11 +331,10 @@ export default function ShopManager() {
   function handleSaved(product, isEdit) {
     if (isEdit) {
       setProducts(ps => ps.map(p => p.id === product.id ? product : p))
-      // Re-open modal with updated product (so images work)
-      setModal(product)
+      setModal(null) // close after saving edits
     } else {
       setProducts(ps => [...ps, product])
-      // Open edit modal so user can upload photos immediately
+      // Re-open in edit mode so admin can upload photos immediately
       setModal(product)
     }
   }
