@@ -3779,7 +3779,21 @@ const [sessionForm,      setSessionForm]      = useState({
                                   className="text-gray-800 hover:text-blue-600 transition-colors text-left">{s.coach_name}</button>
                               </td>
                               <td className="px-3 py-3 text-gray-700 text-xs font-mono whitespace-nowrap">{fmtTime(s.start_time)} – {fmtTime(s.end_time)}</td>
-                              <td className="px-3 py-3 text-gray-600 text-xs max-w-[140px] truncate hidden md:table-cell">{s.notes ?? '—'}</td>
+                              <td className="px-3 py-3 text-gray-600 text-xs max-w-[140px] hidden md:table-cell">
+                                <div className="truncate">{s.notes ?? '—'}</div>
+                                {s.student_rating && (
+                                  <div className="flex items-center gap-0.5 mt-1">
+                                    {[1,2,3,4,5].map(n => (
+                                      <span key={n} className={`text-xs ${n <= s.student_rating ? 'text-amber-400' : 'text-gray-200'}`}>★</span>
+                                    ))}
+                                  </div>
+                                )}
+                                {(s.review_body || s.review_skills?.length > 0) && (
+                                  <div className="mt-1 text-gray-400 text-[10px] italic truncate max-w-[130px]" title={s.review_body}>
+                                    📝 {s.review_body || s.review_skills?.join(', ')}
+                                  </div>
+                                )}
+                              </td>
                               <td className="px-3 py-3">
                                 <div className="flex flex-col gap-1.5">
                                   <div className="flex items-center gap-1.5">
