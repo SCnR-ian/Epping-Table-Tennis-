@@ -2562,8 +2562,8 @@ const [sessionForm,      setSessionForm]      = useState({
           <>
             <div className="fixed inset-0 z-30" onClick={() => setShowMoreMenu(false)} />
             <div className="absolute bottom-full inset-x-0 bg-white border-t border-gray-200 shadow-2xl z-40">
-              <div className="grid grid-cols-4 divide-x divide-gray-100">
-                {['Pay Report', 'Analytics', 'Pages', 'Club Settings'].map(tab => (
+              <div className="grid grid-cols-5 divide-x divide-gray-100">
+                {['Pay Report', 'Analytics', 'Pages', 'Venue', 'Club Settings'].map(tab => (
                   <button
                     key={tab}
                     onClick={() => { setActiveTab(tab); setShowMoreMenu(false) }}
@@ -2584,6 +2584,12 @@ const [sessionForm,      setSessionForm]      = useState({
                     {tab === 'Pages' && (
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+                      </svg>
+                    )}
+                    {tab === 'Venue' && (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75zM6.75 16.5h.75v.75h-.75v-.75zM16.5 6.75h.75v.75h-.75v-.75zM13.5 13.5h.75v.75h-.75v-.75zM13.5 19.5h.75v.75h-.75v-.75zM19.5 13.5h.75v.75h-.75v-.75zM19.5 19.5h.75v.75h-.75v-.75zM16.5 16.5h.75v.75h-.75v-.75z" />
                       </svg>
                     )}
                     {tab === 'Club Settings' && (
@@ -2648,7 +2654,7 @@ const [sessionForm,      setSessionForm]      = useState({
           {/* More */}
           <button
             onClick={() => setShowMoreMenu(v => !v)}
-            className={`flex flex-col items-center justify-center gap-1.5 transition-colors ${['Pay Report','Analytics','Pages','Club Settings'].includes(activeTab) ? 'text-black' : showMoreMenu ? 'text-black' : 'text-gray-400'}`}
+            className={`flex flex-col items-center justify-center gap-1.5 transition-colors ${['Pay Report','Analytics','Pages','Venue','Club Settings'].includes(activeTab) ? 'text-black' : showMoreMenu ? 'text-black' : 'text-gray-400'}`}
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM18.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
