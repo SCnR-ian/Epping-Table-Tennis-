@@ -154,11 +154,16 @@ router.get('/sessions', requireAuth, requireAdmin, async (req, res) => {
          EXISTS(
            SELECT 1 FROM group_session_leaves gsl
            WHERE gsl.session_id = cs.id AND gsl.student_id = cs.student_id
-         ) AS is_makeup
+         ) AS is_makeup,
+         cr.body             AS review_body,
+         cr.skills           AS review_skills,
+         cr.student_rating   AS student_rating,
+         cr.student_comment  AS student_comment
        FROM coaching_sessions cs
        JOIN coaches c  ON c.id  = cs.coach_id
        JOIN users   u  ON u.id  = cs.student_id
        JOIN courts  ct ON ct.id = cs.court_id
+       LEFT JOIN coaching_reviews cr ON cr.session_id = cs.id
        WHERE cs.status = 'confirmed'
          AND cs.club_id = $1
          ${date ? 'AND cs.date = $2' : ''}
@@ -1062,10 +1067,14 @@ router.get('/my-coach-sessions', requireAuth, async (req, res) => {
          cs.recurrence_id,
          u.name  AS student_name,
          ct.name AS court_name,
-         EXISTS(SELECT 1 FROM coaching_reviews WHERE session_id=cs.id) AS has_review
+         cr.id        IS NOT NULL   AS has_review,
+         cr.student_rating          AS student_rating,
+         cr.student_comment         AS student_comment,
+         cr.student_submitted_at    AS student_submitted_at
        FROM coaching_sessions cs
        JOIN users  u  ON u.id  = cs.student_id
        JOIN courts ct ON ct.id = cs.court_id
+       LEFT JOIN coaching_reviews cr ON cr.session_id = cs.id
        WHERE cs.coach_id = $1
          AND cs.status = 'confirmed'
          AND cs.club_id = $2
@@ -1664,6 +1673,37 @@ router.put('/reviews/:id', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ message: 'Server error.' }) }
 })
 
+// POST /api/coaching/reviews/student  — student submits rating (1-5) + optional comment
+// body: { session_id, rating, comment? }
+router.post('/reviews/student', requireAuth, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  const { session_id, rating, comment = '' } = req.body
+  if (!session_id) return res.status(400).json({ message: 'session_id is required.' })
+  if (!rating || rating < 1 || rating > 5)
+    return res.status(400).json({ message: 'rating must be between 1 and 5.' })
+  try {
+    // Verify session belongs to this student and is in the past
+    const { rows: [sess] } = await pool.query(
+      `SELECT id, student_id FROM coaching_sessions WHERE id=$1 AND club_id=$2 AND status='confirmed' AND date <= CURRENT_DATE`,
+      [session_id, clubId]
+    )
+    if (!sess) return res.status(404).json({ message: 'Session not found.' })
+    if (sess.student_id !== req.user.id) return res.status(403).json({ message: 'Forbidden.' })
+
+    // Upsert: update if coach review row already exists, otherwise insert new row
+    const { rows } = await pool.query(
+      `INSERT INTO coaching_reviews (session_id, coach_id, student_id, skills, body, student_rating, student_comment, student_submitted_at)
+       SELECT $1, cs.coach_id, cs.student_id, '[]', '', $2, $3, NOW()
+       FROM coaching_sessions cs WHERE cs.id=$1
+       ON CONFLICT (session_id) DO UPDATE
+         SET student_rating=$2, student_comment=$3, student_submitted_at=NOW()
+       RETURNING *`,
+      [session_id, rating, comment.trim() || null]
+    )
+    res.json({ review: rows[0] })
+  } catch (e) { res.status(500).json({ message: 'Server error.' }) }
+})
+
 // GET /api/coaching/my-history  — student sees all past sessions with attendance status
 router.get('/my-history', requireAuth, async (req, res) => {
   const clubId = req.club?.id ?? 1
@@ -1680,8 +1720,10 @@ router.get('/my-history', requireAuth, async (req, res) => {
                 WHERE ci.type='coaching' AND ci.reference_id=cs.id::text AND ci.user_id=cs.student_id
                 LIMIT 1
               ), FALSE) AS no_show,
-              cr.skills AS review_skills,
-              cr.body   AS review_body,
+              cr.skills            AS review_skills,
+              cr.body             AS review_body,
+              cr.student_rating   AS student_rating,
+              cr.student_comment  AS student_comment,
               ABS(chl.delta) AS charged
        FROM coaching_sessions cs
        JOIN coaches co ON co.id = cs.coach_id

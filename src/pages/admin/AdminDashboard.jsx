@@ -2808,18 +2808,47 @@ const [sessionForm,      setSessionForm]      = useState({
                                   </div>
                                   <div className="flex flex-wrap gap-2">
                                     {type === 'solo' ? (
-                                      <div className="flex items-center gap-1.5 bg-gray-100 border border-gray-300 rounded-lg px-3 py-1.5">
-                                        {c.admin_checked_in ? (
-                                          <>
+                                      <>
+                                        <div className="flex items-center gap-1.5 bg-gray-100 border border-gray-300 rounded-lg px-3 py-1.5">
+                                          {c.admin_checked_in ? (
                                             <button onClick={() => handleUndoCheckIn('coaching', c.id, c.student_id)} className="text-xs text-sky-400 hover:text-red-400 transition-colors" title="Undo check-in">✓ {c.student_name}</button>
-                                          </>
-                                        ) : !isFuture ? (
-                                          <button onClick={() => handleCheckIn('coaching', c.id, c.student_id)} className="text-xs text-gray-900 hover:text-emerald-600 transition-colors" title="Check in">{c.student_name}</button>
-                                        ) : (
-                                          <span className="text-xs text-gray-900">{c.student_name}</span>
+                                          ) : !isFuture ? (
+                                            <button onClick={() => handleCheckIn('coaching', c.id, c.student_id)} className="text-xs text-gray-900 hover:text-emerald-600 transition-colors" title="Check in">{c.student_name}</button>
+                                          ) : (
+                                            <span className="text-xs text-gray-900">{c.student_name}</span>
+                                          )}
+                                          <span className="text-[10px] text-gray-500">student</span>
+                                        </div>
+                                        {/* Coach feedback & student rating (past sessions only) */}
+                                        {!isFuture && (c.review_body || (c.review_skills?.length > 0) || c.student_rating) && (
+                                          <div className="w-full mt-1 space-y-1.5">
+                                            {(c.review_body || c.review_skills?.length > 0) && (
+                                              <div className="bg-sky-50 rounded-lg px-3 py-2">
+                                                <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Coach feedback</p>
+                                                {c.review_skills?.length > 0 && (
+                                                  <div className="flex flex-wrap gap-1 mb-1">
+                                                    {c.review_skills.map(k => (
+                                                      <span key={k} className="text-[10px] bg-white border border-sky-200 px-1.5 py-0.5 rounded-full text-gray-600">{k}</span>
+                                                    ))}
+                                                  </div>
+                                                )}
+                                                {c.review_body && <p className="text-xs text-gray-700 whitespace-pre-wrap">{c.review_body}</p>}
+                                              </div>
+                                            )}
+                                            {c.student_rating && (
+                                              <div className="bg-amber-50 rounded-lg px-3 py-2">
+                                                <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Student rating</p>
+                                                <div className="flex items-center gap-0.5">
+                                                  {[1,2,3,4,5].map(n => (
+                                                    <span key={n} className={`text-sm ${n <= c.student_rating ? 'text-amber-400' : 'text-gray-200'}`}>★</span>
+                                                  ))}
+                                                </div>
+                                                {c.student_comment && <p className="text-xs text-gray-600 mt-0.5 italic">"{c.student_comment}"</p>}
+                                              </div>
+                                            )}
+                                          </div>
                                         )}
-                                        <span className="text-[10px] text-gray-500">student</span>
-                                      </div>
+                                      </>
                                     ) : (
                                       c.students.map(s => (
                                         <div key={s.student_id} className="flex items-center gap-1.5 bg-gray-100 border border-gray-300 rounded-lg px-3 py-1.5">

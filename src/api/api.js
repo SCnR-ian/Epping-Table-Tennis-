@@ -157,11 +157,12 @@ export const coachingAPI = {
   // Session prices
   getPrices:       ()             => api.get('/coaching/prices'),
   updatePrices:    (data)         => api.put('/coaching/prices', data),
-  // Coach reviews
+  // Coach reviews & student ratings
   getSessionReview: (sessionId) => api.get(`/coaching/reviews/session/${sessionId}`),
   submitReview:     (data)      => api.post('/coaching/reviews', data),
   updateReview:     (id, data)  => api.put(`/coaching/reviews/${id}`, data),
   getMyReviews:     ()          => api.get('/coaching/reviews/my'),
+  submitStudentRating: (data)   => api.post('/coaching/reviews/student', data),
   getMyHistory:        ()          => api.get('/coaching/my-history'),
   getStudentPrices:    (userId)    => api.get(`/coaching/student-prices/${userId}`),
   updateStudentPrices: (userId, data) => api.put(`/coaching/student-prices/${userId}`, data),

@@ -112,6 +112,11 @@ export default function DashboardPage() {
   const [showAllAttendance, setShowAllAttendance] = useState(false)
   const [expandedReview,    setExpandedReview]    = useState(null) // session id
   const [showAllUpcoming,   setShowAllUpcoming]   = useState(false)
+  const [ratingModal,       setRatingModal]       = useState(null)  // { sessionId, coachName, date, existingRating, existingComment }
+  const [ratingValue,       setRatingValue]       = useState(0)
+  const [ratingHover,       setRatingHover]       = useState(0)
+  const [ratingComment,     setRatingComment]     = useState('')
+  const [savingRating,      setSavingRating]      = useState(false)
 
   const todayDow = new Date().getDay() || 7
   const defaultDow = CHECKIN_DOWS.includes(todayDow) ? todayDow : 1
@@ -308,12 +313,20 @@ export default function DashboardPage() {
                       const isOpen   = expandedReview === s.id
                       return (
                         <div key={s.id} className="py-2.5 first:pt-0 last:pb-0">
-                          <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <p className="text-sm text-gray-900 truncate">{dateStr} · {s.coach_name}</p>
                               <p className="text-xs text-gray-500">{timeStr}</p>
+                              {/* Student's own star rating display */}
+                              {s.student_rating && (
+                                <div className="flex items-center gap-1 mt-0.5">
+                                  {[1,2,3,4,5].map(n => (
+                                    <span key={n} className={`text-xs ${n <= s.student_rating ? 'text-amber-400' : 'text-gray-200'}`}>★</span>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                            <div className="flex items-center gap-3 flex-shrink-0">
+                            <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
                               {s.charged != null && (
                                 <span className="text-xs text-gray-400">−${Number(s.charged).toFixed(0)}</span>
                               )}
@@ -331,10 +344,20 @@ export default function DashboardPage() {
                                   {isOpen ? 'Hide' : 'Review'}
                                 </button>
                               )}
+                              <button
+                                onClick={() => {
+                                  setRatingValue(s.student_rating ?? 0)
+                                  setRatingComment(s.student_comment ?? '')
+                                  setRatingModal({ sessionId: s.id, coachName: s.coach_name, date: dateStr, existingRating: s.student_rating })
+                                }}
+                                className="text-xs text-amber-600 hover:text-amber-500"
+                              >
+                                {s.student_rating ? '✎ Rating' : '☆ Rate'}
+                              </button>
                             </div>
                           </div>
                           {isOpen && hasReview && (
-                            <div className="mt-2 ml-0 pl-3 border-l-2 border-gray-200">
+                            <div className="mt-2 pl-3 border-l-2 border-gray-200">
                               {s.review_skills?.length > 0 && (
                                 <div className="flex flex-wrap gap-1 mb-1.5">
                                   {s.review_skills.map(k => (
@@ -346,6 +369,9 @@ export default function DashboardPage() {
                               )}
                               {s.review_body && (
                                 <p className="text-sm text-gray-700 whitespace-pre-wrap">{s.review_body}</p>
+                              )}
+                              {s.student_comment && (
+                                <p className="text-xs text-gray-500 italic mt-1 whitespace-pre-wrap">Your comment: {s.student_comment}</p>
                               )}
                             </div>
                           )}
@@ -366,7 +392,7 @@ export default function DashboardPage() {
           {/* Session Reviews — today only (coach view) */}
           {(() => {
             const todaySessions   = coachSessions.filter(s => s.date?.slice(0,10) === todayISO)
-            const pastWithReviews = coachSessions.filter(s => s.date?.slice(0,10) < todayISO && s.has_review)
+            const pastWithReviews = coachSessions.filter(s => s.date?.slice(0,10) < todayISO && (s.has_review || s.student_rating))
             const openReviewModal = async (s) => {
               let existingReview = null
               if (s.has_review) {
@@ -396,6 +422,13 @@ export default function DashboardPage() {
                           <div className="min-w-0">
                             <p className="text-sm text-gray-900 truncate">{s.student_name}</p>
                             <p className="text-xs text-gray-500">{fmtTime(s.start_time)}–{fmtTime(s.end_time)}</p>
+                            {s.student_rating && (
+                              <div className="flex items-center gap-0.5 mt-0.5">
+                                {[1,2,3,4,5].map(n => (
+                                  <span key={n} className={`text-xs ${n <= s.student_rating ? 'text-amber-400' : 'text-gray-200'}`}>★</span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                           <button onClick={() => openReviewModal(s)} className="flex-shrink-0 text-xs text-sky-600 hover:text-sky-500 whitespace-nowrap">
                             {s.has_review ? '✎ Edit' : 'Write Review'}
@@ -423,9 +456,16 @@ export default function DashboardPage() {
                                 {new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})}
                                 {' · '}{fmtTime(s.start_time)}–{fmtTime(s.end_time)}
                               </p>
+                              {s.student_rating && (
+                                <div className="flex items-center gap-0.5 mt-0.5">
+                                  {[1,2,3,4,5].map(n => (
+                                    <span key={n} className={`text-xs ${n <= s.student_rating ? 'text-amber-400' : 'text-gray-200'}`}>★</span>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                             <button onClick={() => openReviewModal(s)} className="flex-shrink-0 text-xs text-sky-600 hover:text-sky-500 whitespace-nowrap">
-                              ✎ Edit
+                              {s.has_review ? '✎ Edit' : 'Write Review'}
                             </button>
                           </div>
                         ))}
@@ -568,6 +608,64 @@ export default function DashboardPage() {
 
     </div>
 
+    {/* ── Student Rating Modal ─────────────────────────────────────────────── */}
+    {ratingModal && (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setRatingModal(null) }}>
+        <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="font-medium text-gray-900">Rate your session</p>
+              <p className="text-xs text-gray-500">{ratingModal.date} · {ratingModal.coachName}</p>
+            </div>
+            <button onClick={() => setRatingModal(null)} className="text-gray-400 hover:text-gray-700 text-lg leading-none">✕</button>
+          </div>
+          {/* Star picker */}
+          <div className="flex justify-center gap-2">
+            {[1,2,3,4,5].map(n => (
+              <button
+                key={n}
+                onMouseEnter={() => setRatingHover(n)}
+                onMouseLeave={() => setRatingHover(0)}
+                onClick={() => setRatingValue(n)}
+                className={`text-4xl transition-colors ${n <= (ratingHover || ratingValue) ? 'text-amber-400' : 'text-gray-200'}`}
+              >★</button>
+            ))}
+          </div>
+          {ratingValue > 0 && (
+            <p className="text-center text-xs text-gray-500">
+              {['', 'Poor', 'Fair', 'Good', 'Great', 'Excellent!'][ratingValue]}
+            </p>
+          )}
+          {/* Optional comment */}
+          <textarea
+            rows={3}
+            value={ratingComment}
+            onChange={e => setRatingComment(e.target.value)}
+            placeholder="Optional comment…"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 resize-none focus:outline-none focus:border-gray-500"
+          />
+          <button
+            disabled={savingRating || ratingValue === 0}
+            onClick={async () => {
+              setSavingRating(true)
+              try {
+                await coachingAPI.submitStudentRating({ session_id: ratingModal.sessionId, rating: ratingValue, comment: ratingComment.trim() })
+                setMyAttendance(prev => prev.map(s => s.id === ratingModal.sessionId
+                  ? { ...s, student_rating: ratingValue, student_comment: ratingComment.trim() || null }
+                  : s
+                ))
+                setRatingModal(null)
+              } catch {}
+              setSavingRating(false)
+            }}
+            className="w-full py-2.5 bg-black text-white text-sm rounded-xl disabled:opacity-40 hover:bg-gray-800 transition-colors"
+          >
+            {savingRating ? 'Saving…' : ratingModal.existingRating ? 'Update Rating' : 'Submit Rating'}
+          </button>
+        </div>
+      </div>
+    )}
+
     {/* ── Review Modal ─────────────────────────────────────────────────────── */}
     {reviewModal && (
       <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setReviewModal(null) }}>
@@ -580,6 +678,20 @@ export default function DashboardPage() {
             </div>
             <button onClick={() => setReviewModal(null)} className="text-gray-400 hover:text-gray-700 text-lg leading-none">✕</button>
           </div>
+          {/* Student rating (read-only, shown to coach) */}
+          {reviewModal.existingReview?.student_rating && (
+            <div className="bg-amber-50 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 mb-1">Student rating</p>
+              <div className="flex items-center gap-1">
+                {[1,2,3,4,5].map(n => (
+                  <span key={n} className={`text-lg ${n <= reviewModal.existingReview.student_rating ? 'text-amber-400' : 'text-gray-200'}`}>★</span>
+                ))}
+              </div>
+              {reviewModal.existingReview.student_comment && (
+                <p className="text-sm text-gray-700 mt-1 italic">"{reviewModal.existingReview.student_comment}"</p>
+              )}
+            </div>
+          )}
 
           {/* Skill checkboxes */}
           <div>

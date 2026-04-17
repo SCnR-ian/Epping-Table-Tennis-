@@ -259,6 +259,10 @@ async function runMigrations() {
 
     // ── Leave request feature ────────────────────────────────────────────────
     `ALTER TABLE messages ADD COLUMN IF NOT EXISTS metadata JSONB`,
+    // ── Student session rating ───────────────────────────────────────────────
+    `ALTER TABLE coaching_reviews ADD COLUMN IF NOT EXISTS student_rating INTEGER CHECK (student_rating BETWEEN 1 AND 5)`,
+    `ALTER TABLE coaching_reviews ADD COLUMN IF NOT EXISTS student_comment TEXT`,
+    `ALTER TABLE coaching_reviews ADD COLUMN IF NOT EXISTS student_submitted_at TIMESTAMPTZ`,
     `CREATE TABLE IF NOT EXISTS session_leave_requests (
        id          SERIAL PRIMARY KEY,
        session_id  INTEGER NOT NULL REFERENCES coaching_sessions(id),
