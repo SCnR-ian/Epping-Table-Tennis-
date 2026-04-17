@@ -2,8 +2,10 @@ import { useState, useEffect } from "react";
 import { NavLink, Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useEditMode } from "@/context/EditModeContext";
+import { useCart } from "@/context/CartContext";
 import { pagesAPI } from "@/api/api";
 import EditableText from "@/components/cms/EditableText";
+import ShoppingBag from "@/components/layout/ShoppingBag";
 
 const DEFAULT_NAV_LINKS = [
   { to: "/",          label: "Home"     },
@@ -311,9 +313,11 @@ function MenuPanel({ open, onClose, isAdmin, navLabels, onSaveLabel }) {
 export default function Navbar() {
   const { isAuthenticated, isAdmin } = useAuth();
   const { isEditing } = useEditMode();
+  const { totalItems } = useCart();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [bagOpen, setBagOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [brandName, setBrandName] = useState("Epping Table Tennis");
@@ -397,25 +401,45 @@ export default function Navbar() {
             )}
           </div>
 
-          {/* Right — Account icon */}
-          <button
-            onClick={() => setAccountOpen(true)}
-            className={`flex items-center gap-2 transition-colors duration-300 z-10 ${solid ? "text-black hover:text-gray-500" : "text-white hover:text-white/70"}`}
-            aria-label="Account"
-          >
-            {isAuthenticated ? (
-              <div className="w-7 h-7 rounded-full bg-black flex items-center justify-center text-white text-xs uppercase">
+          {/* Right — Bag + Account icons */}
+          <div className="flex items-center gap-4 z-10">
+            {/* Shopping bag */}
+            <button
+              onClick={() => setBagOpen(true)}
+              className={`relative transition-colors duration-300 ${solid ? "text-black hover:text-gray-500" : "text-white hover:text-white/70"}`}
+              aria-label="Shopping bag"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
+              </svg>
+              {totalItems > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-black text-white text-[10px] rounded-full flex items-center justify-center leading-none">
+                  {totalItems > 9 ? '9+' : totalItems}
+                </span>
+              )}
+            </button>
+
+            {/* Account */}
+            <button
+              onClick={() => setAccountOpen(true)}
+              className={`flex items-center gap-2 transition-colors duration-300 ${solid ? "text-black hover:text-gray-500" : "text-white hover:text-white/70"}`}
+              aria-label="Account"
+            >
+              {isAuthenticated ? (
+                <div className="w-7 h-7 rounded-full bg-black flex items-center justify-center text-white text-xs uppercase">
+                  <IconPerson />
+                </div>
+              ) : (
                 <IconPerson />
-              </div>
-            ) : (
-              <IconPerson />
-            )}
-          </button>
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
       <MenuPanel    open={menuOpen}    onClose={() => setMenuOpen(false)}    isAdmin={isAdmin} navLabels={navLabels} onSaveLabel={saveNavLabel} />
       <AccountPanel open={accountOpen} onClose={() => setAccountOpen(false)} />
+      <ShoppingBag  open={bagOpen}     onClose={() => setBagOpen(false)} />
     </>
   );
 }

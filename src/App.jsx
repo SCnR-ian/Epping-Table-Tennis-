@@ -2,6 +2,7 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import { AuthProvider } from '@/context/AuthContext'
 import { ClubProvider } from '@/context/ClubContext'
 import { EditModeProvider } from '@/context/EditModeContext'
+import { CartProvider } from '@/context/CartContext'
 import EditModeToggle from '@/components/cms/EditModeToggle'
 import { ProtectedRoute, AdminRoute } from '@/routes/ProtectedRoute'
 import RootLayout          from '@/components/layout/RootLayout'
@@ -69,10 +70,12 @@ export default function App() {
   return (
     <ClubProvider>
       <AuthProvider>
-        <EditModeProvider>
-          <RouterProvider router={router} />
-          <EditModeToggle />
-        </EditModeProvider>
+        <CartProvider>
+          <EditModeProvider>
+            <RouterProvider router={router} />
+            <EditModeToggle />
+          </EditModeProvider>
+        </CartProvider>
       </AuthProvider>
     </ClubProvider>
   )

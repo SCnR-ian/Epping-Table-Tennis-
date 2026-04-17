@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { shopAPI } from '@/api/api'
+import { useCart } from '@/context/CartContext'
 
 const BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').replace('/api', '')
 function imgSrc(url) { return `${BASE_URL}${url}` }
@@ -35,7 +36,9 @@ function Accordion({ title, children }) {
 export default function ProductDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { addItem } = useCart()
   const [product, setProduct] = useState(null)
+  const [added, setAdded] = useState(false)
   const [loading, setLoading] = useState(true)
   const [activeImg, setActiveImg] = useState(0)
   const [descExpanded, setDescExpanded] = useState(false)
@@ -193,12 +196,12 @@ export default function ProductDetailPage() {
             </p>
           )}
 
-          {/* Wishlist button */}
-          <button className="w-full flex items-center justify-center gap-2 border border-gray-200 rounded py-3 text-sm text-gray-700 hover:border-black transition-colors mb-8">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
-            </svg>
-            Add to Wishlist
+          {/* Add to bag button */}
+          <button
+            onClick={() => { addItem(product); setAdded(true); setTimeout(() => setAdded(false), 2000) }}
+            className="w-full bg-black text-white text-sm py-3.5 rounded hover:bg-gray-800 transition-colors font-medium tracking-wide mb-8"
+          >
+            {added ? '✓ Added to bag' : 'Add to shopping bag'}
           </button>
 
           {/* Description */}
