@@ -323,7 +323,7 @@ router.delete('/:type/:refId/:userId', requireAuth, async (req, res) => {
       )
       // Find the original deduction and refund exactly that amount
       const { rows: [deduction] } = await client.query(
-        'SELECT delta FROM coaching_hour_ledger WHERE user_id=$1 AND session_id=$2 AND delta < 0 LIMIT 1',
+        'SELECT delta FROM coaching_hour_ledger WHERE user_id=$1 AND session_id=$2 AND delta < 0 ORDER BY id DESC LIMIT 1',
         [userId, refId]
       )
       if (session && deduction) {
