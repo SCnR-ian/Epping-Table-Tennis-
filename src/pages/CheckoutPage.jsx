@@ -79,8 +79,27 @@ function Field({ label, required, children }) {
   )
 }
 
-const inputCls = "w-full border border-gray-200 rounded px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-400"
-const selectCls = inputCls + " bg-white"
+const inputCls = "w-full border-2 border-gray-900 px-4 py-4 text-sm bg-white focus:outline-none focus:ring-0 placeholder:text-gray-400"
+
+function Select({ value, onChange, children, className = '', error }) {
+  return (
+    <div className={`relative ${className}`}>
+      <select
+        value={value}
+        onChange={onChange}
+        className={`w-full appearance-none border-2 ${error ? 'border-red-400' : 'border-gray-900'} px-4 py-4 text-sm bg-white focus:outline-none pr-10 cursor-pointer`}
+      >
+        {children}
+      </select>
+      <svg
+        className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-700"
+        fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+      </svg>
+    </div>
+  )
+}
 
 // ── Main checkout page ────────────────────────────────────────────────────────
 export default function CheckoutPage() {
@@ -218,21 +237,21 @@ export default function CheckoutPage() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <Field label="Title">
-                      <select value={addr.title} onChange={e => set('title', e.target.value)} className={selectCls}>
+                      <Select value={addr.title} onChange={e => set('title', e.target.value)}>
                         <option value="">—</option>
                         {TITLES.map(t => <option key={t} value={t}>{t}</option>)}
-                      </select>
+                      </Select>
                     </Field>
                     <div />
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <Field label="First Name" required>
-                      <input value={addr.firstName} onChange={e => set('firstName', e.target.value)} className={`${inputCls} ${errors.firstName ? 'border-red-300' : ''}`} placeholder="First name" />
+                      <input value={addr.firstName} onChange={e => set('firstName', e.target.value)} className={`${inputCls} ${errors.firstName ? 'border-red-400' : ''}`} placeholder="First name" />
                       {errors.firstName && <p className="text-xs text-red-400 mt-0.5">{errors.firstName}</p>}
                     </Field>
                     <Field label="Last Name" required>
-                      <input value={addr.lastName} onChange={e => set('lastName', e.target.value)} className={`${inputCls} ${errors.lastName ? 'border-red-300' : ''}`} placeholder="Last name" />
+                      <input value={addr.lastName} onChange={e => set('lastName', e.target.value)} className={`${inputCls} ${errors.lastName ? 'border-red-400' : ''}`} placeholder="Last name" />
                       {errors.lastName && <p className="text-xs text-red-400 mt-0.5">{errors.lastName}</p>}
                     </Field>
                   </div>
@@ -242,7 +261,7 @@ export default function CheckoutPage() {
                   </Field>
 
                   <Field label="Address 1 (Street number, street name)" required>
-                    <input value={addr.address1} onChange={e => set('address1', e.target.value)} className={`${inputCls} ${errors.address1 ? 'border-red-300' : ''}`} placeholder="Street address" />
+                    <input value={addr.address1} onChange={e => set('address1', e.target.value)} className={`${inputCls} ${errors.address1 ? 'border-red-400' : ''}`} placeholder="Street address" />
                     {errors.address1 && <p className="text-xs text-red-400 mt-0.5">{errors.address1}</p>}
                   </Field>
 
@@ -252,23 +271,23 @@ export default function CheckoutPage() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <Field label="Postal Code" required>
-                      <input value={addr.postcode} onChange={e => set('postcode', e.target.value)} className={`${inputCls} ${errors.postcode ? 'border-red-300' : ''}`} placeholder="e.g. 2121" />
+                      <input value={addr.postcode} onChange={e => set('postcode', e.target.value)} className={`${inputCls} ${errors.postcode ? 'border-red-400' : ''}`} placeholder="e.g. 2121" />
                       {errors.postcode && <p className="text-xs text-red-400 mt-0.5">{errors.postcode}</p>}
                     </Field>
                     <Field label="City / Suburb" required>
-                      <input value={addr.city} onChange={e => set('city', e.target.value)} className={`${inputCls} ${errors.city ? 'border-red-300' : ''}`} placeholder="e.g. Epping" />
+                      <input value={addr.city} onChange={e => set('city', e.target.value)} className={`${inputCls} ${errors.city ? 'border-red-400' : ''}`} placeholder="e.g. Epping" />
                       {errors.city && <p className="text-xs text-red-400 mt-0.5">{errors.city}</p>}
                     </Field>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <Field label="State / Suburb" required>
-                      <select value={addr.state} onChange={e => set('state', e.target.value)} className={selectCls}>
+                      <Select value={addr.state} onChange={e => set('state', e.target.value)}>
                         {AU_STATES.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
+                      </Select>
                     </Field>
                     <Field label="Country / Region">
-                      <input value="Australia" readOnly className={`${inputCls} bg-gray-50 text-gray-500`} />
+                      <input value="Australia" readOnly className={`${inputCls} text-gray-400 cursor-not-allowed`} />
                     </Field>
                   </div>
 
@@ -278,20 +297,20 @@ export default function CheckoutPage() {
                       Main phone number <span className="text-red-400">*</span>
                     </label>
                     <div className="flex gap-2">
-                      <select value={addr.phoneType} onChange={e => set('phoneType', e.target.value)} className={`${selectCls} w-28`}>
+                      <Select value={addr.phoneType} onChange={e => set('phoneType', e.target.value)} className="w-32">
                         {['Mobile','Home','Work'].map(t => <option key={t} value={t}>{t}</option>)}
-                      </select>
-                      <select value={addr.phonePrefix} onChange={e => set('phonePrefix', e.target.value)} className={`${selectCls} w-24`}>
+                      </Select>
+                      <Select value={addr.phonePrefix} onChange={e => set('phonePrefix', e.target.value)} className="w-28">
                         <option value="+61">+61</option>
                         <option value="+1">+1</option>
                         <option value="+44">+44</option>
                         <option value="+86">+86</option>
                         <option value="+852">+852</option>
                         <option value="+886">+886</option>
-                      </select>
+                      </Select>
                       <input
                         value={addr.phone} onChange={e => set('phone', e.target.value)}
-                        className={`${inputCls} flex-1 ${errors.phone ? 'border-red-300' : ''}`}
+                        className={`${inputCls} flex-1 ${errors.phone ? 'border-red-400' : ''}`}
                         placeholder="Phone number"
                         type="tel"
                       />
@@ -309,11 +328,11 @@ export default function CheckoutPage() {
                 <p className="text-sm text-gray-500">You will be contacted to arrange a pick-up time.</p>
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <Field label="First Name" required>
-                    <input value={addr.firstName} onChange={e => set('firstName', e.target.value)} className={`${inputCls} ${errors.firstName ? 'border-red-300' : ''}`} placeholder="First name" />
+                    <input value={addr.firstName} onChange={e => set('firstName', e.target.value)} className={`${inputCls} ${errors.firstName ? 'border-red-400' : ''}`} placeholder="First name" />
                     {errors.firstName && <p className="text-xs text-red-400 mt-0.5">{errors.firstName}</p>}
                   </Field>
                   <Field label="Last Name" required>
-                    <input value={addr.lastName} onChange={e => set('lastName', e.target.value)} className={`${inputCls} ${errors.lastName ? 'border-red-300' : ''}`} placeholder="Last name" />
+                    <input value={addr.lastName} onChange={e => set('lastName', e.target.value)} className={`${inputCls} ${errors.lastName ? 'border-red-400' : ''}`} placeholder="Last name" />
                     {errors.lastName && <p className="text-xs text-red-400 mt-0.5">{errors.lastName}</p>}
                   </Field>
                 </div>
