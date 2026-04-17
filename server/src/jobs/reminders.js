@@ -148,4 +148,29 @@ async function sendReminders() {
 cron.schedule('0 8 * * *', sendReminders, { timezone: 'Australia/Sydney' })
 console.log('[reminders] Cron job scheduled: daily 8:00 AM Sydney time')
 
+// ── Startup catch-up: if server restarted after 8 AM and no reminders sent today, run now ──
+;(async () => {
+  try {
+    const now = new Date()
+    const sydneyNow = new Date(now.toLocaleString('en-AU', { timeZone: 'Australia/Sydney' }))
+    const hour = sydneyNow.getHours()
+    if (hour < 8) return // before 8 AM — cron will fire at 8, no catch-up needed
+
+    // Check if reminders were already sent today (look for any "coaching schedule" message sent after 8 AM today)
+    const todayStr = `${sydneyNow.getFullYear()}-${String(sydneyNow.getMonth()+1).padStart(2,'0')}-${String(sydneyNow.getDate()).padStart(2,'0')}`
+    const { rows } = await pool.query(
+      `SELECT 1 FROM messages WHERE body LIKE '%coaching schedule for tomorrow%' AND created_at >= $1 LIMIT 1`,
+      [`${todayStr}T${String(8).padStart(2,'0')}:00:00+10:00`]
+    )
+    if (rows.length > 0) {
+      console.log('[reminders] Catch-up: already sent today, skipping.')
+      return
+    }
+    console.log('[reminders] Catch-up: server started after 8 AM — sending missed reminders now.')
+    await sendReminders()
+  } catch (e) {
+    console.error('[reminders] Catch-up check failed:', e.message)
+  }
+})()
+
 module.exports = { sendReminders }

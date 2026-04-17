@@ -1040,6 +1040,7 @@ const [members,      setMembers]      = useState([])
   const [memberModalSelected, setMemberModalSelected] = useState(new Set()) // ids selected for bulk edit
   const [memberModalBulkForm, setMemberModalBulkForm] = useState({ offsetDays: '0', start_time: '', end_time: '' })
   const [memberModalTab,      setMemberModalTab]      = useState('upcoming') // 'upcoming' | 'past'
+  const [memberModalPricingForm, setMemberModalPricingForm] = useState({ solo: '', group: '', saving: false, open: false })
   const [memberModalCoachingExpanded, setMemberModalCoachingExpanded] = useState(new Set())
   const [memberModalGroupExpanded, setMemberModalGroupExpanded] = useState(false)
   const [coachModal,   setCoachModal]   = useState(null) // { id, name } of member being promoted
@@ -1106,12 +1107,10 @@ const [sessionForm,      setSessionForm]      = useState({
   const [coachRowExpanded,      setCoachRowExpanded]      = useState(new Set()) // student_ids expanded inside inline coach row
   // Coaching hours
   const [hoursStudentSearch, setHoursStudentSearch] = useState('')
-  const [hoursTarget,        setHoursTarget]        = useState(null)  // { user_id, name, balance, ledger }
+  const [hoursTarget,        setHoursTarget]        = useState(null)  // { user_id, name, balance, ledger, soloPrice, groupPrice }
   const [hoursLoading,       setHoursLoading]       = useState(false)
   const [hoursForm,          setHoursForm]          = useState({ delta: '', note: '' })
-  const [prices,             setPrices]             = useState({ solo: 70, group: 50 })
-  const [pricesForm,         setPricesForm]         = useState({ solo: 70, group: 50 })
-  const [pricesSaving,       setPricesSaving]       = useState(false)
+  const [hoursPricingForm,   setHoursPricingForm]   = useState({ solo: '', group: '', saving: false })
   // Hours balance shown inline when scheduling sessions
   const [sessionStudentBalance, setSessionStudentBalance] = useState(null)   // number | null
   const [groupStudentBalances,  setGroupStudentBalances]  = useState({})     // { [userId]: number }
@@ -1322,16 +1321,21 @@ const [sessionForm,      setSessionForm]      = useState({
   }
 
   const handleOpenMemberModal = async (memberId) => {
-    setMemberModal({ member: members.find(m => m.id === memberId) ?? { id: memberId }, bookings: [], coaching: [], social: [], coachSessions: [], balance: 0, error: null })
+    setMemberModal({ member: members.find(m => m.id === memberId) ?? { id: memberId }, bookings: [], coaching: [], social: [], coachSessions: [], balance: 0, soloPrice: null, groupPrice: null, error: null })
     setMemberModalTab('upcoming')
     setMemberModalSelected(new Set())
     setMemberModalEditId(null)
     setMemberModalCoachingExpanded(new Set())
     setMemberModalGroupExpanded(false)
+    setMemberModalPricingForm({ solo: '', group: '', saving: false, open: false })
     setMemberModalLoading(true)
     try {
-      const { data } = await adminAPI.getMemberActivities(memberId)
-      setMemberModal({ ...data, error: null })
+      const [{ data }, { data: pd }] = await Promise.all([
+        adminAPI.getMemberActivities(memberId),
+        coachingAPI.getStudentPrices(memberId),
+      ])
+      setMemberModal({ ...data, soloPrice: pd.solo_price, groupPrice: pd.group_price, error: null })
+      setMemberModalPricingForm(f => ({ ...f, solo: String(pd.solo_price ?? ''), group: String(pd.group_price ?? '') }))
     } catch (err) {
       setMemberModal(prev => ({ ...prev, error: err.response?.data?.message ?? 'Could not load activities.' }))
     } finally {
@@ -1405,9 +1409,8 @@ const [sessionForm,      setSessionForm]      = useState({
       coachingAPI.getSessions({}),
       membersFetch,
       coachingAPI.getGroupSessions({ date: coachingDate }),
-      coachingAPI.getPrices(),
     ])
-      .then(([cr, sr, ar, mr, gr, pr]) => {
+      .then(([cr, sr, ar, mr, gr]) => {
         if (!cancelled) {
           if (cr.status === 'fulfilled') setCoaches(cr.value.data.coaches)
           if (sr.status === 'fulfilled') {
@@ -1418,7 +1421,6 @@ const [sessionForm,      setSessionForm]      = useState({
           if (ar.status === 'fulfilled') setAllCoachingSessions(ar.value.data.sessions)
           if (mr.status === 'fulfilled' && members.length === 0) setMembers(mr.value.data.members)
           if (gr.status === 'fulfilled') setGroupSessions(gr.value.data.groups)
-          if (pr.status === 'fulfilled') { setPrices(pr.value.data.prices); setPricesForm(pr.value.data.prices) }
         }
       })
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -4106,9 +4108,13 @@ const [sessionForm,      setSessionForm]      = useState({
                       if (!match) return
                       setHoursLoading(true)
                       try {
-                        const { data } = await coachingAPI.getHoursBalance(match.id)
-                        setHoursTarget({ user_id: match.id, name: match.name, balance: data.balance, ledger: data.ledger })
+                        const [{ data }, { data: pd }] = await Promise.all([
+                          coachingAPI.getHoursBalance(match.id),
+                          coachingAPI.getStudentPrices(match.id),
+                        ])
+                        setHoursTarget({ user_id: match.id, name: match.name, balance: data.balance, ledger: data.ledger, soloPrice: pd.solo_price, groupPrice: pd.group_price })
                         setHoursForm({ delta: '', note: '' })
+                        setHoursPricingForm({ solo: String(pd.solo_price ?? ''), group: String(pd.group_price ?? ''), saving: false })
                       } finally { setHoursLoading(false) }
                     }}
                   >
@@ -4130,9 +4136,13 @@ const [sessionForm,      setSessionForm]      = useState({
                               setHoursStudentSearch(m.name)
                               setHoursLoading(true)
                               try {
-                                const { data } = await coachingAPI.getHoursBalance(m.id)
-                                setHoursTarget({ user_id: m.id, name: m.name, balance: data.balance, ledger: data.ledger })
+                                const [{ data }, { data: pd }] = await Promise.all([
+                                  coachingAPI.getHoursBalance(m.id),
+                                  coachingAPI.getStudentPrices(m.id),
+                                ])
+                                setHoursTarget({ user_id: m.id, name: m.name, balance: data.balance, ledger: data.ledger, soloPrice: pd.solo_price, groupPrice: pd.group_price })
                                 setHoursForm({ delta: '', note: '' })
+                                setHoursPricingForm({ solo: String(pd.solo_price ?? ''), group: String(pd.group_price ?? ''), saving: false })
                               } finally { setHoursLoading(false) }
                             }}
                           >
@@ -4150,12 +4160,57 @@ const [sessionForm,      setSessionForm]      = useState({
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-normal text-gray-900">{hoursTarget.name}</p>
                   </div>
-                  {/* Single balance display */}
+                  {/* Balance display */}
                   <div className="bg-court rounded-lg p-4 text-center">
                     <p className="text-[10px] text-gray-800 uppercase tracking-wide mb-1">Balance</p>
                     <p className={`text-3xl font-normal ${(hoursTarget.balance ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                       ${(hoursTarget.balance ?? 0).toFixed(2)}
                     </p>
+                  </div>
+
+                  {/* Per-student pricing */}
+                  <div className="border-t border-gray-200 pt-4 space-y-2">
+                    <p className="text-xs text-gray-800">Session pricing</p>
+                    <div className="flex gap-2 items-center">
+                      <div className="flex items-center gap-1.5 flex-1">
+                        <span className="text-xs text-gray-500 whitespace-nowrap">1-on-1 $</span>
+                        <input
+                          type="number" min="0" step="0.01"
+                          className="input text-sm py-1 w-full"
+                          placeholder="e.g. 70"
+                          value={hoursPricingForm.solo}
+                          onChange={e => setHoursPricingForm(f => ({ ...f, solo: e.target.value }))}
+                        />
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-1">
+                        <span className="text-xs text-gray-500 whitespace-nowrap">Group $</span>
+                        <input
+                          type="number" min="0" step="0.01"
+                          className="input text-sm py-1 w-full"
+                          placeholder="e.g. 50"
+                          value={hoursPricingForm.group}
+                          onChange={e => setHoursPricingForm(f => ({ ...f, group: e.target.value }))}
+                        />
+                      </div>
+                      <button
+                        className="btn-primary text-sm py-1 px-3 whitespace-nowrap"
+                        disabled={hoursPricingForm.saving || !hoursPricingForm.solo || !hoursPricingForm.group}
+                        onClick={async () => {
+                          setHoursPricingForm(f => ({ ...f, saving: true }))
+                          try {
+                            const { data: pd } = await coachingAPI.updateStudentPrices(hoursTarget.user_id, {
+                              solo_price: parseFloat(hoursPricingForm.solo),
+                              group_price: parseFloat(hoursPricingForm.group),
+                            })
+                            setHoursTarget(t => ({ ...t, soloPrice: pd.solo_price, groupPrice: pd.group_price }))
+                          } finally {
+                            setHoursPricingForm(f => ({ ...f, saving: false }))
+                          }
+                        }}
+                      >
+                        {hoursPricingForm.saving ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Manual adjustment form */}
@@ -4234,39 +4289,6 @@ const [sessionForm,      setSessionForm]      = useState({
                 </div>
               )}
 
-              {/* Price settings */}
-              <div className="card space-y-3">
-                <p className="text-xs font-semibold text-gray-700 uppercase tracking-widest">Session Pricing</p>
-                <div className="flex gap-3">
-                  <div>
-                    <label className="block text-xs text-gray-800 mb-1">1-on-1 per session ($)</label>
-                    <input type="number" min="1" step="1" className="input w-24"
-                      value={pricesForm.solo}
-                      onChange={e => setPricesForm(f => ({ ...f, solo: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-800 mb-1">Group per session ($)</label>
-                    <input type="number" min="1" step="1" className="input w-24"
-                      value={pricesForm.group}
-                      onChange={e => setPricesForm(f => ({ ...f, group: e.target.value }))} />
-                  </div>
-                  <div className="flex items-end">
-                    <button className="btn-primary"
-                      disabled={pricesSaving}
-                      onClick={async () => {
-                        setPricesSaving(true)
-                        try {
-                          await coachingAPI.updatePrices({ solo: parseFloat(pricesForm.solo), group: parseFloat(pricesForm.group) })
-                          setPrices({ solo: parseFloat(pricesForm.solo), group: parseFloat(pricesForm.group) })
-                        } catch { alert('Could not update prices.') }
-                        finally { setPricesSaving(false) }
-                      }}>
-                      {pricesSaving ? 'Saving…' : 'Save'}
-                    </button>
-                  </div>
-                </div>
-                <p className="text-xs text-gray-400">Current: 1-on-1 = ${prices.solo} · Group = ${prices.group} per session</p>
-              </div>
             </div>
           )}
 
@@ -5119,7 +5141,7 @@ const [sessionForm,      setSessionForm]      = useState({
 
       {/* ── Member Activity Modal ─────────────────────────────────────────── */}
       {memberModal && (() => {
-        const { member, bookings: mBookings, coaching: mCoaching, social: mSocial, coachSessions: mCoachSessions = [], balance } = memberModal
+        const { member, bookings: mBookings, coaching: mCoaching, social: mSocial, coachSessions: mCoachSessions = [], balance, soloPrice, groupPrice } = memberModal
         return (
           <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
                onClick={e => { if (e.target === e.currentTarget) { setMemberModal(null); setMemberModalEditId(null); setMemberModalSelected(new Set()); setMemberModalCoachingExpanded(new Set()) } }}>
@@ -5141,7 +5163,58 @@ const [sessionForm,      setSessionForm]      = useState({
                         Balance: ${balance.toFixed(2)}
                       </span>
                     )}
+                    {(soloPrice != null || groupPrice != null) && !memberModalPricingForm.open && (
+                      <button
+                        className="badge border text-xs bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 transition-colors"
+                        onClick={() => setMemberModalPricingForm(f => ({ ...f, open: true }))}
+                        title="Edit pricing"
+                      >
+                        {soloPrice != null ? `1-on-1 $${Number(soloPrice).toFixed(2)}` : ''}
+                        {soloPrice != null && groupPrice != null ? ' · ' : ''}
+                        {groupPrice != null ? `Group $${Number(groupPrice).toFixed(2)}` : ''}
+                        {' ✎'}
+                      </button>
+                    )}
                   </div>
+                  {memberModalPricingForm.open && (
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-gray-500">1-on-1 $</span>
+                        <input type="number" min="0" step="0.01" className="input text-xs py-0.5 w-20"
+                          placeholder="70"
+                          value={memberModalPricingForm.solo}
+                          onChange={e => setMemberModalPricingForm(f => ({ ...f, solo: e.target.value }))} />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-gray-500">Group $</span>
+                        <input type="number" min="0" step="0.01" className="input text-xs py-0.5 w-20"
+                          placeholder="50"
+                          value={memberModalPricingForm.group}
+                          onChange={e => setMemberModalPricingForm(f => ({ ...f, group: e.target.value }))} />
+                      </div>
+                      <button className="btn-primary text-xs py-0.5 px-2"
+                        disabled={memberModalPricingForm.saving || !memberModalPricingForm.solo || !memberModalPricingForm.group}
+                        onClick={async () => {
+                          setMemberModalPricingForm(f => ({ ...f, saving: true }))
+                          try {
+                            const { data: pd } = await coachingAPI.updateStudentPrices(member.id, {
+                              solo_price: parseFloat(memberModalPricingForm.solo),
+                              group_price: parseFloat(memberModalPricingForm.group),
+                            })
+                            setMemberModal(m => ({ ...m, soloPrice: pd.solo_price, groupPrice: pd.group_price }))
+                            setMemberModalPricingForm(f => ({ ...f, saving: false, open: false }))
+                          } catch {
+                            setMemberModalPricingForm(f => ({ ...f, saving: false }))
+                          }
+                        }}>
+                        {memberModalPricingForm.saving ? 'Saving…' : 'Save'}
+                      </button>
+                      <button className="text-xs text-gray-500 hover:text-gray-700"
+                        onClick={() => setMemberModalPricingForm(f => ({ ...f, open: false }))}>
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <button onClick={() => { setMemberModal(null); setMemberModalEditId(null); setMemberModalSelected(new Set()); setMemberModalCoachingExpanded(new Set()) }} className="text-gray-800 hover:text-gray-900 text-xl leading-none mt-1">✕</button>
               </div>

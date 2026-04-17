@@ -19,7 +19,8 @@ const FALLBACK_BANNER_IMAGES = [
 // slots: array of null | { id, url }  — or legacy array of strings
 function BannerSlideshow({ className = "", slots }) {
   const srcs = (() => {
-    const filled = (slots ?? []).filter(Boolean).map(s => typeof s === 'string' ? s : s.url)
+    if (slots === null) return [] // still loading — show nothing yet
+    const filled = slots.filter(Boolean).map(s => typeof s === 'string' ? s : s.url)
     return filled.length ? filled : FALLBACK_BANNER_IMAGES
   })()
   const [current, setCurrent] = useState(0)
@@ -98,7 +99,7 @@ function BannerSlotModal({ title, slots, onUploadSlot, onDeleteSlot, onClose }) 
                   ) : (
                     <>
                       <Upload size={22} className="text-gray-300 mb-1.5" />
-                      <span className="text-gray-400 text-xs">Slot {i + 1}</span>
+                      <span className="text-gray-400 text-xs">{i === 0 ? 'Default' : `Slot ${i + 1}`}</span>
                     </>
                   )}
                   {busy === i && (
@@ -224,14 +225,21 @@ export default function HomePage() {
   const [cardTimestamps, setCardTimestamps] = useState({})
   const cardInputRefs = useRef({})
   // Each banner: fixed array of 6 slots — null | { id, url }
-  const [bannerSlots,  setBannerSlots]  = useState(Array(6).fill(null))
-  const [bannerSlots2, setBannerSlots2] = useState(Array(6).fill(null))
-  const [bannerSlots3, setBannerSlots3] = useState(Array(6).fill(null))
+  // Initialise from sessionStorage so the default image shows instantly on reload
+  const initSlots = (prefix) => {
+    const cached = sessionStorage.getItem(`${prefix}0`)
+    if (!cached) return null
+    const slots = Array(6).fill(null)
+    slots[0] = { id: `${prefix}0`, url: cached }
+    return slots
+  }
+  const [bannerSlots,  setBannerSlots]  = useState(() => initSlots('home_banner_'))
+  const [bannerSlots2, setBannerSlots2] = useState(() => initSlots('home_banner2_'))
+  const [bannerSlots3, setBannerSlots3] = useState(() => initSlots('home_banner3_'))
 
   // Seed defaults from ClubContext once it loads
   useEffect(() => {
     if (!club) return
-    setHero(h => ({ headline: club.name, subheadline: h.subheadline }))
     setContact(ct => ({
       ...ct,
       phone:   club.settings?.contactPhone || ct.phone,
@@ -250,6 +258,9 @@ export default function HomePage() {
         if (!isNaN(i) && i >= 0 && i < 6)
           slots[i] = { id, url: `${pagesAPI.getImageUrl(id)}?t=${Date.now()}` }
       })
+      // Cache slot-0 URL so next page load shows it instantly
+      if (slots[0]?.url) sessionStorage.setItem(`${prefix}0`, slots[0].url)
+      else sessionStorage.removeItem(`${prefix}0`)
       setSlots(slots)
     }).catch(() => {})
   }

@@ -25,6 +25,18 @@ async function getReactions(messageIds, viewerId) {
 
 // ── Endpoints ─────────────────────────────────────────────────────────────────
 
+// GET /api/messages/admins  — any authenticated user can fetch the club's admin list
+router.get('/admins', requireAuth, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name FROM users WHERE role='admin' AND club_id=$1 ORDER BY name`,
+      [clubId]
+    )
+    res.json({ admins: rows })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
 // GET /api/messages/unread-count
 router.get('/unread-count', requireAuth, async (req, res) => {
   try {
@@ -60,23 +72,27 @@ router.get('/inbox', requireAuth, async (req, res) => {
     `, [uid])
 
     const { rows: threads } = await pool.query(`
-      SELECT DISTINCT ON (other_user)
-        CASE WHEN m.sender_id = $1 THEN m.recipient_id ELSE m.sender_id END AS other_user,
-        m.id, m.body, m.created_at, m.sender_id, m.recipient_id, m.deleted_at,
-        u.name AS other_name,
-        EXISTS(
-          SELECT 1 FROM message_reads mr WHERE mr.message_id = m.id AND mr.user_id = $1
-        ) AS is_read
-      FROM messages m
-      JOIN users u ON u.id = CASE WHEN m.sender_id = $1 THEN m.recipient_id ELSE m.sender_id END
-      WHERE m.recipient_id IS NOT NULL
-        AND (m.sender_id = $1 OR m.recipient_id = $1)
-        AND NOT EXISTS (
-          SELECT 1 FROM message_thread_hidden h
-          WHERE h.user_id = $1
-            AND h.other_user_id = CASE WHEN m.sender_id = $1 THEN m.recipient_id ELSE m.sender_id END
-        )
-      ORDER BY other_user, m.created_at DESC
+      SELECT * FROM (
+        SELECT DISTINCT ON (other_user)
+          CASE WHEN m.sender_id = $1 THEN m.recipient_id ELSE m.sender_id END AS other_user,
+          m.id, m.body, m.created_at, m.sender_id, m.recipient_id, m.deleted_at,
+          u.name AS other_name,
+          u.role AS other_role,
+          EXISTS(
+            SELECT 1 FROM message_reads mr WHERE mr.message_id = m.id AND mr.user_id = $1
+          ) AS is_read
+        FROM messages m
+        JOIN users u ON u.id = CASE WHEN m.sender_id = $1 THEN m.recipient_id ELSE m.sender_id END
+        WHERE m.recipient_id IS NOT NULL
+          AND (m.sender_id = $1 OR m.recipient_id = $1)
+          AND NOT EXISTS (
+            SELECT 1 FROM message_thread_hidden h
+            WHERE h.user_id = $1
+              AND h.other_user_id = CASE WHEN m.sender_id = $1 THEN m.recipient_id ELSE m.sender_id END
+          )
+        ORDER BY other_user, m.created_at DESC
+      ) t
+      ORDER BY t.created_at DESC
     `, [uid])
 
     res.json({ announcements, threads })
@@ -95,6 +111,7 @@ router.get('/thread/:userId', requireAuth, async (req, res) => {
       SELECT m.id, m.body, m.created_at, m.edited_at, m.deleted_at,
              m.sender_id, m.recipient_id,
              m.attachment_data, m.attachment_type, m.attachment_name,
+             m.metadata,
              u.name AS sender_name,
              EXISTS(
                SELECT 1 FROM message_reads mr WHERE mr.message_id = m.id AND mr.user_id = $1
@@ -102,9 +119,14 @@ router.get('/thread/:userId', requireAuth, async (req, res) => {
              -- read by recipient (for messages I sent)
              CASE WHEN m.sender_id = $1 THEN
                EXISTS(SELECT 1 FROM message_reads mr WHERE mr.message_id = m.id AND mr.user_id = $2)
-             ELSE FALSE END AS read_by_recipient
+             ELSE FALSE END AS read_by_recipient,
+             slr.status AS leave_request_status,
+             slr.expires_at AS leave_request_expires_at
       FROM messages m
       JOIN users u ON u.id = m.sender_id
+      LEFT JOIN session_leave_requests slr
+        ON m.metadata IS NOT NULL
+        AND (m.metadata->>'request_id')::int = slr.id
       WHERE (m.sender_id = $1 AND m.recipient_id = $2)
          OR (m.sender_id = $2 AND m.recipient_id = $1)
       ORDER BY m.created_at ASC
@@ -128,6 +150,9 @@ router.get('/thread/:userId', requireAuth, async (req, res) => {
       deleted: !!r.deleted_at,
       body: r.deleted_at ? null : r.body,
       reactions: reactionsMap[r.id] ?? [],
+      metadata: r.metadata ?? null,
+      leave_request_status: r.leave_request_status ?? null,
+      leave_request_expires_at: r.leave_request_expires_at ?? null,
     }))
 
     res.json({ messages })

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import { messagesAPI, adminAPI } from '@/api/api'
+import { messagesAPI, adminAPI, coachingAPI } from '@/api/api'
 
 const PRESET_EMOJIS = ['👍', '❤️', '😂', '😮', '😢']
 
@@ -46,6 +46,13 @@ export default function MessagesPage() {
   const [editingMsg, setEditingMsg] = useState(null)
   const [editBody, setEditBody] = useState('')
   const [attachPreview, setAttachPreview] = useState(null)
+  // Leave request
+  const [leaveModal, setLeaveModal] = useState(false)
+  const [leaveSessions, setLeaveSessions] = useState([])
+  const [leaveSessionId, setLeaveSessionId] = useState('')
+  const [leaveReason, setLeaveReason] = useState('')
+  const [leaveSubmitting, setLeaveSubmitting] = useState(false)
+  const [leaveActioning, setLeaveActioning] = useState(null) // request_id being actioned
 
   const messagesContainerRef = useRef(null)
   const threadContainerRef = useRef(null)
@@ -191,6 +198,33 @@ export default function MessagesPage() {
     setActiveMsgAnchor(null)
   }
 
+  // Leave request helpers
+  const openLeaveModal = async () => {
+    try {
+      const { data } = await coachingAPI.getMySessions()
+      const upcoming = (data.sessions ?? []).filter(s => s.status === 'confirmed')
+      setLeaveSessions(upcoming)
+      setLeaveSessionId(upcoming[0]?.id ? String(upcoming[0].id) : '')
+      setLeaveReason('')
+      setLeaveModal(true)
+    } catch { alert('Could not load sessions.') }
+  }
+
+  const submitLeaveRequest = async () => {
+    if (!leaveSessionId) return
+    setLeaveSubmitting(true)
+    try {
+      await coachingAPI.createLeaveRequest({ session_id: parseInt(leaveSessionId, 10), reason: leaveReason || undefined })
+      setLeaveModal(false)
+      await loadThread(threadUser.id, true)
+      await loadInbox()
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not submit leave request.')
+    } finally { setLeaveSubmitting(false) }
+  }
+
+  const partnerIsAdmin = threadUser && inbox.threads.find(t => t.other_user === threadUser.id)?.other_role === 'admin'
+
   // Find the last message sent by me that the recipient has read
   const lastReadIdx = thread.reduce((acc, m, i) => m.sender_id === user?.id && m.read_by_recipient ? i : acc, -1)
 
@@ -325,6 +359,72 @@ export default function MessagesPage() {
                             {msg.edited_at && !msg.deleted && (
                               <span className={`text-[10px] ml-1 ${isMe ? 'text-white/60' : 'text-gray-400'}`}>edited</span>
                             )}
+                            {/* Leave request interactive elements */}
+                            {msg.metadata?.type === 'leave_request' && isAdmin && (() => {
+                              const rid = msg.metadata.request_id
+                              const status = msg.leave_request_status
+                              if (status === 'pending') return (
+                                <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
+                                  <button
+                                    disabled={leaveActioning === rid}
+                                    className="text-xs bg-white text-emerald-600 border border-emerald-300 rounded-full px-3 py-1 hover:bg-emerald-50 disabled:opacity-50 transition-colors"
+                                    onClick={async () => {
+                                      setLeaveActioning(rid)
+                                      try { await coachingAPI.approveLeaveRequest(rid); await loadThread(threadUser.id, false) }
+                                      catch (err) { alert(err.response?.data?.message ?? 'Could not approve.') }
+                                      finally { setLeaveActioning(null) }
+                                    }}>✓ Approve</button>
+                                  <button
+                                    disabled={leaveActioning === rid}
+                                    className="text-xs bg-white text-red-500 border border-red-300 rounded-full px-3 py-1 hover:bg-red-50 disabled:opacity-50 transition-colors"
+                                    onClick={async () => {
+                                      setLeaveActioning(rid)
+                                      try { await coachingAPI.rejectLeaveRequest(rid); await loadThread(threadUser.id, false) }
+                                      catch (err) { alert(err.response?.data?.message ?? 'Could not reject.') }
+                                      finally { setLeaveActioning(null) }
+                                    }}>✗ Reject</button>
+                                </div>
+                              )
+                              if (status === 'approved') return <p className="text-xs mt-1 text-emerald-300">✅ Approved</p>
+                              if (status === 'rejected') return <p className="text-xs mt-1 text-red-300">❌ Rejected</p>
+                              if (status === 'rescheduled') return <p className="text-xs mt-1 text-white/70">🔄 Rescheduled</p>
+                              return null
+                            })()}
+                            {msg.metadata?.type === 'slot_options' && !isAdmin && (() => {
+                              const rid = msg.metadata.request_id
+                              const slots = msg.metadata.slots ?? []
+                              const status = msg.leave_request_status
+                              const expired = msg.leave_request_expires_at && new Date(msg.leave_request_expires_at) < new Date()
+                              if (status === 'rescheduled') return <p className="text-xs mt-2 text-emerald-300">✅ Rescheduled</p>
+                              if (expired || status === 'cancelled') return <p className="text-xs mt-2 text-gray-400">⏰ Selection window expired — standard cancellation policy applies.</p>
+                              if (status === 'approved' && slots.length > 0) return (
+                                <div className="mt-2 space-y-1.5" onClick={e => e.stopPropagation()}>
+                                  {slots.map((s, i) => {
+                                    const [sh, sm] = s.start_time.slice(0, 5).split(':').map(Number)
+                                    const [eh, em] = s.end_time.slice(0, 5).split(':').map(Number)
+                                    const period = h => h >= 12 ? 'PM' : 'AM'
+                                    const fmt = (h, m) => `${h % 12 || 12}:${String(m).padStart(2,'0')} ${period(h)}`
+                                    const dateLabel = new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+                                    return (
+                                      <button key={i}
+                                        disabled={leaveActioning === rid}
+                                        className="block w-full text-left text-xs bg-white/20 hover:bg-white/30 border border-white/40 rounded-lg px-3 py-1.5 disabled:opacity-50 transition-colors"
+                                        onClick={async () => {
+                                          setLeaveActioning(rid)
+                                          try {
+                                            await coachingAPI.selectLeaveSlot(rid, { date: s.date, start_time: s.start_time, end_time: s.end_time })
+                                            await loadThread(threadUser.id, true)
+                                          } catch (err) { alert(err.response?.data?.message ?? 'Could not reschedule.') }
+                                          finally { setLeaveActioning(null) }
+                                        }}>
+                                        {dateLabel} · {fmt(sh, sm)} – {fmt(eh, em)}
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              )
+                              return null
+                            })()}
                           </>
                         )}
                       </div>
@@ -406,6 +506,17 @@ export default function MessagesPage() {
 
         {/* Input bar */}
         <div className="shrink-0 bg-white border-t border-gray-200 px-3 py-2 flex items-center gap-2 pb-[max(env(safe-area-inset-bottom),8px)]">
+          {!isAdmin && partnerIsAdmin && (
+            <button
+              onClick={openLeaveModal}
+              className="text-gray-400 hover:text-amber-500 shrink-0 transition-colors"
+              title="Request Leave"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5M12 15h.008v.008H12V15zm0-2.25h.008v.008H12v-.008zm0 4.5h.008v.008H12v-.008zm-2.625-4.5h.008v.008h-.008V13.5zm0 2.25h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V18zm5.25-4.5h.008v.008h-.008V13.5zm0 2.25h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V18z" />
+              </svg>
+            </button>
+          )}
           <button onClick={() => fileInputRef.current?.click()} className="text-gray-400 hover:text-gray-700 shrink-0">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
@@ -430,6 +541,59 @@ export default function MessagesPage() {
             </svg>
           </button>
         </div>
+
+        {/* Leave Request Modal */}
+        {leaveModal && (
+          <div className="fixed inset-0 z-[20000] flex items-end sm:items-center justify-center bg-black/50 p-4"
+               onClick={e => { if (e.target === e.currentTarget) setLeaveModal(false) }}>
+            <div className="bg-white rounded-2xl w-full max-w-sm p-5 space-y-4">
+              <h3 className="text-base font-semibold text-gray-900">Request Leave</h3>
+              {leaveSessions.length === 0 ? (
+                <p className="text-sm text-gray-500">You have no upcoming coaching sessions.</p>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Select session</label>
+                    <select
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                      value={leaveSessionId}
+                      onChange={e => setLeaveSessionId(e.target.value)}
+                    >
+                      {leaveSessions.map(s => {
+                        const [sh, sm] = s.start_time.slice(0,5).split(':').map(Number)
+                        const [eh, em] = s.end_time.slice(0,5).split(':').map(Number)
+                        const p = h => h >= 12 ? 'PM' : 'AM'
+                        const f = (h,m) => `${h%12||12}:${String(m).padStart(2,'0')} ${p(h)}`
+                        const d = new Date(String(s.date).slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'})
+                        return <option key={s.id} value={s.id}>{d} · {f(sh,sm)}–{f(eh,em)} ({s.coach_name})</option>
+                      })}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Reason (optional)</label>
+                    <input
+                      type="text"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                      placeholder="e.g. Business trip"
+                      value={leaveReason}
+                      onChange={e => setLeaveReason(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button className="flex-1 py-2 rounded-full border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
+                      onClick={() => setLeaveModal(false)}>Cancel</button>
+                    <button
+                      className="flex-1 py-2 rounded-full bg-[#07c160] text-white text-sm font-medium hover:bg-green-600 disabled:opacity-50"
+                      disabled={leaveSubmitting || !leaveSessionId}
+                      onClick={submitLeaveRequest}>
+                      {leaveSubmitting ? 'Sending…' : 'Send Request'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     )
   }

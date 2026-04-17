@@ -19,16 +19,19 @@ export default function EditableText({
   onSave,
   className = '',
   multiline = false,
+  placeholder = '',
   children,
   ...props
 }) {
   const { isEditing } = useEditMode()
   const [active, setActive] = useState(false)
   const [draft, setDraft] = useState(value ?? '')
+  const savedValue = useRef(value ?? '') // value at the moment editing started
   const ref = useRef()
 
-  // Keep draft in sync when parent value changes externally
-  useEffect(() => { setDraft(value ?? '') }, [value])
+  // Keep draft in sync when parent value changes externally,
+  // but don't reset while the user is actively typing
+  useEffect(() => { if (!active) setDraft(value ?? '') }, [value, active])
 
   // Auto-focus + auto-resize when entering active state
   useEffect(() => {
@@ -64,7 +67,7 @@ export default function EditableText({
       },
       onBlur: () => {
         setActive(false)
-        if (draft !== value) onSave?.(draft)
+        if (draft !== savedValue.current) onSave?.(draft)
       },
       onKeyDown: e => {
         if (!useTextarea && e.key === 'Enter') { e.preventDefault(); ref.current?.blur() }
@@ -77,14 +80,18 @@ export default function EditableText({
   }
 
   // Edit mode, not active — show with hover hint
+  const isEmpty = !value && !children
   return (
     <Tag
-      className={`${className} cursor-text border-b-2 border-dashed border-blue-300/50 hover:border-blue-400 hover:bg-blue-50/20 transition-colors`}
-      onClick={() => setActive(true)}
-      title="點擊編輯"
+      className={`${className} cursor-text border-b-2 border-dashed border-blue-300/50 hover:border-blue-400 hover:bg-blue-50/20 transition-colors${isEmpty ? ' min-h-[1em]' : ''}`}
+      onClick={() => { savedValue.current = value ?? ''; setActive(true) }}
+      title="Click to edit"
       {...props}
     >
-      {children ?? value}
+      {isEmpty && placeholder
+        ? <span className="text-gray-300 italic text-sm">{placeholder}</span>
+        : (children ?? value)
+      }
     </Tag>
   )
 }

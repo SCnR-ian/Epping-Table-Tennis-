@@ -165,6 +165,11 @@ export const coachingAPI = {
   getMyHistory:        ()          => api.get('/coaching/my-history'),
   getStudentPrices:    (userId)    => api.get(`/coaching/student-prices/${userId}`),
   updateStudentPrices: (userId, data) => api.put(`/coaching/student-prices/${userId}`, data),
+  // Leave requests
+  createLeaveRequest:  (data)     => api.post('/coaching/leave-requests', data),
+  approveLeaveRequest: (id)       => api.post(`/coaching/leave-requests/${id}/approve`),
+  rejectLeaveRequest:  (id)       => api.post(`/coaching/leave-requests/${id}/reject`),
+  selectLeaveSlot:     (id, slot) => api.post(`/coaching/leave-requests/${id}/select-slot`, slot),
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +265,7 @@ export const paymentsAPI = {
 export const messagesAPI = {
   getUnreadCount: ()             => api.get('/messages/unread-count'),
   getInbox:       ()             => api.get('/messages/inbox'),
+  getAdmins:      ()             => api.get('/messages/admins'),
   getThread:      (userId)       => api.get(`/messages/thread/${userId}`),
   send:           (data)         => api.post('/messages', data),
   markRead:       (id)           => api.post(`/messages/${id}/read`),

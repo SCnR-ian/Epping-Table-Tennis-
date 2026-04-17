@@ -1,119 +1,304 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
+import { Camera, Upload, X, Loader2 } from "lucide-react";
 import { homepageAPI, pagesAPI } from "@/api/api";
+import { useEditMode } from "@/context/EditModeContext";
+import EditableText from "@/components/cms/EditableText";
 
-const BANNER_IMAGES = [
-  "/images/ETTC1.jpg",
-  "/images/ETTC2.jpg",
-  "/images/ETTC3.jpg",
-  "/images/ETTC4.jpg",
-  "/images/ETTC5.jpg",
-  "/images/ETTC6.jpg",
+// ── Banner components (same pattern as HomePage) ──────────────────────────
+
+const FALLBACK_BANNER_IMAGES = [
+  "/images/ETTC1.jpg", "/images/ETTC2.jpg", "/images/ETTC3.jpg",
+  "/images/ETTC4.jpg", "/images/ETTC5.jpg", "/images/ETTC6.jpg",
 ]
 
-function BannerSlideshow({ className = "" }) {
+function BannerSlideshow({ className = "", slots }) {
+  const srcs = (() => {
+    const filled = (slots ?? []).filter(Boolean).map(s => s.url)
+    return filled.length ? filled : FALLBACK_BANNER_IMAGES
+  })()
   const [current, setCurrent] = useState(0)
+  useEffect(() => { setCurrent(0) }, [srcs.length])
   useEffect(() => {
-    const t = setInterval(() => setCurrent(i => (i + 1) % BANNER_IMAGES.length), 4000)
+    const t = setInterval(() => setCurrent(i => (i + 1) % srcs.length), 4000)
     return () => clearInterval(t)
-  }, [])
+  }, [srcs.length])
   return (
     <div className={`relative overflow-hidden ${className}`}>
-      {BANNER_IMAGES.map((src, i) => (
-        <img
-          key={src}
-          src={src}
-          alt="Epping Table Tennis"
+      {srcs.map((src, i) => (
+        <img key={src} src={src} alt="Epping Table Tennis"
           className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000"
-          style={{ opacity: i === current ? 1 : 0 }}
-        />
+          style={{ opacity: i === current ? 1 : 0 }} />
       ))}
     </div>
   )
 }
 
+function BannerSlotModal({ title, slots, onUploadSlot, onDeleteSlot, onClose }) {
+  const inputRefs = useRef([])
+  const [busy, setBusy] = useState(null)
+
+  const handleFile = async (i, e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    e.target.value = ''
+    setBusy(i)
+    await onUploadSlot(i, file)
+    setBusy(null)
+  }
+
+  const handleDelete = async (e, i) => {
+    e.stopPropagation()
+    setBusy(i)
+    await onDeleteSlot(i)
+    setBusy(null)
+  }
+
+  return (
+    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl p-6 w-[520px] max-w-[90vw]" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between mb-1">
+          <h3 className="font-bold text-lg">{title}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 p-0.5"><X size={18} /></button>
+        </div>
+        <p className="text-gray-500 text-sm mb-5">Up to 6 images. Click a slot to upload or replace.</p>
+        <div className="grid grid-cols-3 gap-3">
+          {Array.from({ length: 6 }).map((_, i) => {
+            const slot = slots[i]
+            return (
+              <div key={i} className="relative group/slot">
+                <button
+                  onClick={() => inputRefs.current[i]?.click()}
+                  className={`w-full aspect-[4/3] rounded-xl overflow-hidden border-2 flex flex-col items-center justify-center transition-opacity hover:opacity-80
+                    ${slot ? 'border-transparent' : 'border-dashed border-gray-300 bg-gray-50'}`}
+                >
+                  {slot
+                    ? <img src={slot.url} alt={`Slot ${i + 1}`} className="w-full h-full object-cover" />
+                    : <><Upload size={22} className="text-gray-300 mb-1.5" /><span className="text-gray-400 text-xs">Slot {i + 1}</span></>
+                  }
+                  {busy === i && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-xl">
+                      <Loader2 size={20} className="text-white animate-spin" />
+                    </div>
+                  )}
+                </button>
+                {slot && <span className="absolute bottom-1.5 left-1.5 bg-black/50 text-white text-[10px] font-medium px-1.5 py-0.5 rounded pointer-events-none">{i + 1}</span>}
+                {slot && busy !== i && (
+                  <button onClick={e => handleDelete(e, i)}
+                    className="absolute top-1.5 right-1.5 z-10 bg-black/60 hover:bg-red-600 text-white rounded-full p-1 opacity-0 group-hover/slot:opacity-100 transition-opacity"
+                    title="Delete image"><X size={12} /></button>
+                )}
+                <input ref={el => { inputRefs.current[i] = el }} type="file" accept="image/*" className="hidden" onChange={e => handleFile(i, e)} />
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EditableBanner({ className, title, slots, onUploadSlot, onDeleteSlot, children }) {
+  const { isEditing } = useEditMode()
+  const [modalOpen, setModalOpen] = useState(false)
+  return (
+    <div className={`relative group ${className}`}>
+      {children}
+      {isEditing && (
+        <>
+          <button onClick={() => setModalOpen(true)}
+            className="absolute bottom-4 left-4 z-20 flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs font-medium px-3 py-1.5 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm">
+            <Camera size={13} /> Replace Image
+          </button>
+          {modalOpen && <BannerSlotModal title={title} slots={slots} onUploadSlot={onUploadSlot} onDeleteSlot={onDeleteSlot} onClose={() => setModalOpen(false)} />}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Inline-replaceable single image ───────────────────────────────────────
+function EditableImage({ src, alt, className, onUpload, fallback }) {
+  const { isEditing } = useEditMode()
+  const inputRef = useRef()
+  return (
+    <div className="relative group w-full h-full">
+      <img src={src} alt={alt} className={className} onError={e => { if (fallback) e.target.src = fallback }} />
+      {isEditing && (
+        <>
+          <button onClick={() => inputRef.current?.click()}
+            className="absolute bottom-4 left-4 z-10 flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs font-medium px-3 py-1.5 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm">
+            <Camera size={13} /> Replace Image
+          </button>
+          <input ref={inputRef} type="file" accept="image/*" className="hidden"
+            onChange={e => { if (e.target.files[0]) { onUpload(e.target.files[0]); e.target.value = '' } }} />
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Defaults ───────────────────────────────────────────────────────────────
+
+const DEFAULT_INTRO = {
+  headline: 'Epping Table Tennis Club',
+  subtext: "Sydney's premier table tennis club — built by players, for players, since 2015.",
+}
 const DEFAULT_STORY = {
+  label: 'Who We Are',
   headline: 'More Than Just a Club',
-  body1: 'Founded in 2025 and located at 33 Oxford St, Epping NSW, Epping Table Tennis Club was born out of a shared passion for the sport and a vision to create a home for players of every level in Sydney\'s north-west. From our first session, we have welcomed beginners picking up a paddle for the very first time alongside seasoned competitors chasing their next ranking point.',
+  body1: "Founded in 2025 and located at 33 Oxford St, Epping NSW, Epping Table Tennis Club was born out of a shared passion for the sport and a vision to create a home for players of every level in Sydney's north-west. From our first session, we have welcomed beginners picking up a paddle for the very first time alongside seasoned competitors chasing their next ranking point.",
   body2: 'Situated just two minutes from Epping Station, our fully air-conditioned venue houses six competition-grade courts, professional coaching programs, weekly social play nights, and a growing tournament calendar. Whether you are here to compete, improve, or simply enjoy the game in great company, you will find your place at Epping Table Tennis Club.',
 }
 const DEFAULT_COACHING = {
+  label: 'Expert Guidance',
   headline: 'World-Class Coaching',
   body1: 'Our nationally accredited coaches bring decades of competitive and teaching experience to every session. From complete beginners to competitive players, we have a program tailored for you.',
   body2: 'One-on-one, group, school, and holiday programs are available across the week, led by coaches with national team experience.',
 }
 const DEFAULT_COACHES = [
-  {
-    name: "David Chen",
-    title: "Head Coach",
-    bio: "A two-time national champion turned elite coach, David has spent over 15 years shaping Australia's top table tennis talent. His precision-focused training philosophy and deep technical knowledge have produced five Australian national representatives under his direct guidance.",
-    fallbackImage: "/images/coach-4.jpg",
-  },
-  {
-    name: "Sarah Kim",
-    title: "Junior Development Coach",
-    bio: "Former Australian U21 representative and three-time NSW State Women's Champion, Sarah brings world-class experience to every junior session. Her engaging teaching style has made her one of the most sought-after development coaches in the country.",
-    fallbackImage: "/images/coach-4.jpg",
-  },
-  {
-    name: "Marcus Liu",
-    title: "Fitness & Strategy Coach",
-    bio: "Armed with a Bachelor of Sports Science and a former top-50 NSW ranking, Marcus bridges physical athleticism with tactical intelligence. His data-driven training programs form the backbone of the club's competitive conditioning system.",
-    fallbackImage: "/images/coach-4.jpg",
-  },
-];
+  { name: "David Chen", title: "Head Coach", bio: "A two-time national champion turned elite coach, David has spent over 15 years shaping Australia's top table tennis talent. His precision-focused training philosophy and deep technical knowledge have produced five Australian national representatives under his direct guidance.", fallbackImage: "/images/coach-4.jpg" },
+  { name: "Sarah Kim", title: "Junior Development Coach", bio: "Former Australian U21 representative and three-time NSW State Women's Champion, Sarah brings world-class experience to every junior session. Her engaging teaching style has made her one of the most sought-after development coaches in the country.", fallbackImage: "/images/coach-4.jpg" },
+  { name: "Marcus Liu", title: "Fitness & Strategy Coach", bio: "Armed with a Bachelor of Sports Science and a former top-50 NSW ranking, Marcus bridges physical athleticism with tactical intelligence. His data-driven training programs form the backbone of the club's competitive conditioning system.", fallbackImage: "/images/coach-4.jpg" },
+]
+const DEFAULT_CTA = {
+  headline: 'Ready to Play?',
+  body: "Become part of Epping Table Tennis Club — Sydney's most welcoming competitive table tennis community.",
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────
 
 export default function AboutUsPage() {
-  const [stats, setStats] = useState({ membersDisplay: "—", coachingSessions: "—", socialSessions: "—" });
+  const { isEditing } = useEditMode()
+  const [stats, setStats] = useState({ membersDisplay: "—", coachingSessions: "—", socialSessions: "—" })
+  const [intro, setIntro] = useState(DEFAULT_INTRO)
   const [story, setStory] = useState(DEFAULT_STORY)
   const [coaching, setCoaching] = useState(DEFAULT_COACHING)
   const [coaches, setCoaches] = useState(DEFAULT_COACHES)
-  const [imageTs, setImageTs] = useState(Date.now())
+  const [cta, setCta] = useState(DEFAULT_CTA)
+  const [bannerSlots, setBannerSlots] = useState(Array(6).fill(null))
+  const [imgTs, setImgTs] = useState({}) // per-key timestamps for cache-busting
+
+  const loadBannerSlots = () => {
+    pagesAPI.getImageIds('about_banner_').then(r => {
+      const slots = Array(6).fill(null)
+      ;(r.data.ids ?? []).forEach(id => {
+        const i = parseInt(id.slice('about_banner_'.length), 10)
+        if (!isNaN(i) && i < 6) slots[i] = { id, url: `${pagesAPI.getImageUrl(id)}?t=${Date.now()}` }
+      })
+      setBannerSlots(slots)
+    }).catch(() => {})
+  }
 
   useEffect(() => {
-    homepageAPI.getStats().then((r) => setStats(r.data)).catch(() => {})
+    homepageAPI.getStats().then(r => setStats(r.data)).catch(() => {})
     pagesAPI.getContent().then(r => {
       const c = r.data.content
+      if (c.about_intro)   setIntro(s => ({ ...s, ...c.about_intro }))
       if (c.about_story)   setStory(s => ({ ...s, ...c.about_story }))
       if (c.about_coaching) setCoaching(s => ({ ...s, ...c.about_coaching }))
       if (c.about_coaches?.coaches) setCoaches(c.about_coaches.coaches.map((coach, i) => ({ ...DEFAULT_COACHES[i], ...coach })))
-      setImageTs(Date.now())
+      if (c.about_cta)     setCta(s => ({ ...s, ...c.about_cta }))
+      setImgTs({ about_story: Date.now(), about_coaching: Date.now(), ...Object.fromEntries(DEFAULT_COACHES.map((_, i) => [`about_coach_${i}`, Date.now()])) })
     }).catch(() => {})
-  }, []);
+    loadBannerSlots()
+  }, [])
+
+  // ── Save helpers ──────────────────────────────────────────────────────────
+
+  const saveIntro    = (u) => { const n = { ...intro, ...u };    setIntro(n);    pagesAPI.updateContent('about_intro', n).catch(() => {}) }
+  const saveStory    = (u) => { const n = { ...story, ...u };    setStory(n);    pagesAPI.updateContent('about_story', n).catch(() => {}) }
+  const saveCoaching = (u) => { const n = { ...coaching, ...u }; setCoaching(n); pagesAPI.updateContent('about_coaching', n).catch(() => {}) }
+  const saveCta      = (u) => { const n = { ...cta, ...u };      setCta(n);      pagesAPI.updateContent('about_cta', n).catch(() => {}) }
+
+  const saveCoach = (idx, field, value) => {
+    const updated = coaches.map((c, i) => i === idx ? { ...c, [field]: value } : c)
+    setCoaches(updated)
+    pagesAPI.updateContent('about_coaches', { coaches: updated }).catch(() => {})
+  }
+
+  const replaceImage = async (key, file) => {
+    const fd = new FormData()
+    fd.append('image', file)
+    await pagesAPI.uploadImage(key, fd).catch(() => {})
+    setImgTs(prev => ({ ...prev, [key]: Date.now() }))
+  }
+
+  const uploadOneSlot = async (slotKey, file) => {
+    const fd = new FormData()
+    fd.append('image', file)
+    await pagesAPI.uploadImage(slotKey, fd).catch(() => {})
+  }
 
   return (
     <div className="bg-white">
-      {/* ── Intro header ─────────────────────────────────────────────────── */}
+
+      {/* ── Intro header ──────────────────────────────────────────────────── */}
       <section className="pt-28 pb-14 px-6 text-center border-b border-gray-100">
-        <h1 className="font-display text-2xl md:text-3xl font-normal text-black mb-4 leading-snug">
-          Epping Table Tennis Club
-        </h1>
-        <p className="text-gray-500 text-sm max-w-md mx-auto leading-relaxed mb-6">
-          Sydney's premier table tennis club — built by players, for players,
-          since 2015.
-        </p>
-        <Link
-          to="/register"
-          className="text-sm text-black border-b border-black pb-0.5 hover:text-gray-500 hover:border-gray-500 transition-colors"
-        >
+        <EditableText
+          as="h1"
+          value={intro.headline}
+          onSave={v => saveIntro({ headline: v })}
+          className="font-display text-2xl md:text-3xl font-normal text-black mb-4 leading-snug"
+        />
+        <EditableText
+          as="p"
+          value={intro.subtext}
+          onSave={v => saveIntro({ subtext: v })}
+          multiline
+          className="text-gray-500 text-sm max-w-md mx-auto leading-relaxed mb-6"
+        />
+        <Link to="/register" className="text-sm text-black border-b border-black pb-0.5 hover:text-gray-500 hover:border-gray-500 transition-colors">
           Join the Club
         </Link>
       </section>
 
-      {/* ── Full-width photo ─────────────────────────────────────────────── */}
-      <BannerSlideshow className="w-full h-screen" />
+      {/* ── Full-width banner ─────────────────────────────────────────────── */}
+      <EditableBanner
+        className="w-full h-screen"
+        title="About Us — Banner"
+        slots={bannerSlots}
+        onUploadSlot={async (i, file) => {
+          await uploadOneSlot(`about_banner_${i}`, file)
+          loadBannerSlots()
+        }}
+        onDeleteSlot={async (i) => {
+          await pagesAPI.deleteImage(bannerSlots[i].id).catch(() => {})
+          loadBannerSlots()
+        }}
+      >
+        <BannerSlideshow className="w-full h-full" slots={bannerSlots} />
+      </EditableBanner>
 
       {/* ── Story — text left, image right ───────────────────────────────── */}
       <section className="grid grid-cols-1 lg:grid-cols-2 min-h-[560px]">
         <div className="flex flex-col justify-center px-12 lg:px-20 py-16">
-          <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-4">
-            Who We Are
-          </p>
-          <h2 className="font-display text-4xl md:text-5xl font-normal text-black mb-6 leading-tight">
-            {story.headline}
-          </h2>
-          <p className="text-gray-600 leading-relaxed mb-4">{story.body1}</p>
-          <p className="text-gray-600 leading-relaxed mb-8">{story.body2}</p>
+          <EditableText
+            as="p"
+            value={story.label}
+            onSave={v => saveStory({ label: v })}
+            className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-4"
+          />
+          <EditableText
+            as="h2"
+            value={story.headline}
+            onSave={v => saveStory({ headline: v })}
+            className="font-display text-4xl md:text-5xl font-normal text-black mb-6 leading-tight"
+          />
+          <EditableText
+            as="p"
+            value={story.body1}
+            onSave={v => saveStory({ body1: v })}
+            multiline
+            className="text-gray-600 leading-relaxed mb-4"
+          />
+          <EditableText
+            as="p"
+            value={story.body2}
+            onSave={v => saveStory({ body2: v })}
+            multiline
+            className="text-gray-600 leading-relaxed mb-8"
+          />
           <div className="grid grid-cols-3 gap-6 border-t border-gray-100 pt-8">
             {[
               { value: stats.membersDisplay, label: "Members" },
@@ -121,22 +306,19 @@ export default function AboutUsPage() {
               { value: stats.socialSessions, label: "Social Sessions" },
             ].map(({ value, label }) => (
               <div key={label}>
-                <p className="font-display text-3xl font-normal text-black">
-                  {value}
-                </p>
-                <p className="text-gray-400 text-xs tracking-widest uppercase mt-1">
-                  {label}
-                </p>
+                <p className="font-display text-3xl font-normal text-black">{value}</p>
+                <p className="text-gray-400 text-xs tracking-widest uppercase mt-1">{label}</p>
               </div>
             ))}
           </div>
         </div>
         <div className="overflow-hidden h-[560px] lg:h-auto">
-          <img
-            src={`${pagesAPI.getImageUrl('about_story')}?t=${imageTs}`}
+          <EditableImage
+            src={`${pagesAPI.getImageUrl('about_story')}?t=${imgTs.about_story ?? 0}`}
             alt="Club"
             className="w-full h-full object-cover"
-            onError={e => { e.target.src = '/images/banner2.jpg' }}
+            fallback="/images/banner2.jpg"
+            onUpload={file => replaceImage('about_story', file)}
           />
         </div>
       </section>
@@ -144,26 +326,42 @@ export default function AboutUsPage() {
       {/* ── Coaching — image left, text right ────────────────────────────── */}
       <section className="grid grid-cols-1 lg:grid-cols-2 min-h-[560px]">
         <div className="overflow-hidden h-[560px] lg:h-auto order-2 lg:order-1">
-          <img
-            src={`${pagesAPI.getImageUrl('about_coaching')}?t=${imageTs}`}
+          <EditableImage
+            src={`${pagesAPI.getImageUrl('about_coaching')}?t=${imgTs.about_coaching ?? 0}`}
             alt="Coaching"
             className="w-full h-full object-cover"
-            onError={e => { e.target.src = '/images/training/group.png' }}
+            fallback="/images/training/group.png"
+            onUpload={file => replaceImage('about_coaching', file)}
           />
         </div>
         <div className="flex flex-col justify-center px-12 lg:px-20 py-16 order-1 lg:order-2">
-          <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-4">
-            Expert Guidance
-          </p>
-          <h2 className="font-display text-4xl md:text-5xl font-normal text-black mb-6 leading-tight">
-            {coaching.headline}
-          </h2>
-          <p className="text-gray-600 leading-relaxed mb-4">{coaching.body1}</p>
-          <p className="text-gray-600 leading-relaxed mb-8">{coaching.body2}</p>
-          <Link
-            to="/training"
-            className="inline-block border border-black rounded-full px-10 py-3 text-sm text-black hover:bg-black hover:text-white transition-colors duration-200 self-start"
-          >
+          <EditableText
+            as="p"
+            value={coaching.label}
+            onSave={v => saveCoaching({ label: v })}
+            className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-4"
+          />
+          <EditableText
+            as="h2"
+            value={coaching.headline}
+            onSave={v => saveCoaching({ headline: v })}
+            className="font-display text-4xl md:text-5xl font-normal text-black mb-6 leading-tight"
+          />
+          <EditableText
+            as="p"
+            value={coaching.body1}
+            onSave={v => saveCoaching({ body1: v })}
+            multiline
+            className="text-gray-600 leading-relaxed mb-4"
+          />
+          <EditableText
+            as="p"
+            value={coaching.body2}
+            onSave={v => saveCoaching({ body2: v })}
+            multiline
+            className="text-gray-600 leading-relaxed mb-8"
+          />
+          <Link to="/training" className="inline-block border border-black rounded-full px-10 py-3 text-sm text-black hover:bg-black hover:text-white transition-colors duration-200 self-start">
             Explore Programs
           </Link>
         </div>
@@ -172,43 +370,41 @@ export default function AboutUsPage() {
       {/* ── Coaches ──────────────────────────────────────────────────────── */}
       <section className="border-t border-gray-100">
         <div className="text-center py-14">
-          <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-4">
-            The Team
-          </p>
-          <h2 className="font-display text-4xl md:text-5xl font-normal text-black leading-tight">
-            Meet Our Coaches
-          </h2>
+          <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-4">The Team</p>
+          <h2 className="font-display text-4xl md:text-5xl font-normal text-black leading-tight">Meet Our Coaches</h2>
         </div>
 
         {coaches.map((coach, idx) => (
-          <div
-            key={coach.name}
-            className="flex flex-col md:flex-row border-t border-gray-100"
-          >
-            {/* Image */}
-            <div
-              className={`w-full md:w-1/2 self-start ${idx % 2 === 1 ? "md:order-2" : ""}`}
-            >
-              <img
-                src={`${pagesAPI.getImageUrl(`about_coach_${idx}`)}?t=${imageTs}`}
+          <div key={idx} className="flex flex-col md:flex-row border-t border-gray-100">
+            <div className={`w-full md:w-1/2 self-start ${idx % 2 === 1 ? "md:order-2" : ""}`}>
+              <EditableImage
+                src={`${pagesAPI.getImageUrl(`about_coach_${idx}`)}?t=${imgTs[`about_coach_${idx}`] ?? 0}`}
                 alt={coach.name}
                 className="w-full"
-                onError={e => { e.target.src = coach.fallbackImage || '/images/coach-4.jpg' }}
+                fallback={coach.fallbackImage || '/images/coach-4.jpg'}
+                onUpload={file => replaceImage(`about_coach_${idx}`, file)}
               />
             </div>
-            {/* Content */}
-            <div
-              className={`w-full md:w-1/2 flex flex-col justify-center items-center text-center px-12 py-16 ${idx % 2 === 1 ? "md:order-1" : ""}`}
-            >
-              <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-3">
-                {coach.title}
-              </p>
-              <h3 className="font-display text-3xl md:text-4xl font-normal text-black mb-5">
-                {coach.name}
-              </h3>
-              <p className="text-gray-500 leading-relaxed text-sm max-w-xs">
-                {coach.bio}
-              </p>
+            <div className={`w-full md:w-1/2 flex flex-col justify-center items-center text-center px-12 py-16 ${idx % 2 === 1 ? "md:order-1" : ""}`}>
+              <EditableText
+                as="p"
+                value={coach.title}
+                onSave={v => saveCoach(idx, 'title', v)}
+                className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-3"
+              />
+              <EditableText
+                as="h3"
+                value={coach.name}
+                onSave={v => saveCoach(idx, 'name', v)}
+                className="font-display text-3xl md:text-4xl font-normal text-black mb-5"
+              />
+              <EditableText
+                as="p"
+                value={coach.bio}
+                onSave={v => saveCoach(idx, 'bio', v)}
+                multiline
+                className="text-gray-500 leading-relaxed text-sm max-w-xs"
+              />
             </div>
           </div>
         ))}
@@ -216,23 +412,25 @@ export default function AboutUsPage() {
 
       {/* ── CTA ──────────────────────────────────────────────────────────── */}
       <section className="py-16 px-6 text-center border-t border-gray-100">
-        <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-6">
-          Join Us
-        </p>
-        <h2 className="font-display text-5xl md:text-6xl font-light tracking-wide text-black mb-6">
-          Ready to Play?
-        </h2>
-        <p className="text-gray-600 mb-10 max-w-md mx-auto leading-relaxed">
-          Become part of Epping Table Tennis Club — Sydney's most welcoming
-          competitive table tennis community.
-        </p>
-        <Link
-          to="/register"
-          className="inline-block border border-black rounded-full px-10 py-3 text-sm text-black hover:bg-black hover:text-white transition-colors duration-200"
-        >
+        <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-6">Join Us</p>
+        <EditableText
+          as="h2"
+          value={cta.headline}
+          onSave={v => saveCta({ headline: v })}
+          className="font-display text-5xl md:text-6xl font-light tracking-wide text-black mb-6"
+        />
+        <EditableText
+          as="p"
+          value={cta.body}
+          onSave={v => saveCta({ body: v })}
+          multiline
+          className="text-gray-600 mb-10 max-w-md mx-auto leading-relaxed"
+        />
+        <Link to="/register" className="inline-block border border-black rounded-full px-10 py-3 text-sm text-black hover:bg-black hover:text-white transition-colors duration-200">
           Get Started
         </Link>
       </section>
+
     </div>
-  );
+  )
 }

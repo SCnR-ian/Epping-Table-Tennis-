@@ -21,6 +21,38 @@ async function ledgerEntry(client, userId, delta, note, sessionId, createdBy, cl
   )
 }
 
+// Send a system message from an admin to a member (fire-and-forget, never throws)
+async function sendSystemMessage(senderId, recipientId, body) {
+  try {
+    const { rows: [msg] } = await pool.query(
+      `INSERT INTO messages (sender_id, recipient_id, body) VALUES ($1, $2, $3) RETURNING id`,
+      [senderId, recipientId, body]
+    )
+    // mark as read by sender so it doesn't show as unread for them
+    await pool.query(
+      'INSERT INTO message_reads (message_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [msg.id, senderId]
+    )
+  } catch (e) {
+    console.error('[sendSystemMessage] failed:', e.message)
+  }
+}
+
+// Format a date string (YYYY-MM-DD) as "Mon, 15 Jan 2024"
+function fmtDate(dateStr) {
+  return new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-AU', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC'
+  })
+}
+
+// Format time range "HH:MM:SS" → "4:00 PM"
+function fmtTime(t) {
+  const [h, m] = t.split(':').map(Number)
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const h12  = h % 12 || 12
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
+}
+
 // ─── COACH CRUD (admin only) ──────────────────────────────────────────────────
 
 // GET /api/coaching/coaches
@@ -313,6 +345,23 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
       inserted.push(rows[0])
     }
     await client.query('COMMIT')
+
+    // Notify the student
+    const { rows: [coachInfo] } = await pool.query(
+      'SELECT name FROM coaches WHERE id=$1', [coach_id]
+    )
+    const coachName = coachInfo?.name ?? 'your coach'
+    const timeRange = `${fmtTime(start_time)} – ${fmtTime(end_time)}`
+    let msgBody
+    if (inserted.length === 1) {
+      msgBody = `📅 A coaching session has been scheduled for you.\nCoach: ${coachName}\nDate: ${fmtDate(inserted[0].date)}\nTime: ${timeRange}`
+    } else {
+      const lines = inserted.map(s => `  • ${fmtDate(s.date)}`).join('\n')
+      msgBody = `📅 ${inserted.length} coaching sessions have been scheduled for you.\nCoach: ${coachName}\nTime: ${timeRange}\n${lines}`
+    }
+    if (notes) msgBody += `\nNotes: ${notes}`
+    await sendSystemMessage(req.user.id, student_id, msgBody)
+
     res.status(201).json({ sessions: inserted, recurrence_id: recurrenceId, skipped })
   } catch (err) {
     await client.query('ROLLBACK')
@@ -579,6 +628,31 @@ router.post('/sessions/group', requireAuth, requireAdmin, async (req, res) => {
     }
 
     await client.query('COMMIT')
+
+    // ── Notify each student about their scheduled sessions
+    try {
+      const { rows: [coachInfo] } = await pool.query('SELECT name FROM coaches WHERE id=$1', [coach_id])
+      const coachName = coachInfo?.name ?? 'your coach'
+      const timeRange = `${fmtTime(start_time)} – ${fmtTime(end_time)}`
+      // Group inserted sessions by student_id
+      const byStudent = {}
+      for (const s of inserted) {
+        if (!byStudent[s.student_id]) byStudent[s.student_id] = []
+        byStudent[s.student_id].push(s)
+      }
+      for (const [sid, sessions] of Object.entries(byStudent)) {
+        let msgBody
+        if (sessions.length === 1) {
+          msgBody = `📅 A coaching session has been scheduled for you.\nCoach: ${coachName}\nDate: ${fmtDate(sessions[0].date)}\nTime: ${timeRange}`
+        } else {
+          const lines = sessions.map(s => `  • ${fmtDate(s.date)}`).join('\n')
+          msgBody = `📅 ${sessions.length} coaching sessions have been scheduled for you.\nCoach: ${coachName}\nTime: ${timeRange}\n${lines}`
+        }
+        if (notes) msgBody += `\nNote: ${notes}`
+        await sendSystemMessage(req.user.id, parseInt(sid, 10), msgBody)
+      }
+    } catch (e) { console.error('[group session notify] failed:', e.message) }
+
     res.status(201).json({ sessions: inserted, group_id: groupId })
   } catch (err) {
     await client.query('ROLLBACK')
@@ -663,6 +737,24 @@ router.post('/sessions/group/:groupId/add-student', requireAuth, requireAdmin, a
     }
 
     await client.query('COMMIT')
+
+    // ── Notify the added student
+    try {
+      const rep = sessions[0]
+      const { rows: [coachInfo] } = await pool.query('SELECT name FROM coaches WHERE id=$1', [rep.coach_id])
+      const coachName = coachInfo?.name ?? 'your coach'
+      const timeRange = `${fmtTime(rep.start_time)} – ${fmtTime(rep.end_time)}`
+      let msgBody
+      if (inserted.length === 1) {
+        msgBody = `📅 You have been added to a group coaching session.\nCoach: ${coachName}\nDate: ${fmtDate(inserted[0].date)}\nTime: ${timeRange}`
+      } else {
+        const lines = inserted.map(s => `  • ${fmtDate(s.date)}`).join('\n')
+        msgBody = `📅 You have been added to ${inserted.length} group coaching sessions.\nCoach: ${coachName}\nTime: ${timeRange}\n${lines}`
+      }
+      if (rep.notes) msgBody += `\nNote: ${rep.notes}`
+      await sendSystemMessage(req.user.id, student_id, msgBody)
+    } catch (e) { console.error('[add-student notify] failed:', e.message) }
+
     res.status(201).json({ sessions: inserted, count: inserted.length })
   } catch (err) {
     await client.query('ROLLBACK')
@@ -1400,7 +1492,11 @@ router.get('/my', requireAuth, async (req, res) => {
          c.name  AS coach_name,
          ct.name AS court_name,
          sc.series_total,
-         sc.series_used
+         sc.series_used,
+         EXISTS(
+           SELECT 1 FROM session_leave_requests slr
+           WHERE slr.session_id = cs.id AND slr.status IN ('pending','approved')
+         ) AS has_pending_leave
        FROM coaching_sessions cs
        JOIN coaches c  ON c.id  = cs.coach_id
        JOIN courts  ct ON ct.id = cs.court_id
@@ -1463,7 +1559,18 @@ router.post('/hours/:userId', requireAuth, requireAdmin, async (req, res) => {
       [targetId, clubId]
     )
     const round = v => Math.round(parseFloat(v) * 100) / 100
-    res.json({ message: 'Balance updated.', balance: round(bal.balance) })
+    const newBalance = round(bal.balance)
+
+    // Notify the member
+    const sign    = delta > 0 ? '+' : ''
+    const noteStr = note ? `\nNote: ${note}` : ''
+    await sendSystemMessage(
+      req.user.id,
+      targetId,
+      `💰 Your coaching credit has been updated.\n${sign}$${round(delta)}${noteStr}\nNew balance: $${newBalance}`
+    )
+
+    res.json({ message: 'Balance updated.', balance: newBalance })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
@@ -1669,6 +1776,310 @@ router.put('/student-prices/:userId', requireAuth, requireAdmin, async (req, res
     )
     res.json({ solo_price: parseFloat(solo_price), group_price: parseFloat(group_price) })
   } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// ─── LEAVE REQUESTS ──────────────────────────────────────────────────────────
+
+// Helper: find up to `limit` available time slots for a coach in the next 14 days
+// Returns array of { date, start_time, end_time }
+async function getAvailableSlots(clubId, coachId, durationMins, excludeSessionId) {
+  const DOW_MAP = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+  const { rows: schedule } = await pool.query(
+    `SELECT day, start_time, end_time FROM schedule WHERE is_active=TRUE AND club_id=$1`,
+    [clubId]
+  )
+
+  const slots = []
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  for (let d = 1; d <= 14 && slots.length < 20; d++) {
+    const date = new Date(today)
+    date.setDate(today.getDate() + d)
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    const dayName = dayNames[date.getDay()]
+    // Use local date string to avoid UTC offset shifting the date back by 1 day
+    const isoDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+
+    const openWindows = schedule.filter(s => s.day === dayName)
+    for (const window of openWindows) {
+      // Generate candidate slots of `durationMins` within this window
+      const winStart = window.start_time.slice(0, 5) // 'HH:MM'
+      const winEnd   = window.end_time.slice(0, 5)
+      const [wsh, wsm] = winStart.split(':').map(Number)
+      const [weh, wem] = winEnd.split(':').map(Number)
+      const winStartMins = wsh * 60 + wsm
+      const winEndMins   = weh * 60 + wem
+
+      let cursor = winStartMins
+      while (cursor + durationMins <= winEndMins && slots.length < 20) {
+        const slotStart = `${String(Math.floor(cursor / 60)).padStart(2, '0')}:${String(cursor % 60).padStart(2, '0')}:00`
+        const slotEnd   = `${String(Math.floor((cursor + durationMins) / 60)).padStart(2, '0')}:${String((cursor + durationMins) % 60).padStart(2, '0')}:00`
+
+        // Check coach has no confirmed session at this time
+        const { rows: coachBusy } = await pool.query(
+          `SELECT 1 FROM coaching_sessions
+           WHERE coach_id=$1 AND date=$2 AND status='confirmed' AND club_id=$3
+             AND id != $4 AND start_time < $6::time AND end_time > $5::time LIMIT 1`,
+          [coachId, isoDate, clubId, excludeSessionId ?? 0, slotStart, slotEnd]
+        )
+        if (coachBusy.length) { cursor += 30; continue }
+
+        // Check a court is available
+        const { rows: free } = await pool.query(
+          `WITH social_count AS (
+             SELECT COALESCE(SUM(num_courts), 0)::int AS total
+             FROM social_play_sessions
+             WHERE date=$1 AND status='open' AND club_id=$4
+               AND start_time < $3::time AND end_time > $2::time
+           ),
+           free_courts AS (
+             SELECT c.id FROM courts c
+             WHERE c.club_id=$4
+             AND c.id NOT IN (
+               SELECT cs2.court_id FROM coaching_sessions cs2
+               WHERE cs2.date=$1 AND cs2.status='confirmed' AND cs2.club_id=$4
+                 AND start_time < $3::time AND end_time > $2::time
+             )
+             AND c.id NOT IN (
+               SELECT b.court_id FROM bookings b
+               WHERE b.date=$1 AND b.status='confirmed' AND b.club_id=$4
+                 AND start_time < $3::time AND end_time > $2::time
+             )
+           ),
+           free_count AS (SELECT COUNT(*)::int AS n FROM free_courts)
+           SELECT 1 FROM free_courts fc, free_count fcnt, social_count sc
+           WHERE fcnt.n > sc.total LIMIT 1`,
+          [isoDate, slotStart, slotEnd, clubId]
+        )
+        if (free.length) {
+          slots.push({ date: isoDate, start_time: slotStart, end_time: slotEnd })
+        }
+        cursor += 30
+      }
+    }
+  }
+  return slots
+}
+
+// POST /api/coaching/leave-requests  (student)
+// body: { session_id, reason? }
+router.post('/leave-requests', requireAuth, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  const { session_id, reason } = req.body
+  if (!session_id) return res.status(400).json({ message: 'session_id is required.' })
+  try {
+    // Verify session belongs to this student, is upcoming + confirmed
+    const { rows: [session] } = await pool.query(
+      `SELECT cs.*, c.name AS coach_name
+       FROM coaching_sessions cs
+       JOIN coaches c ON c.id = cs.coach_id
+       WHERE cs.id=$1 AND cs.student_id=$2 AND cs.status='confirmed' AND cs.club_id=$3
+         AND cs.date >= CURRENT_DATE`,
+      [session_id, req.user.id, clubId]
+    )
+    if (!session) return res.status(404).json({ message: 'Session not found or not eligible for leave request.' })
+
+    // Check no active leave request already exists
+    const { rows: existing } = await pool.query(
+      `SELECT 1 FROM session_leave_requests
+       WHERE session_id=$1 AND status IN ('pending','approved') LIMIT 1`,
+      [session_id]
+    )
+    if (existing.length) return res.status(409).json({ message: 'A leave request for this session already exists.' })
+
+    // Find ALL admins for this club
+    const { rows: admins } = await pool.query(
+      `SELECT id FROM users WHERE role='admin' AND club_id=$1 ORDER BY id`,
+      [clubId]
+    )
+    if (!admins.length) return res.status(500).json({ message: 'No admin found.' })
+
+    // Insert leave request
+    const { rows: [req_row] } = await pool.query(
+      `INSERT INTO session_leave_requests (session_id, student_id, club_id, reason)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [session_id, req.user.id, clubId, reason || null]
+    )
+
+    // Send a message to every admin so any of them can act on it
+    const timeRange = `${fmtTime(session.start_time)} – ${fmtTime(session.end_time)}`
+    const msgBody = `📋 Leave Request\nSession: ${session.coach_name} · ${fmtDate(session.date)} · ${timeRange}${reason ? `\nReason: ${reason}` : ''}`
+    for (const admin of admins) {
+      const { rows: [msg] } = await pool.query(
+        `INSERT INTO messages (sender_id, recipient_id, body, metadata)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [req.user.id, admin.id, msgBody, JSON.stringify({ type: 'leave_request', request_id: req_row.id, session_id })]
+      )
+      await pool.query(
+        'INSERT INTO message_reads (message_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [msg.id, req.user.id]
+      )
+      // Un-hide thread for both parties so the message surfaces in inbox
+      await pool.query(
+        `DELETE FROM message_thread_hidden
+         WHERE (user_id=$1 AND other_user_id=$2) OR (user_id=$2 AND other_user_id=$1)`,
+        [req.user.id, admin.id]
+      )
+    }
+
+    res.status(201).json({ request_id: req_row.id })
+  } catch (e) { console.error(e); res.status(500).json({ message: 'Server error.' }) }
+})
+
+// POST /api/coaching/leave-requests/:id/approve  (admin)
+router.post('/leave-requests/:id/approve', requireAuth, requireAdmin, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  try {
+    const { rows: [lr] } = await pool.query(
+      `SELECT slr.*, cs.coach_id, cs.start_time, cs.end_time, cs.date,
+              u.name AS student_name
+       FROM session_leave_requests slr
+       JOIN coaching_sessions cs ON cs.id = slr.session_id
+       JOIN users u ON u.id = slr.student_id
+       WHERE slr.id=$1 AND slr.status='pending' AND slr.club_id=$2`,
+      [req.params.id, clubId]
+    )
+    if (!lr) return res.status(404).json({ message: 'Leave request not found or not pending.' })
+
+    // Compute duration in minutes
+    const [sh, sm] = lr.start_time.slice(0, 5).split(':').map(Number)
+    const [eh, em] = lr.end_time.slice(0, 5).split(':').map(Number)
+    const durationMins = (eh * 60 + em) - (sh * 60 + sm)
+
+    // Find available slots
+    const slots = await getAvailableSlots(clubId, lr.coach_id, durationMins, lr.session_id)
+
+    // Update leave request
+    await pool.query(
+      `UPDATE session_leave_requests
+       SET status='approved', expires_at=NOW() + INTERVAL '48 hours', resolved_by=$1
+       WHERE id=$2`,
+      [req.user.id, lr.id]
+    )
+
+    // Build slot options message to student
+    const timeRange = `${fmtTime(lr.start_time)} – ${fmtTime(lr.end_time)}`
+    let msgBody = `✅ Your leave request has been approved.\nOriginal: ${fmtDate(lr.date)}, ${timeRange}\n\nPlease choose a makeup time within 48 hours, otherwise standard cancellation policy applies.`
+    if (slots.length === 0) {
+      msgBody += '\n\n(No available slots found. Please contact us to arrange an alternative.)'
+    }
+
+    const { rows: [{ expires_at }] } = await pool.query(
+      `SELECT expires_at FROM session_leave_requests WHERE id=$1`, [lr.id]
+    )
+
+    const { rows: [msg] } = await pool.query(
+      `INSERT INTO messages (sender_id, recipient_id, body, metadata)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [req.user.id, lr.student_id, msgBody,
+       JSON.stringify({ type: 'slot_options', request_id: lr.id, slots, expires_at })]
+    )
+    await pool.query(
+      'INSERT INTO message_reads (message_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [msg.id, req.user.id]
+    )
+
+    res.json({ slots })
+  } catch (e) { console.error(e); res.status(500).json({ message: 'Server error.' }) }
+})
+
+// POST /api/coaching/leave-requests/:id/reject  (admin)
+router.post('/leave-requests/:id/reject', requireAuth, requireAdmin, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  try {
+    const { rows: [lr] } = await pool.query(
+      `UPDATE session_leave_requests
+       SET status='rejected', resolved_at=NOW(), resolved_by=$1
+       WHERE id=$2 AND status='pending' AND club_id=$3 RETURNING id`,
+      [req.user.id, req.params.id, clubId]
+    )
+    if (!lr) return res.status(404).json({ message: 'Leave request not found or not pending.' })
+    res.json({ message: 'Rejected.' })
+  } catch (e) { console.error(e); res.status(500).json({ message: 'Server error.' }) }
+})
+
+// POST /api/coaching/leave-requests/:id/select-slot  (student)
+// body: { date, start_time, end_time }
+router.post('/leave-requests/:id/select-slot', requireAuth, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  const { date, start_time, end_time } = req.body
+  if (!date || !start_time || !end_time) return res.status(400).json({ message: 'date, start_time and end_time are required.' })
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    const { rows: [lr] } = await client.query(
+      `SELECT slr.*, u.name AS student_name
+       FROM session_leave_requests slr
+       JOIN users u ON u.id = slr.student_id
+       WHERE slr.id=$1 AND slr.student_id=$2 AND slr.status='approved' AND slr.club_id=$3`,
+      [req.params.id, req.user.id, clubId]
+    )
+    if (!lr) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: 'Leave request not found or not in approved state.' })
+    }
+    if (lr.expires_at && new Date(lr.expires_at) < new Date()) {
+      await client.query('ROLLBACK')
+      return res.status(409).json({ message: 'Selection window has expired.' })
+    }
+
+    // Fetch session + reschedule it
+    const { rows: [session] } = await client.query(
+      'SELECT * FROM coaching_sessions WHERE id=$1 AND club_id=$2', [lr.session_id, clubId]
+    )
+    if (!session) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: 'Session not found.' })
+    }
+
+    const courtId = await checkAndAssignCourt(client, session, date, start_time, end_time, [], clubId)
+    const { rows: [updated] } = await client.query(
+      'UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=$4 WHERE id=$5 AND club_id=$6 RETURNING *',
+      [date, start_time, end_time, courtId, session.id, clubId]
+    )
+
+    // Mark leave request as rescheduled
+    await client.query(
+      `UPDATE session_leave_requests SET status='rescheduled', resolved_at=NOW() WHERE id=$1`,
+      [lr.id]
+    )
+
+    await client.query('COMMIT')
+
+    // Notify all three parties
+    const timeRange = `${fmtTime(start_time)} – ${fmtTime(end_time)}`
+    const newDate = fmtDate(date)
+    const studentMsg = `✅ Your session has been rescheduled.\nNew time: ${newDate}, ${timeRange}`
+    const adminMsg   = `✅ Session rescheduled: ${lr.student_name} → ${newDate}, ${timeRange}`
+    const coachMsg   = `📅 Session update: ${lr.student_name} rescheduled to ${newDate}, ${timeRange}`
+
+    const { rows: adminRows } = await pool.query(
+      `SELECT id FROM users WHERE role='admin' AND club_id=$1 ORDER BY id`, [clubId]
+    )
+    const { rows: [coachRow] } = await pool.query(
+      `SELECT user_id FROM coaches WHERE id=$1`, [session.coach_id]
+    )
+    const firstAdmin = adminRows[0]
+    // Use the admin who originally approved (same thread as the slot options message)
+    const approvingAdminId = lr.resolved_by ?? firstAdmin?.id
+
+    // Student confirmation — from the approving admin so it lands in the same thread as slot options
+    await sendSystemMessage(approvingAdminId, req.user.id, studentMsg)
+    // All admins get the confirmation
+    for (const admin of adminRows) {
+      await sendSystemMessage(admin.id, admin.id, adminMsg)
+    }
+    // Coach confirmation
+    if (coachRow?.user_id) await sendSystemMessage(approvingAdminId ?? firstAdmin?.id, coachRow.user_id, coachMsg)
+
+    res.json({ session: updated })
+  } catch (err) {
+    await client.query('ROLLBACK')
+    return rescheduleConflictResponse(err, res)
+  } finally { client.release() }
 })
 
 module.exports = router

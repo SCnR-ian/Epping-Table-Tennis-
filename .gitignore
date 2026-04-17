@@ -4,3 +4,6 @@ dist
 .env.local
 .DS_Store
 *.local
+*.pem
+local_dump.sql
+Picture/

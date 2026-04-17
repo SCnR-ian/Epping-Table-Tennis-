@@ -256,6 +256,21 @@ async function runMigrations() {
     // 8. users.email uniqueness: per-club (same email can join two different clubs)
     `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key`,
     `ALTER TABLE users ADD CONSTRAINT users_email_club_unique UNIQUE (club_id, email)`,
+
+    // ── Leave request feature ────────────────────────────────────────────────
+    `ALTER TABLE messages ADD COLUMN IF NOT EXISTS metadata JSONB`,
+    `CREATE TABLE IF NOT EXISTS session_leave_requests (
+       id          SERIAL PRIMARY KEY,
+       session_id  INTEGER NOT NULL REFERENCES coaching_sessions(id),
+       student_id  INTEGER NOT NULL REFERENCES users(id),
+       status      VARCHAR(20) NOT NULL DEFAULT 'pending',
+       reason      TEXT,
+       expires_at  TIMESTAMPTZ,
+       resolved_at TIMESTAMPTZ,
+       resolved_by INTEGER REFERENCES users(id),
+       club_id     INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id),
+       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }

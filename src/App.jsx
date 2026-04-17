@@ -19,8 +19,6 @@ import AdminDashboard      from '@/pages/admin/AdminDashboard'
 import CoachingPage        from '@/pages/CoachingPage'
 import NotFoundPage        from '@/pages/NotFoundPage'
 import OAuthCallbackPage   from '@/pages/OAuthCallbackPage'
-import MessagesPage        from '@/pages/MessagesPage'
-
 const router = createBrowserRouter([
   {
     element: <RootLayout />,
@@ -46,11 +44,6 @@ const router = createBrowserRouter([
         path: '/profile',
         element: <ProtectedRoute><ProfilePage /></ProtectedRoute>,
       },
-      {
-        path: '/messages',
-        element: <ProtectedRoute><MessagesPage /></ProtectedRoute>,
-      },
-
       // ── Admin-only route ──────────────────────────────────────
       {
         path: '/admin',
