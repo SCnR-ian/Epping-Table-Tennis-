@@ -191,4 +191,65 @@ router.post('/confirm', requireAuth, async (req, res) => {
   }
 })
 
+// ─── POST /api/payments/shop-intent ──────────────────────────────────────────
+// Creates a Stripe PaymentIntent for a shopping cart order.
+// Body: { items: [{ product_id, qty }] }
+// Verifies prices from DB (never trust frontend amounts).
+router.post('/shop-intent', requireAuth, async (req, res) => {
+  const { items } = req.body
+  if (!Array.isArray(items) || items.length === 0)
+    return res.status(400).json({ message: 'items array is required.' })
+
+  const clubId = req.club?.id ?? 1
+  try {
+    const stripe = getStripe()
+
+    // Fetch real prices from DB
+    const ids = items.map(i => i.product_id)
+    const { rows: products } = await pool.query(
+      `SELECT id, name, price FROM products WHERE id = ANY($1) AND club_id=$2 AND is_active=TRUE`,
+      [ids, clubId]
+    )
+
+    // Build line items and calculate total
+    let totalCents = 0
+    const lineItems = []
+    for (const item of items) {
+      const product = products.find(p => p.id === item.product_id)
+      if (!product) return res.status(400).json({ message: `Product ${item.product_id} not found.` })
+      if (!product.price) return res.status(400).json({ message: `Product "${product.name}" has no price set.` })
+      const qty = Math.max(1, Math.floor(item.qty))
+      const cents = Math.round(Number(product.price) * 100) * qty
+      totalCents += cents
+      lineItems.push({ name: product.name, qty, price: product.price })
+    }
+
+    if (totalCents < 50) return res.status(400).json({ message: 'Order total is too small.' })
+
+    const description = lineItems.map(l => `${l.name} ×${l.qty}`).join(', ')
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount:   totalCents,
+      currency: 'aud',
+      metadata: {
+        user_id: String(req.user.id),
+        club_id: String(clubId),
+        type:    'shop_order',
+      },
+      description: `Shop order: ${description}`,
+    })
+
+    res.json({
+      clientSecret: paymentIntent.client_secret,
+      amount:       totalCents,
+      currency:     'aud',
+    })
+  } catch (err) {
+    console.error('[payments] shop-intent error:', err.message)
+    if (err.message.includes('STRIPE_SECRET_KEY'))
+      return res.status(503).json({ message: 'Payment system is not configured.' })
+    res.status(500).json({ message: 'Failed to create payment. Please try again.' })
+  }
+})
+
 module.exports = router

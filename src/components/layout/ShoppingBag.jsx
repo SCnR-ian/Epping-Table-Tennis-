@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom'
 import { useCart } from '@/context/CartContext'
 
 const BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').replace('/api', '')
@@ -5,6 +6,7 @@ function imgSrc(url) { return url ? `${BASE_URL}${url}` : null }
 
 export default function ShoppingBag({ open, onClose }) {
   const { items, updateQty, removeItem, totalItems, totalPrice } = useCart()
+  const navigate = useNavigate()
 
   return (
     <>
@@ -108,7 +110,10 @@ export default function ShoppingBag({ open, onClose }) {
                 AUD {totalPrice.toLocaleString('en-AU', { minimumFractionDigits: 0 })}
               </span>
             </div>
-            <button className="w-full bg-black text-white text-sm py-3.5 rounded hover:bg-gray-800 transition-colors font-medium tracking-wide">
+            <button
+              onClick={() => { onClose(); navigate('/bag') }}
+              className="w-full bg-black text-white text-sm py-3.5 rounded hover:bg-gray-800 transition-colors font-medium tracking-wide"
+            >
               Check out now
             </button>
           </div>

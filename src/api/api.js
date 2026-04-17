@@ -262,6 +262,7 @@ export const paymentsAPI = {
   getConfig:      ()     => api.get('/payments/config'),
   createIntent:   (data) => api.post('/payments/create-intent', data),
   confirm:        (paymentIntentId) => api.post('/payments/confirm', { paymentIntentId }),
+  shopIntent:     (items) => api.post('/payments/shop-intent', { items }),
 }
 
 export const messagesAPI = {

@@ -23,6 +23,7 @@ import OAuthCallbackPage   from '@/pages/OAuthCallbackPage'
 import ScanPage            from '@/pages/ScanPage'
 import ShoppingPage        from '@/pages/ShoppingPage'
 import ProductDetailPage   from '@/pages/ProductDetailPage'
+import CartPage            from '@/pages/CartPage'
 const router = createBrowserRouter([
   {
     element: <RootLayout />,
@@ -40,6 +41,7 @@ const router = createBrowserRouter([
       { path: '/auth/callback', element: <OAuthCallbackPage /> },
       { path: '/shopping',      element: <ShoppingPage /> },
       { path: '/shopping/:id',  element: <ProductDetailPage /> },
+      { path: '/bag',           element: <CartPage /> },
       {
         path: '/scan',
         element: <ProtectedRoute><ScanPage /></ProtectedRoute>,
