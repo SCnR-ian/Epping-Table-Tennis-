@@ -1943,8 +1943,9 @@ const [sessionForm,      setSessionForm]      = useState({
     }
   }
 
-  const handleCancelSession = (id) => {
-    const session = allCoachingSessions.find(s => s.id === id)
+  const handleCancelSession = (id, sessionObj = null) => {
+    const session = sessionObj
+      ?? allCoachingSessions.find(s => s.id === id)
       ?? coachingSessions.find(s => s.id === id)
       ?? bookingViewSessions.find(s => s.id === id)
     if (!session) return
@@ -1968,6 +1969,7 @@ const [sessionForm,      setSessionForm]      = useState({
       setCoachingSessions(prev => prev.filter(s => s.id !== session.id))
       setAllCoachingSessions(prev => prev.filter(s => s.id !== session.id))
       setBookingViewSessions(prev => prev.filter(s => s.id !== session.id))
+      setMemberModal(prev => prev ? ({ ...prev, coaching: prev.coaching.filter(x => x.id !== session.id) }) : prev)
       setCancelModal(null)
       if (wantMakeup) {
         await offerMakeupSession(session, snapshot)
@@ -5624,23 +5626,9 @@ const [sessionForm,      setSessionForm]      = useState({
                                                           {isEditing ? 'Close' : 'Edit'}
                                                         </button>
                                                         <button className="text-xs text-red-400 hover:text-red-300"
-                                                          onClick={async () => {
-                                                            if (!window.confirm('Cancel this coaching session?')) return
-                                                            try {
-                                                              await coachingAPI.cancelSession(item.id)
-                                                              setMemberModal(prev => ({ ...prev, coaching: prev.coaching.filter(x => x.id !== item.id) }))
-                                                              if (memberModalEditId === item.id) setMemberModalEditId(null)
-                                                              if (!item.checked_in) {
-                                                                const hasMakeup = await offerMakeupSession(item, mCoaching)
-                                                                if (hasMakeup) {
-                                                                  const { data: fresh } = await adminAPI.getMemberActivities(member.id).catch(() => ({ data: null }))
-                                                                  if (fresh) setMemberModal(prev => ({ ...prev, coaching: fresh.coaching }))
-                                                                }
-                                                              }
-                                                              coachingAPI.getHoursBalance(member.id).then(({ data: hd }) =>
-                                                                setMemberModal(prev => ({ ...prev, balance: hd.balance }))
-                                                              ).catch(() => {})
-                                                            } catch { alert('Could not cancel session.') }
+                                                          onClick={() => {
+                                                            if (memberModalEditId === item.id) setMemberModalEditId(null)
+                                                            handleCancelSession(item.id, item)
                                                           }}>Cancel</button>
                                                       </div>
                                                     )}
