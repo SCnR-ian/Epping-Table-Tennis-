@@ -1724,12 +1724,13 @@ router.get('/my-history', requireAuth, async (req, res) => {
               cr.body             AS review_body,
               cr.student_rating   AS student_rating,
               cr.student_comment  AS student_comment,
-              ABS(chl.delta) AS charged
+              (SELECT ABS(chl.delta) FROM coaching_hour_ledger chl
+               WHERE chl.session_id = cs.id AND chl.club_id = $2
+               ORDER BY chl.id DESC LIMIT 1) AS charged
        FROM coaching_sessions cs
        JOIN coaches co ON co.id = cs.coach_id
        JOIN users u ON u.id = co.user_id
        LEFT JOIN coaching_reviews cr ON cr.session_id = cs.id
-       LEFT JOIN coaching_hour_ledger chl ON chl.session_id = cs.id AND chl.club_id = $2
        WHERE cs.student_id=$1 AND cs.club_id=$2 AND cs.status='confirmed' AND cs.date <= CURRENT_DATE
        ORDER BY cs.date DESC
        LIMIT 100`,
