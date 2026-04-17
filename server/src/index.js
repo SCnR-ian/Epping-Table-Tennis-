@@ -303,6 +303,24 @@ async function runMigrations() {
        club_id     INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id),
        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
      )`,
+    // ── Product extra fields ──────────────────────────────────────────────────
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS code VARCHAR(50)`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS product_type VARCHAR(100)`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS reaction_property VARCHAR(20)`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS vibration_property VARCHAR(20)`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS structure VARCHAR(300)`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS thickness VARCHAR(50)`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS head_size VARCHAR(50)`,
+    // ── Product images (up to 6 per product) ─────────────────────────────────
+    `CREATE TABLE IF NOT EXISTS product_images (
+       id         SERIAL PRIMARY KEY,
+       product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+       filename   VARCHAR(255) NOT NULL,
+       sort_order INTEGER NOT NULL DEFAULT 0,
+       club_id    INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id),
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_product_images_product ON product_images(product_id)`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }

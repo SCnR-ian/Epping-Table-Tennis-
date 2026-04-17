@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Camera, Plus, Trash2 } from 'lucide-react'
 import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, homepageAPI, pagesAPI, clubAPI, venueAPI } from '@/api/api'
+import ShopManager from './ShopManager'
 import QRCode from 'react-qr-code'
 import { useClub } from '@/context/ClubContext'
 import { EditModeContext } from '@/context/EditModeContext'
@@ -124,7 +125,7 @@ function groupByWeek(sessions) {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 
-const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Pay Report', 'Analytics', 'Venue']
+const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Pay Report', 'Analytics', 'Venue', 'Shop']
 
 const BOOKABLE_COURTS = [
   { id: 1, label: 'Court 1' },
@@ -2564,8 +2565,8 @@ const [sessionForm,      setSessionForm]      = useState({
           <>
             <div className="fixed inset-0 z-30" onClick={() => setShowMoreMenu(false)} />
             <div className="absolute bottom-full inset-x-0 bg-white border-t border-gray-200 shadow-2xl z-40">
-              <div className="grid grid-cols-3 divide-x divide-gray-100">
-                {['Pay Report', 'Analytics', 'Venue'].map(tab => (
+              <div className="grid grid-cols-4 divide-x divide-gray-100">
+                {['Pay Report', 'Analytics', 'Venue', 'Shop'].map(tab => (
                   <button
                     key={tab}
                     onClick={() => { setActiveTab(tab); setShowMoreMenu(false) }}
@@ -2587,6 +2588,11 @@ const [sessionForm,      setSessionForm]      = useState({
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75zM6.75 16.5h.75v.75h-.75v-.75zM16.5 6.75h.75v.75h-.75v-.75zM13.5 13.5h.75v.75h-.75v-.75zM13.5 19.5h.75v.75h-.75v-.75zM19.5 13.5h.75v.75h-.75v-.75zM19.5 19.5h.75v.75h-.75v-.75zM16.5 16.5h.75v.75h-.75v-.75z" />
+                      </svg>
+                    )}
+                    {tab === 'Shop' && (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
                       </svg>
                     )}
                     {tab}
@@ -5224,6 +5230,9 @@ const [sessionForm,      setSessionForm]      = useState({
 
         </div>
       )}
+
+      {/* ── Shop Tab ──────────────────────────────────────────────────────── */}
+      {activeTab === 'Shop' && <ShopManager />}
 
 
       {/* ── Calendar Reschedule Modal ─────────────────────────────────────── */}

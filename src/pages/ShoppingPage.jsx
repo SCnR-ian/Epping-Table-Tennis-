@@ -59,10 +59,9 @@ function CategoryIcon({ cat }) {
 }
 
 function ProductCard({ product }) {
-  const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
-  const imgSrc = product.image_url
-    ? `${BASE.replace('/api', '')}${product.image_url}`
-    : null
+  const BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').replace('/api', '')
+  const firstImage = product.images?.[0]?.url ?? product.image_url ?? null
+  const imgSrc = firstImage ? `${BASE}${firstImage}` : null
 
   return (
     <div className="group cursor-pointer">
