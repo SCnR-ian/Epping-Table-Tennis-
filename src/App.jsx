@@ -24,6 +24,7 @@ import ScanPage            from '@/pages/ScanPage'
 import ShoppingPage        from '@/pages/ShoppingPage'
 import ProductDetailPage   from '@/pages/ProductDetailPage'
 import CartPage            from '@/pages/CartPage'
+import CheckoutPage        from '@/pages/CheckoutPage'
 const router = createBrowserRouter([
   {
     element: <RootLayout />,
@@ -42,6 +43,7 @@ const router = createBrowserRouter([
       { path: '/shopping',      element: <ShoppingPage /> },
       { path: '/shopping/:id',  element: <ProductDetailPage /> },
       { path: '/bag',           element: <CartPage /> },
+      { path: '/checkout',      element: <CheckoutPage /> },
       {
         path: '/scan',
         element: <ProtectedRoute><ScanPage /></ProtectedRoute>,
