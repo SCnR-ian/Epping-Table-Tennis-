@@ -311,11 +311,13 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
            AND c.id NOT IN (
              SELECT cs2.court_id FROM coaching_sessions cs2
              WHERE cs2.date = $1 AND cs2.status = 'confirmed' AND cs2.club_id = $5
+               AND cs2.court_id IS NOT NULL
                AND cs2.start_time < $3::time AND cs2.end_time > $2::time
            )
            AND c.id NOT IN (
              SELECT b.court_id FROM bookings b
              WHERE b.date = $1 AND b.status = 'confirmed' AND b.club_id = $5
+               AND b.court_id IS NOT NULL
                AND b.start_time < $3::time AND b.end_time > $2::time
            )
          ),
@@ -1174,12 +1176,14 @@ async function checkAndAssignCourt(client, session, sessionDate, newStart, newEn
        AND c.id NOT IN (
          SELECT cs2.court_id FROM coaching_sessions cs2
          WHERE cs2.date=$1 AND cs2.status='confirmed' AND cs2.club_id=$7 AND NOT (cs2.id = ANY($4::int[]))
+           AND cs2.court_id IS NOT NULL
            AND ($5::uuid IS NULL OR cs2.group_id IS DISTINCT FROM $5)
            AND cs2.start_time < $3::time AND cs2.end_time > $2::time
        )
        AND c.id NOT IN (
          SELECT b.court_id FROM bookings b
          WHERE b.date=$1 AND b.status='confirmed' AND b.club_id=$7
+           AND b.court_id IS NOT NULL
            AND b.start_time < $3::time AND b.end_time > $2::time
        )
      ),
