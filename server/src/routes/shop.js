@@ -53,27 +53,8 @@ router.get('/products', async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ message: 'Server error.' }) }
 })
 
-// GET /api/shop/products/:id — public, single product with all images
-router.get('/products/:id', async (req, res) => {
-  const clubId = req.club?.id ?? 1
-  try {
-    const { rows: [p] } = await pool.query(
-      `SELECT p.id, p.name, p.category, p.price, p.description, p.sort_order,
-              p.code, p.product_type, p.reaction_property, p.vibration_property,
-              p.structure, p.thickness, p.head_size,
-              ${IMAGE_AGG}
-       FROM products p
-       LEFT JOIN product_images pi ON pi.product_id = p.id
-       WHERE p.id=$1 AND p.club_id=$2 AND p.is_active=TRUE
-       GROUP BY p.id`,
-      [req.params.id, clubId]
-    )
-    if (!p) return res.status(404).json({ message: 'Not found.' })
-    res.json({ product: p })
-  } catch (e) { console.error(e); res.status(500).json({ message: 'Server error.' }) }
-})
-
 // GET /api/shop/products/admin — admin: all products including inactive
+// NOTE: must be before /products/:id or Express matches 'admin' as :id
 router.get('/products/admin', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only.' })
   const clubId = req.club?.id ?? 1
@@ -91,6 +72,26 @@ router.get('/products/admin', requireAuth, async (req, res) => {
       [clubId]
     )
     res.json({ products: rows })
+  } catch (e) { console.error(e); res.status(500).json({ message: 'Server error.' }) }
+})
+
+// GET /api/shop/products/:id — public, single product with all images
+router.get('/products/:id', async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  try {
+    const { rows: [p] } = await pool.query(
+      `SELECT p.id, p.name, p.category, p.price, p.description, p.sort_order,
+              p.code, p.product_type, p.reaction_property, p.vibration_property,
+              p.structure, p.thickness, p.head_size,
+              ${IMAGE_AGG}
+       FROM products p
+       LEFT JOIN product_images pi ON pi.product_id = p.id
+       WHERE p.id=$1 AND p.club_id=$2 AND p.is_active=TRUE
+       GROUP BY p.id`,
+      [req.params.id, clubId]
+    )
+    if (!p) return res.status(404).json({ message: 'Not found.' })
+    res.json({ product: p })
   } catch (e) { console.error(e); res.status(500).json({ message: 'Server error.' }) }
 })
 
