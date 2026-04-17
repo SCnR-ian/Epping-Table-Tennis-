@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { shopAPI } from '@/api/api'
 
 const CATEGORIES = [
@@ -59,17 +60,23 @@ function CategoryIcon({ cat }) {
 }
 
 function ProductCard({ product }) {
+  const navigate = useNavigate()
   const BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').replace('/api', '')
-  const firstImage = product.images?.[0]?.url ?? product.image_url ?? null
-  const imgSrc = firstImage ? `${BASE}${firstImage}` : null
+  const images = product.images?.length > 0 ? product.images : (product.image_url ? [{ url: product.image_url }] : [])
+  const [imgIdx, setImgIdx] = useState(0)
+
+  function prev(e) { e.stopPropagation(); setImgIdx(i => (i - 1 + images.length) % images.length) }
+  function next(e) { e.stopPropagation(); setImgIdx(i => (i + 1) % images.length) }
+
+  const currentSrc = images[imgIdx] ? `${BASE}${images[imgIdx].url}` : null
 
   return (
-    <div className="group cursor-pointer">
+    <div className="group cursor-pointer" onClick={() => navigate(`/shopping/${product.id}`)}>
       {/* Image */}
       <div className="relative aspect-square bg-gray-100 overflow-hidden mb-3">
-        {imgSrc ? (
+        {currentSrc ? (
           <img
-            src={imgSrc}
+            src={currentSrc}
             alt={product.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
           />
@@ -78,8 +85,40 @@ function ProductCard({ product }) {
             <CategoryIcon cat={product.category} />
           </div>
         )}
+
+        {/* Prev / Next arrows — show on hover when multiple images */}
+        {images.length > 1 && (
+          <>
+            <button
+              onClick={prev}
+              className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 bg-white/80 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-white"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+            <button
+              onClick={next}
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 bg-white/80 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-white"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+            </button>
+            {/* Dot indicators */}
+            <div className="absolute bottom-2 inset-x-0 flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {images.map((_, i) => (
+                <span key={i} className={`w-1 h-1 rounded-full transition-colors ${i === imgIdx ? 'bg-black' : 'bg-gray-400'}`} />
+              ))}
+            </div>
+          </>
+        )}
+
         {/* Wishlist */}
-        <button className="absolute top-3 right-3 text-gray-400 hover:text-black transition-colors">
+        <button
+          onClick={e => e.stopPropagation()}
+          className="absolute top-3 right-3 text-gray-400 hover:text-black transition-colors"
+        >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
           </svg>

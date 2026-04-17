@@ -21,6 +21,7 @@ import NotFoundPage        from '@/pages/NotFoundPage'
 import OAuthCallbackPage   from '@/pages/OAuthCallbackPage'
 import ScanPage            from '@/pages/ScanPage'
 import ShoppingPage        from '@/pages/ShoppingPage'
+import ProductDetailPage   from '@/pages/ProductDetailPage'
 const router = createBrowserRouter([
   {
     element: <RootLayout />,
@@ -37,6 +38,7 @@ const router = createBrowserRouter([
       { path: '/coaching',      element: <CoachingPage /> },
       { path: '/auth/callback', element: <OAuthCallbackPage /> },
       { path: '/shopping',      element: <ShoppingPage /> },
+      { path: '/shopping/:id',  element: <ProductDetailPage /> },
       {
         path: '/scan',
         element: <ProtectedRoute><ScanPage /></ProtectedRoute>,

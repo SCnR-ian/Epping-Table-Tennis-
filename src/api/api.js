@@ -282,6 +282,7 @@ export const messagesAPI = {
 // ---------------------------------------------------------------------------
 export const shopAPI = {
   getProducts:      (category) => api.get('/shop/products', { params: category ? { category } : {} }),
+  getProduct:       (id)       => api.get(`/shop/products/${id}`),
   getAdminProducts: ()         => api.get('/shop/products/admin'),
   createProduct:    (data)     => api.post('/shop/products', data),
   updateProduct:    (id, data) => api.patch(`/shop/products/${id}`, data),
