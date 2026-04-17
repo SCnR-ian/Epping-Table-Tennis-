@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { shopAPI } from '@/api/api'
 
@@ -139,7 +139,6 @@ export default function ShoppingPage() {
   const [activeCategory, setActiveCategory] = useState('all')
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
-  const scrollRef = useRef(null)
 
   useEffect(() => {
     setLoading(true)
@@ -149,49 +148,17 @@ export default function ShoppingPage() {
       .finally(() => setLoading(false))
   }, [activeCategory])
 
-  const activeCatLabel = CATEGORIES.find(c => c.key === activeCategory)?.label ?? 'All Products'
-
   return (
     <div className="min-h-screen bg-white pt-[84px]">
 
-      {/* Category label + filter row */}
-      <div className="px-6 lg:px-10 py-4 flex items-center justify-between border-b border-gray-200">
-        <div className="flex items-center gap-1.5 text-sm text-gray-800">
-          <span>{activeCatLabel}</span>
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-          </svg>
-        </div>
-        <button className="flex items-center gap-1.5 text-sm text-gray-800 border border-gray-300 rounded-full px-4 py-1.5 hover:border-black transition-colors">
-          Filters
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-          </svg>
-        </button>
-      </div>
-
       {/* Category icons row */}
-      <div className="relative border-b border-gray-100">
-        {/* Scroll left */}
-        <button
-          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-8 h-full flex items-center justify-center bg-gradient-to-r from-white to-transparent"
-          onClick={() => scrollRef.current?.scrollBy({ left: -160, behavior: 'smooth' })}
-        >
-          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-          </svg>
-        </button>
-
-        <div
-          ref={scrollRef}
-          className="flex gap-0 overflow-x-auto scrollbar-hide px-10"
-          style={{ scrollbarWidth: 'none' }}
-        >
+      <div className="border-b border-gray-100">
+        <div className="flex justify-center">
           {CATEGORIES.filter(c => c.key !== 'all').map(cat => (
             <button
               key={cat.key}
               onClick={() => setActiveCategory(activeCategory === cat.key ? 'all' : cat.key)}
-              className={`flex-shrink-0 flex flex-col items-center gap-2 px-8 py-5 transition-colors border-b-2 ${
+              className={`flex flex-col items-center gap-2 px-6 lg:px-10 py-5 transition-colors border-b-2 ${
                 activeCategory === cat.key
                   ? 'border-black text-black'
                   : 'border-transparent text-gray-500 hover:text-black'
@@ -202,16 +169,6 @@ export default function ShoppingPage() {
             </button>
           ))}
         </div>
-
-        {/* Scroll right */}
-        <button
-          className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-8 h-full flex items-center justify-center bg-gradient-to-l from-white to-transparent"
-          onClick={() => scrollRef.current?.scrollBy({ left: 160, behavior: 'smooth' })}
-        >
-          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-          </svg>
-        </button>
       </div>
 
       {/* Product grid */}
