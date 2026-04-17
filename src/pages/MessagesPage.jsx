@@ -101,9 +101,7 @@ export default function MessagesPage() {
     if (isAdmin) {
       adminAPI.getAllMembers().then(({ data }) => setMembers(data.members ?? [])).catch(() => {})
     } else {
-      adminAPI.getAllMembers().then(({ data }) => {
-        setAdmins((data.members ?? []).filter(m => m.role === 'admin'))
-      }).catch(() => {})
+      messagesAPI.getAdmins().then(({ data }) => setAdmins(data.admins ?? [])).catch(() => {})
     }
   }, [isAdmin, loadInbox])
 
