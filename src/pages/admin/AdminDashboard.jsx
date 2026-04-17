@@ -1043,6 +1043,7 @@ const [members,      setMembers]      = useState([])
   const [memberModalPricingForm, setMemberModalPricingForm] = useState({ solo: '', group: '', saving: false, open: false })
   const [memberModalCoachingExpanded, setMemberModalCoachingExpanded] = useState(new Set())
   const [memberModalGroupExpanded, setMemberModalGroupExpanded] = useState(false)
+  const [memberModalFeedbackExpanded, setMemberModalFeedbackExpanded] = useState(new Set()) // session ids
   const [coachModal,   setCoachModal]   = useState(null) // { id, name } of member being promoted
   const [coachForm,    setCoachForm]    = useState({ availability_start: '', availability_end: '', bio: '', resume: null })
   const [coachDragging, setCoachDragging] = useState(false)
@@ -5374,7 +5375,7 @@ const [sessionForm,      setSessionForm]      = useState({
                           {(() => {
                             const nonCoaching = items.filter(i => i._type !== 'coaching')
                             const oneOnOneItems = items.filter(i => i._type === 'coaching' && !i.group_id)
-                            const groupItems = items.filter(i => i._type === 'coaching' && i.group_id)
+                            const groupItems = items.filter(i => i._type === 'coaching' && i.group_id).sort((a, b) => a._date < b._date ? -1 : 1)
                             return (
                               <>
                                 {nonCoaching.map(item => {
@@ -5498,6 +5499,13 @@ const [sessionForm,      setSessionForm]      = useState({
                                                           ? <span className="text-red-400 text-xs font-medium whitespace-nowrap">✗ No Show</span>
                                                           : <span className="text-emerald-400 text-xs font-medium whitespace-nowrap">✓ Checked in</span>
                                                         : item._date < today && <span className="text-gray-400 text-xs whitespace-nowrap">Not checked in</span>}
+                                                    {item._date < today && (item.review_body || item.review_skills?.length > 0 || item.student_rating) && memberModalSelected.size === 0 && (
+                                                      <button
+                                                        onClick={() => setMemberModalFeedbackExpanded(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n })}
+                                                        className="text-xs text-amber-500 hover:text-amber-400 whitespace-nowrap">
+                                                        {memberModalFeedbackExpanded.has(item.id) ? 'Hide' : 'Feedback'}
+                                                      </button>
+                                                    )}
                                                     {item._date >= today && memberModalSelected.size === 0 && (
                                                       <div className="flex gap-3 shrink-0">
                                                         <button className={`text-xs ${isEditing ? 'text-gray-800 hover:text-gray-900' : 'text-sky-400 hover:text-sky-300'}`}
@@ -5532,6 +5540,36 @@ const [sessionForm,      setSessionForm]      = useState({
                                                     )}
                                                     </div>
                                                   </div>
+                                                  {/* Feedback panel */}
+                                                  {memberModalFeedbackExpanded.has(item.id) && (
+                                                    <div className="px-4 pb-3 border-t border-gray-200/40 space-y-2 pt-2">
+                                                      {(item.review_body || item.review_skills?.length > 0) && (
+                                                        <div className="bg-sky-50 rounded-lg px-3 py-2">
+                                                          <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Coach feedback</p>
+                                                          {item.review_skills?.length > 0 && (
+                                                            <div className="flex flex-wrap gap-1 mb-1">
+                                                              {item.review_skills.map(sk => (
+                                                                <span key={sk} className="text-[10px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">{sk}</span>
+                                                              ))}
+                                                            </div>
+                                                          )}
+                                                          {item.review_body && <p className="text-xs text-gray-700 whitespace-pre-wrap">{item.review_body}</p>}
+                                                        </div>
+                                                      )}
+                                                      {item.student_rating && (
+                                                        <div className="bg-amber-50 rounded-lg px-3 py-2">
+                                                          <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Student rating</p>
+                                                          <div className="flex items-center gap-1">
+                                                            {[1,2,3,4,5].map(s => (
+                                                              <span key={s} className={s <= item.student_rating ? 'text-amber-400' : 'text-gray-300'}>★</span>
+                                                            ))}
+                                                            <span className="text-xs text-gray-500 ml-1">{item.student_rating}/5</span>
+                                                          </div>
+                                                          {item.student_comment && <p className="text-xs text-gray-600 mt-1 whitespace-pre-wrap">{item.student_comment}</p>}
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  )}
                                                   {/* Inline edit form */}
                                                   {isEditing && memberModalSelected.size === 0 && (
                                                     <div className="px-4 pb-3 border-t border-gray-200/40 space-y-2 pt-2">
@@ -5651,14 +5689,51 @@ const [sessionForm,      setSessionForm]      = useState({
                                                 <span className="text-sm font-medium text-gray-900 truncate">{fmtDate(item.date)}</span>
                                                 <span className="text-xs text-gray-500">{new Date(item.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{weekday:'short'})}</span>
                                                 <span className="text-gray-800 text-sm truncate">{item.coach_name} · {fmtTime(item.start_time)}–{fmtTime(item.end_time)}</span>
-                                                <div className="flex items-center justify-end">
+                                                <div className="flex items-center gap-3 justify-end">
                                                   {(item.checked_in || adminCheckedIn.has(item.id))
                                                     ? item.no_show
                                                       ? <span className="text-red-400 text-xs font-medium whitespace-nowrap">✗ No Show</span>
                                                       : <span className="text-emerald-400 text-xs font-medium whitespace-nowrap">✓ Checked in</span>
                                                     : item._date < today && <span className="text-gray-400 text-xs whitespace-nowrap">Not checked in</span>}
+                                                  {item._date < today && (item.review_body || item.review_skills?.length > 0 || item.student_rating) && memberModalSelected.size === 0 && (
+                                                    <button
+                                                      onClick={() => setMemberModalFeedbackExpanded(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n })}
+                                                      className="text-xs text-amber-500 hover:text-amber-400 whitespace-nowrap">
+                                                      {memberModalFeedbackExpanded.has(item.id) ? 'Hide' : 'Feedback'}
+                                                    </button>
+                                                  )}
                                                 </div>
                                               </div>
+                                              {/* Feedback panel */}
+                                              {memberModalFeedbackExpanded.has(item.id) && (
+                                                <div className="px-4 pb-3 border-t border-gray-200/40 space-y-2 pt-2">
+                                                  {(item.review_body || item.review_skills?.length > 0) && (
+                                                    <div className="bg-sky-50 rounded-lg px-3 py-2">
+                                                      <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Coach feedback</p>
+                                                      {item.review_skills?.length > 0 && (
+                                                        <div className="flex flex-wrap gap-1 mb-1">
+                                                          {item.review_skills.map(sk => (
+                                                            <span key={sk} className="text-[10px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">{sk}</span>
+                                                          ))}
+                                                        </div>
+                                                      )}
+                                                      {item.review_body && <p className="text-xs text-gray-700 whitespace-pre-wrap">{item.review_body}</p>}
+                                                    </div>
+                                                  )}
+                                                  {item.student_rating && (
+                                                    <div className="bg-amber-50 rounded-lg px-3 py-2">
+                                                      <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Student rating</p>
+                                                      <div className="flex items-center gap-1">
+                                                        {[1,2,3,4,5].map(s => (
+                                                          <span key={s} className={s <= item.student_rating ? 'text-amber-400' : 'text-gray-300'}>★</span>
+                                                        ))}
+                                                        <span className="text-xs text-gray-500 ml-1">{item.student_rating}/5</span>
+                                                      </div>
+                                                      {item.student_comment && <p className="text-xs text-gray-600 mt-1 whitespace-pre-wrap">{item.student_comment}</p>}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              )}
                                             </div>
                                           )
                                         })}
