@@ -6,10 +6,12 @@ import { pagesAPI } from "@/api/api";
 import EditableText from "@/components/cms/EditableText";
 
 const DEFAULT_NAV_LINKS = [
-  { to: "/",         label: "Home"     },
-  { to: "/about",    label: "About"    },
-  { to: "/training", label: "Training" },
-  { to: "/play",     label: "Play"     },
+  { to: "/",          label: "Home"     },
+  { to: "/about",     label: "About Us" },
+  { to: "/training",  label: "Training" },
+  { to: "/play",      label: "Play"     },
+  { to: "/shopping",  label: "Shopping" },
+  { to: "/news",      label: "News"     },
 ];
 
 // ── Icons ─────────────────────────────────────────────────────────────────
@@ -241,26 +243,33 @@ function MenuPanel({ open, onClose, isAdmin, navLabels, onSaveLabel }) {
   return (
     <>
       <div
-        className={`fixed inset-0 z-40 bg-black/30 transition-opacity duration-300 ${open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
+        className={`fixed inset-0 z-40 bg-black/20 transition-opacity duration-300 ${open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
         onClick={onClose}
       />
-      <div className={`fixed top-0 left-0 z-50 h-full w-full max-w-xs bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-in-out ${open ? "translate-x-0" : "-translate-x-full"}`}>
-        <div className="flex items-center justify-between px-8 py-6 border-b border-gray-100">
-          <span className="font-display text-2xl font-normal tracking-wide text-black">Menu</span>
-          <button onClick={onClose} className="text-black hover:text-gray-400 transition-colors">
+      <div className={`fixed top-0 left-0 z-50 h-full w-72 bg-white shadow-xl flex flex-col transition-transform duration-300 ease-in-out ${open ? "translate-x-0" : "-translate-x-full"}`}>
+
+        {/* Close button */}
+        <div className="px-7 pt-7 pb-2">
+          <button
+            onClick={onClose}
+            className="flex items-center gap-1.5 text-black hover:text-gray-400 transition-colors group"
+          >
             <IconClose />
+            <span className="text-sm tracking-widest uppercase">Close</span>
           </button>
         </div>
-        <nav className="flex-1 px-8 py-8 space-y-1">
+
+        {/* Nav links */}
+        <nav className="flex-1 overflow-y-auto px-7 py-6 space-y-0">
           {DEFAULT_NAV_LINKS.map(({ to }, idx) => {
             const label = navLabels[idx] ?? DEFAULT_NAV_LINKS[idx].label
             return isEditing ? (
-              <div key={to} className="py-4 border-b border-gray-100">
+              <div key={to} className="py-3">
                 <EditableText
                   as="span"
                   value={label}
                   onSave={v => onSaveLabel(idx, v)}
-                  className="text-sm tracking-[0.2em] uppercase text-black"
+                  className="text-[17px] text-black font-normal"
                 />
               </div>
             ) : (
@@ -270,8 +279,8 @@ function MenuPanel({ open, onClose, isAdmin, navLabels, onSaveLabel }) {
                 end={to === "/"}
                 onClick={onClose}
                 className={({ isActive }) =>
-                  `block py-4 border-b border-gray-100 text-sm tracking-[0.2em] uppercase transition-colors ${
-                    isActive ? "text-black font-medium" : "text-gray-500 hover:text-black"
+                  `block py-3 text-[17px] font-normal transition-colors ${
+                    isActive ? "text-black" : "text-gray-800 hover:text-gray-400"
                   }`
                 }
               >
@@ -284,8 +293,8 @@ function MenuPanel({ open, onClose, isAdmin, navLabels, onSaveLabel }) {
               to="/admin"
               onClick={onClose}
               className={({ isActive }) =>
-                `block py-4 border-b border-gray-100 text-sm tracking-[0.2em] uppercase transition-colors ${
-                  isActive ? "text-black font-medium" : "text-gray-500 hover:text-black"
+                `block py-3 text-[17px] font-normal transition-colors ${
+                  isActive ? "text-black" : "text-gray-800 hover:text-gray-400"
                 }`
               }
             >
