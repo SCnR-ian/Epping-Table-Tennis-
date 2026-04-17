@@ -19,6 +19,7 @@ import AdminDashboard      from '@/pages/admin/AdminDashboard'
 import CoachingPage        from '@/pages/CoachingPage'
 import NotFoundPage        from '@/pages/NotFoundPage'
 import OAuthCallbackPage   from '@/pages/OAuthCallbackPage'
+import ScanPage            from '@/pages/ScanPage'
 const router = createBrowserRouter([
   {
     element: <RootLayout />,
@@ -34,6 +35,10 @@ const router = createBrowserRouter([
       { path: '/booking',       element: <BookingPage /> },
       { path: '/coaching',      element: <CoachingPage /> },
       { path: '/auth/callback', element: <OAuthCallbackPage /> },
+      {
+        path: '/scan',
+        element: <ProtectedRoute><ScanPage /></ProtectedRoute>,
+      },
 
       // ── Protected routes (must be authenticated) ─────────────
       {

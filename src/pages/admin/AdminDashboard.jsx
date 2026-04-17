@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Camera, Plus, Trash2 } from 'lucide-react'
-import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, homepageAPI, pagesAPI, clubAPI } from '@/api/api'
+import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, homepageAPI, pagesAPI, clubAPI, venueAPI } from '@/api/api'
+import QRCode from 'react-qr-code'
 import { useClub } from '@/context/ClubContext'
 import { EditModeContext } from '@/context/EditModeContext'
 import EditableText from '@/components/cms/EditableText'
@@ -123,7 +124,7 @@ function groupByWeek(sessions) {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 
-const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Pay Report', 'Analytics', 'Pages', 'Club Settings']
+const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Pay Report', 'Analytics', 'Pages', 'Venue', 'Club Settings']
 
 const BOOKABLE_COURTS = [
   { id: 1, label: 'Court 1' },
@@ -1132,6 +1133,14 @@ const [sessionForm,      setSessionForm]      = useState({
   const [payReport,  setPayReport]  = useState(null)
   const [payLoading, setPayLoading] = useState(false)
 
+  // Venue tab state
+  const [venueDate,       setVenueDate]       = useState(() => new Date().toISOString().slice(0, 10))
+  const [venueCheckins,   setVenueCheckins]   = useState([])
+  const [venueLoading,    setVenueLoading]    = useState(false)
+  const [venueQR,         setVenueQR]         = useState(null)   // { url, token, club_name }
+  const [venueQRLoading,  setVenueQRLoading]  = useState(false)
+  const [venueRegenConfirm, setVenueRegenConfirm] = useState(false)
+
   // Today summary state
   const [todayDate,       setTodayDate]       = useState(() => new Date().toISOString().slice(0, 10))
   const [todaySummary,    setTodaySummary]    = useState(null)
@@ -1498,6 +1507,24 @@ const [sessionForm,      setSessionForm]      = useState({
       .catch(() => {})
       .finally(() => setAnalyticsLoading(false))
   }, [activeTab])
+
+  useEffect(() => {
+    if (activeTab !== 'Venue') return
+    // Load QR once
+    if (!venueQR) {
+      setVenueQRLoading(true)
+      venueAPI.getQR()
+        .then(({ data }) => setVenueQR(data))
+        .catch(() => {})
+        .finally(() => setVenueQRLoading(false))
+    }
+    // Load today's check-ins
+    setVenueLoading(true)
+    venueAPI.getToday(venueDate)
+      .then(({ data }) => setVenueCheckins(data.checkins ?? []))
+      .catch(() => {})
+      .finally(() => setVenueLoading(false))
+  }, [activeTab, venueDate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreateSocialSession = async () => {
     const { title, description, num_courts, date, start_time, end_time, max_players, weeks } = socialForm
@@ -5062,6 +5089,147 @@ const [sessionForm,      setSessionForm]      = useState({
       {/* ── Pages CMS ────────────────────────────────────────────────────── */}
       {activeTab === 'Pages' && (
         <PagesTab />
+      )}
+
+      {/* ── Venue tab ────────────────────────────────────────────────────── */}
+      {activeTab === 'Venue' && (
+        <div className="animate-fade-in space-y-6">
+
+          {/* QR Code card */}
+          <div className="card p-6">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 mb-1">Sign-In QR Code</h2>
+                <p className="text-sm text-gray-500">Display or print this at the venue entrance. Members scan to sign in or sign out.</p>
+              </div>
+              <div className="flex gap-2 flex-wrap shrink-0">
+                <button
+                  onClick={() => {
+                    const svgEl = document.querySelector('#venue-qr-area svg')
+                    if (!svgEl) return
+                    const clubName = venueQR?.club_name ?? 'TT Club'
+                    const win = window.open('', '_blank')
+                    win.document.write(`<!DOCTYPE html><html><head><title>QR Code — ${clubName}</title>
+                      <style>
+                        body { margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: sans-serif; background: #fff; }
+                        .wrap { text-align: center; padding: 40px; }
+                        h1 { font-size: 24px; margin-bottom: 8px; }
+                        p { color: #666; font-size: 14px; margin-top: 16px; }
+                        svg { display: block; margin: 24px auto; }
+                        @media print { button { display: none; } }
+                      </style></head><body>
+                      <div class="wrap">
+                        <h1>${clubName}</h1>
+                        <p style="font-size:13px;color:#999">Scan to sign in / sign out</p>
+                        ${svgEl.outerHTML}
+                        <p>Point your phone camera at this code</p>
+                        <button onclick="window.print()" style="margin-top:20px;padding:10px 24px;font-size:14px;cursor:pointer;border:1px solid #ccc;border-radius:8px;background:#000;color:#fff">Print</button>
+                      </div></body></html>`)
+                    win.document.close()
+                    win.focus()
+                    setTimeout(() => win.print(), 500)
+                  }}
+                  className="btn-primary text-sm px-4 py-2">
+                  🖨 Print QR
+                </button>
+                <button
+                  onClick={() => setVenueRegenConfirm(true)}
+                  className="btn-secondary text-sm px-4 py-2">
+                  Regenerate
+                </button>
+              </div>
+            </div>
+
+            {venueRegenConfirm && (
+              <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between gap-4">
+                <p className="text-sm text-amber-800">Regenerating will invalidate the current QR code. Any printed copies will stop working.</p>
+                <div className="flex gap-2 shrink-0">
+                  <button className="text-sm text-gray-600 hover:text-gray-900"
+                    onClick={() => setVenueRegenConfirm(false)}>Cancel</button>
+                  <button className="text-sm text-red-600 hover:text-red-700 font-medium"
+                    onClick={async () => {
+                      try {
+                        const { data } = await venueAPI.regenerateQR()
+                        setVenueQR(q => ({ ...q, ...data }))
+                        setVenueRegenConfirm(false)
+                      } catch { alert('Failed to regenerate.') }
+                    }}>Regenerate</button>
+                </div>
+              </div>
+            )}
+
+            <div id="venue-qr-area" className="mt-6 flex justify-center">
+              {venueQRLoading && (
+                <div className="w-8 h-8 border-4 border-gray-200 border-t-black rounded-full animate-spin" />
+              )}
+              {venueQR && (
+                <div className="p-4 bg-white border border-gray-200 rounded-2xl inline-block">
+                  <QRCode value={venueQR.url} size={220} />
+                  <p className="text-center text-xs text-gray-400 mt-3">Scan to sign in / sign out</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Today's attendance */}
+          <div className="card p-6">
+            <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
+              <h2 className="text-lg font-semibold text-gray-900">Attendance</h2>
+              <input type="date" className="input text-sm py-1.5"
+                value={venueDate}
+                onChange={e => setVenueDate(e.target.value)} />
+            </div>
+
+            {venueLoading ? (
+              <div className="flex justify-center py-6">
+                <div className="w-6 h-6 border-4 border-gray-200 border-t-black rounded-full animate-spin" />
+              </div>
+            ) : venueCheckins.length === 0 ? (
+              <p className="text-sm text-gray-500">No sign-ins for this date.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 pr-4 text-xs text-gray-500 font-medium">Name</th>
+                      <th className="text-left py-2 pr-4 text-xs text-gray-500 font-medium">Role</th>
+                      <th className="text-left py-2 pr-4 text-xs text-gray-500 font-medium">Signed In</th>
+                      <th className="text-left py-2 pr-4 text-xs text-gray-500 font-medium">Signed Out</th>
+                      <th className="text-left py-2 text-xs text-gray-500 font-medium">Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {venueCheckins.map(row => {
+                      const inTime  = row.checked_in_at  ? new Date(row.checked_in_at).toLocaleTimeString('en-AU',  { timeZone: 'Australia/Sydney', hour: 'numeric', minute: '2-digit', hour12: true }) : '—'
+                      const outTime = row.checked_out_at ? new Date(row.checked_out_at).toLocaleTimeString('en-AU', { timeZone: 'Australia/Sydney', hour: 'numeric', minute: '2-digit', hour12: true }) : '—'
+                      const durMs   = row.checked_out_at && row.checked_in_at
+                        ? new Date(row.checked_out_at) - new Date(row.checked_in_at) : null
+                      const dur = durMs ? (() => {
+                        const m = Math.round(durMs / 60000)
+                        const h = Math.floor(m / 60), mm = m % 60
+                        return h ? (mm ? `${h}h ${mm}m` : `${h}h`) : `${mm}m`
+                      })() : (row.checked_in_at ? 'Still in' : '—')
+                      return (
+                        <tr key={row.id}>
+                          <td className="py-2.5 pr-4 font-medium text-gray-900">{row.name}</td>
+                          <td className="py-2.5 pr-4">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${row.role === 'admin' ? 'bg-purple-100 text-purple-700' : row.role === 'coach' ? 'bg-sky-100 text-sky-700' : 'bg-gray-100 text-gray-600'}`}>
+                              {row.role}
+                            </span>
+                          </td>
+                          <td className="py-2.5 pr-4 text-gray-700">{inTime}</td>
+                          <td className="py-2.5 pr-4 text-gray-700">{outTime}</td>
+                          <td className={`py-2.5 text-sm ${dur === 'Still in' ? 'text-emerald-600 font-medium' : 'text-gray-600'}`}>{dur}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+        </div>
       )}
 
       {activeTab === 'Club Settings' && (

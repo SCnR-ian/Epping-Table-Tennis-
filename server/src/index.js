@@ -61,6 +61,7 @@ app.use('/api/pages',        require('./routes/pages'))
 app.use('/api/payments',     require('./routes/payments'))
 app.use('/api/clubs',        require('./routes/clubs'))
 app.use('/api/super-admin', require('./routes/superAdmin'))
+app.use('/api/venue',        require('./routes/venue'))
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }))
@@ -274,6 +275,19 @@ async function runMigrations() {
        resolved_by INTEGER REFERENCES users(id),
        club_id     INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id),
        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+
+    // ── Venue check-in / check-out ───────────────────────────────────────────
+    `ALTER TABLE clubs ADD COLUMN IF NOT EXISTS qr_token VARCHAR(64)`,
+    `UPDATE clubs SET qr_token = encode(gen_random_bytes(32), 'hex') WHERE qr_token IS NULL`,
+    `CREATE TABLE IF NOT EXISTS venue_checkins (
+       id              SERIAL PRIMARY KEY,
+       user_id         INTEGER NOT NULL REFERENCES users(id),
+       club_id         INTEGER NOT NULL REFERENCES clubs(id),
+       date            DATE NOT NULL DEFAULT CURRENT_DATE,
+       checked_in_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       checked_out_at  TIMESTAMPTZ,
+       UNIQUE(user_id, club_id, date)
      )`,
   ]
   for (const sql of patches) {

@@ -278,6 +278,18 @@ export const messagesAPI = {
 }
 
 // ---------------------------------------------------------------------------
+// Venue check-in / check-out
+// ---------------------------------------------------------------------------
+export const venueAPI = {
+  getStatus:    ()        => api.get('/venue/status'),
+  checkIn:      (token)   => api.post('/venue/checkin',  { token }),
+  checkOut:     (token)   => api.post('/venue/checkout', { token }),
+  getToday:     (date)    => api.get('/venue/today', { params: date ? { date } : {} }),
+  getQR:        ()        => api.get('/venue/qr'),
+  regenerateQR: ()        => api.post('/venue/qr/regenerate'),
+}
+
+// ---------------------------------------------------------------------------
 // Club (multi-tenancy)
 // ---------------------------------------------------------------------------
 export const clubAPI = {
