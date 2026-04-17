@@ -1078,7 +1078,6 @@ const [sessionForm,      setSessionForm]      = useState({
   const [coachingSearch,   setCoachingSearch]   = useState('')
   // Group coaching
   const [coachingSubTab,   setCoachingSubTab]   = useState('one-on-one')
-  const [recentReviews,    setRecentReviews]    = useState([])
   const [groupSessions,    setGroupSessions]    = useState([])
   const [showGroupForm,    setShowGroupForm]    = useState(false)
   const [groupStudentSearch, setGroupStudentSearch] = useState('')
@@ -1411,9 +1410,8 @@ const [sessionForm,      setSessionForm]      = useState({
       coachingAPI.getSessions({}),
       membersFetch,
       coachingAPI.getGroupSessions({ date: coachingDate }),
-      coachingAPI.getRecentReviews(),
     ])
-      .then(([cr, sr, ar, mr, gr, rvr]) => {
+      .then(([cr, sr, ar, mr, gr]) => {
         if (!cancelled) {
           if (cr.status === 'fulfilled') setCoaches(cr.value.data.coaches)
           if (sr.status === 'fulfilled') {
@@ -1424,7 +1422,6 @@ const [sessionForm,      setSessionForm]      = useState({
           if (ar.status === 'fulfilled') setAllCoachingSessions(ar.value.data.sessions)
           if (mr.status === 'fulfilled' && members.length === 0) setMembers(mr.value.data.members)
           if (gr.status === 'fulfilled') setGroupSessions(gr.value.data.groups)
-          if (rvr.status === 'fulfilled') setRecentReviews(rvr.value.data.reviews ?? [])
         }
       })
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -3435,7 +3432,7 @@ const [sessionForm,      setSessionForm]      = useState({
 
           {/* ── Sub-tab bar ── */}
           <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
-            {[['Sessions', 'one-on-one'], ['Hours', 'hours'], ['Feedback', 'feedback']].map(([label, key]) => (
+            {[['Sessions', 'one-on-one'], ['Hours', 'hours']].map(([label, key]) => (
               <button key={key} onClick={() => setCoachingSubTab(key)}
                 className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${coachingSubTab === key ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>
                 {label}
@@ -4336,53 +4333,6 @@ const [sessionForm,      setSessionForm]      = useState({
                 </div>
               )}
 
-            </div>
-          )}
-
-          {/* ── Feedback sub-tab ── */}
-          {coachingSubTab === 'feedback' && (
-            <div className="space-y-3">
-              {recentReviews.length === 0 ? (
-                <p className="text-sm text-gray-500">No feedback yet.</p>
-              ) : recentReviews.map(r => {
-                const dateStr = r.date ? new Date(r.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : ''
-                return (
-                  <div key={r.session_id} className="card p-4 space-y-2">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">{r.student_name}</p>
-                        <p className="text-xs text-gray-500">{dateStr} · {r.coach_name} · {fmtTime(r.start_time)}–{fmtTime(r.end_time)}</p>
-                      </div>
-                      {r.student_rating && (
-                        <div className="flex items-center gap-0.5 flex-shrink-0">
-                          {[1,2,3,4,5].map(n => (
-                            <span key={n} className={`text-base ${n <= r.student_rating ? 'text-amber-400' : 'text-gray-200'}`}>★</span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    {(r.review_body || r.review_skills?.length > 0) && (
-                      <div className="bg-sky-50 rounded-lg px-3 py-2">
-                        <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Coach feedback</p>
-                        {r.review_skills?.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mb-1">
-                            {r.review_skills.map(k => (
-                              <span key={k} className="text-[10px] bg-white border border-sky-200 px-1.5 py-0.5 rounded-full text-gray-600">{k}</span>
-                            ))}
-                          </div>
-                        )}
-                        {r.review_body && <p className="text-xs text-gray-700 whitespace-pre-wrap">{r.review_body}</p>}
-                      </div>
-                    )}
-                    {r.student_comment && (
-                      <div className="bg-amber-50 rounded-lg px-3 py-2">
-                        <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Student comment</p>
-                        <p className="text-xs text-gray-600 italic">"{r.student_comment}"</p>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
             </div>
           )}
 
