@@ -1,6 +1,7 @@
 require('dotenv').config()
 const express        = require('express')
 const cors           = require('cors')
+const path           = require('path')
 const session        = require('express-session')
 const passport       = require('./config/passport')
 
@@ -36,6 +37,9 @@ app.use(session({
 }))
 app.use(passport.initialize())
 app.use(passport.session())
+
+// Serve uploaded files (product images, etc.)
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')))
 
 // Resolve club from subdomain and attach to req.club on every request
 const { tenantMiddleware } = require('./middleware/tenant')
