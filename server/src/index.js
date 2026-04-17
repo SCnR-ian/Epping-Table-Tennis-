@@ -62,6 +62,7 @@ app.use('/api/payments',     require('./routes/payments'))
 app.use('/api/clubs',        require('./routes/clubs'))
 app.use('/api/super-admin', require('./routes/superAdmin'))
 app.use('/api/venue',        require('./routes/venue'))
+app.use('/api/shop',         require('./routes/shop'))
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }))
@@ -288,6 +289,19 @@ async function runMigrations() {
        checked_in_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
        checked_out_at  TIMESTAMPTZ,
        UNIQUE(user_id, club_id, date)
+     )`,
+
+    // ── Shop products ────────────────────────────────────────────────────────
+    `CREATE TABLE IF NOT EXISTS products (
+       id          SERIAL PRIMARY KEY,
+       name        VARCHAR(200) NOT NULL,
+       category    VARCHAR(50)  NOT NULL,
+       price       DECIMAL(10,2),
+       description TEXT,
+       sort_order  INTEGER NOT NULL DEFAULT 0,
+       is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+       club_id     INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id),
+       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
      )`,
   ]
   for (const sql of patches) {

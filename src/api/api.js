@@ -278,6 +278,18 @@ export const messagesAPI = {
 }
 
 // ---------------------------------------------------------------------------
+// Shop
+// ---------------------------------------------------------------------------
+export const shopAPI = {
+  getProducts:   (category)     => api.get('/shop/products', { params: category ? { category } : {} }),
+  createProduct: (data)         => api.post('/shop/products', data),
+  updateProduct: (id, data)     => api.patch(`/shop/products/${id}`, data),
+  deleteProduct: (id)           => api.delete(`/shop/products/${id}`),
+  uploadImage:   (id, formData) => api.post(`/shop/products/${id}/image`, formData, { headers: { 'Content-Type': undefined } }),
+  imageUrl:      (filename)     => `${api.defaults.baseURL}/shop/images/${filename}`,
+}
+
+// ---------------------------------------------------------------------------
 // Venue check-in / check-out
 // ---------------------------------------------------------------------------
 export const venueAPI = {
