@@ -299,7 +299,7 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
       //    the first free court.
       const { rows: free } = await client.query(
         `WITH social_count AS (
-           SELECT COALESCE(SUM(num_courts), 0)::int AS total
+           SELECT COALESCE(MAX(num_courts), 0)::int AS total
            FROM social_play_sessions
            WHERE date = $1 AND status = 'open' AND club_id = $5
              AND start_time < $3::time AND end_time > $2::time
@@ -1164,7 +1164,7 @@ async function checkAndAssignCourt(client, session, sessionDate, newStart, newEn
   // ── free court ───────────────────────────────────────────────────────────────
   const { rows: free } = await client.query(
     `WITH social_count AS (
-       SELECT COALESCE(SUM(num_courts), 0)::int AS total
+       SELECT COALESCE(MAX(num_courts), 0)::int AS total
        FROM social_play_sessions
        WHERE date=$1 AND status='open' AND club_id=$7
          AND start_time < $3::time AND end_time > $2::time
