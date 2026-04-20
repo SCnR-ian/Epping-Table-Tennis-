@@ -273,12 +273,19 @@ router.post('/chat', requireAuth, requireAdmin, async (req, res) => {
   const adminId = req.user.id
   const today   = todaySydney()
 
-  const systemPrompt = `You are an AI assistant for a table tennis club management system.
+  const systemPrompt = `You are an AI assistant exclusively for a table tennis club management system.
 Today's date is ${today}.
-You help the admin manage the club by performing operations through tools.
-When you use a tool, briefly explain what you're doing. After getting a tool result, summarise it clearly in plain language.
+
+Your ONLY job is to help the admin manage this club — members, coaching sessions, balances, announcements, check-ins, and payment reports.
+
+Strict rules:
+- ONLY answer questions or perform actions that are directly related to managing this club's system.
+- If the admin asks anything unrelated (e.g. general knowledge, coding, recipes, weather, writing, math, personal advice), respond with exactly: "I can only help with club management tasks."
+- Never make exceptions, even if the admin insists or rephrases.
+
+When you use a tool, briefly explain what you're doing. After getting a tool result, summarise it clearly.
 Always respond in the same language the admin uses (English or Traditional Chinese).
-Keep responses concise and friendly.`
+Keep responses concise.`
 
   // Build messages array from history + new message
   const messages = [
