@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { coachingAPI, socialAPI, checkinAPI } from '@/api/api'
+import QrScanModal from '@/components/QrScanModal'
 
 const REVIEW_SKILLS = [
   { key: 'forehand',         label: 'Forehand' },
@@ -122,6 +123,7 @@ export default function DashboardPage() {
   const defaultDow = CHECKIN_DOWS.includes(todayDow) ? todayDow : 1
   const [selectedCheckInDay, setSelectedCheckInDay] = useState(defaultDow)
   const [activeTab, setActiveTab] = useState('checkin')
+  const [scanOpen, setScanOpen] = useState(false)
 
   const weeks          = useMemo(() => getRollingWeeks(), [])
   const [selectedWeek, setSelectedWeek] = useState(0)
@@ -252,6 +254,18 @@ export default function DashboardPage() {
       {/* ── Tab 1: My Day ────────────────────────────────────────────────── */}
       {activeTab === 'checkin' && (
         <div className="space-y-6">
+
+          {/* Scan QR button */}
+          <button
+            onClick={() => setScanOpen(true)}
+            className="w-full flex items-center justify-center gap-2.5 bg-black text-white text-sm font-medium py-4 rounded-xl hover:bg-gray-800 active:scale-95 transition-all"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75zM6.75 17.25h.75v.75h-.75v-.75zM17.25 6.75h.75v.75h-.75v-.75zM13.5 13.5h.75v.75H13.5V13.5zM13.5 19.5h.75v.75H13.5V19.5zM19.5 13.5h.75v.75h-.75V13.5zM19.5 19.5h.75v.75h-.75V19.5zM16.5 16.5h.75v.75h-.75V16.5z" />
+            </svg>
+            Scan QR to Check In / Out
+          </button>
 
           {/* Coaching balance */}
           {hoursBalance !== null && (
@@ -754,6 +768,7 @@ export default function DashboardPage() {
       </div>
     )}
 
+      {scanOpen && <QrScanModal onClose={() => setScanOpen(false)} />}
     </>
   )
 }

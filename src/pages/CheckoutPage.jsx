@@ -181,26 +181,17 @@ export default function CheckoutPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 pt-[84px]">
-      {/* Top bar */}
-      <div className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between">
-        <button onClick={() => navigate('/bag')} className="text-gray-400 hover:text-black transition-colors">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
-          </svg>
-        </button>
-        <div className="flex items-center gap-1.5 text-xs text-gray-500">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-          </svg>
-          Secure Payment
-        </div>
-        <div className="w-5" />
-      </div>
-
-      <div className="max-w-5xl mx-auto px-4 lg:px-8 py-8 lg:flex lg:gap-10 lg:items-start">
+      <div className="max-w-5xl mx-auto px-4 lg:px-8 pt-5 pb-10 lg:flex lg:gap-10 lg:items-start">
 
         {/* ── Left: form ───────────────────────────────────────── */}
         <div className="flex-1 min-w-0">
+
+          {/* Back arrow */}
+          <button onClick={() => navigate('/bag')} className="text-gray-400 hover:text-black transition-colors mb-5 block">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+            </svg>
+          </button>
 
           {/* 1. Account */}
           <Section num="✓" title="My Account">
