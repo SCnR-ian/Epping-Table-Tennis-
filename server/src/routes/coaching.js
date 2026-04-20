@@ -1875,34 +1875,22 @@ async function getAvailableSlots(clubId, coachId, durationMins, excludeSessionId
         )
         if (coachBusy.length) { cursor += 30; continue }
 
-        // Check a court is available
-        const { rows: free } = await pool.query(
-          `WITH social_count AS (
-             SELECT COALESCE(SUM(num_courts), 0)::int AS total
-             FROM social_play_sessions
-             WHERE date=$1 AND status='open' AND club_id=$4
-               AND start_time < $3::time AND end_time > $2::time
-           ),
-           free_courts AS (
-             SELECT c.id FROM courts c
-             WHERE c.club_id=$4
-             AND c.id NOT IN (
-               SELECT cs2.court_id FROM coaching_sessions cs2
-               WHERE cs2.date=$1 AND cs2.status='confirmed' AND cs2.club_id=$4
-                 AND start_time < $3::time AND end_time > $2::time
-             )
-             AND c.id NOT IN (
-               SELECT b.court_id FROM bookings b
-               WHERE b.date=$1 AND b.status='confirmed' AND b.club_id=$4
-                 AND start_time < $3::time AND end_time > $2::time
-             )
-           ),
-           free_count AS (SELECT COUNT(*)::int AS n FROM free_courts)
-           SELECT 1 FROM free_courts fc, free_count fcnt, social_count sc
-           WHERE fcnt.n > sc.total LIMIT 1`,
-          [isoDate, slotStart, slotEnd, clubId]
+        // Check a court is available (count-based, 6 courts total)
+        const { rows: [{ total_used }] } = await pool.query(
+          `SELECT
+             (SELECT COUNT(*) FROM coaching_sessions
+              WHERE date=$1 AND status='confirmed' AND club_id=$4
+                AND id != $5 AND start_time < $3::time AND end_time > $2::time) +
+             (SELECT COUNT(DISTINCT booking_group_id) FROM bookings
+              WHERE date=$1 AND status='confirmed' AND club_id=$4
+                AND start_time < $3::time AND end_time > $2::time) +
+             (SELECT COALESCE(SUM(num_courts), 0) FROM social_play_sessions
+              WHERE date=$1 AND status='open' AND club_id=$4
+                AND start_time < $3::time AND end_time > $2::time)
+           AS total_used`,
+          [isoDate, slotStart, slotEnd, clubId, excludeSessionId ?? 0]
         )
-        if (free.length) {
+        if (Number(total_used) < 6) {
           slots.push({ date: isoDate, start_time: slotStart, end_time: slotEnd })
         }
         cursor += 30

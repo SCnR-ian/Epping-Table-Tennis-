@@ -1458,7 +1458,20 @@ async function executeTool(name, input, clubId, adminId) {
                 `SELECT 1 FROM coaching_sessions WHERE coach_id=$1 AND date=$2 AND status='confirmed' AND club_id=$3 AND id!=$4 AND start_time<$6::time AND end_time>$5::time LIMIT 1`,
                 [coach.id, isoDate, clubId, session.id, ss, se]
               )
-              if (!busy.length) slots.push({ date: isoDate, start_time: ss, end_time: se })
+              if (busy.length) { cursor += 30; continue }
+              // Check court availability (count-based)
+              const { rows: [{ total_used }] } = await pool.query(
+                `SELECT
+                   (SELECT COUNT(*) FROM coaching_sessions WHERE date=$1 AND status='confirmed' AND club_id=$4
+                      AND id!=$5 AND start_time<$3::time AND end_time>$2::time) +
+                   (SELECT COUNT(DISTINCT booking_group_id) FROM bookings WHERE date=$1 AND status='confirmed' AND club_id=$4
+                      AND start_time<$3::time AND end_time>$2::time) +
+                   (SELECT COALESCE(SUM(num_courts),0) FROM social_play_sessions WHERE date=$1 AND status='open' AND club_id=$4
+                      AND start_time<$3::time AND end_time>$2::time)
+                 AS total_used`,
+                [isoDate, ss, se, clubId, session.id]
+              )
+              if (Number(total_used) < 6) slots.push({ date: isoDate, start_time: ss, end_time: se })
               cursor += 30
             }
           }
