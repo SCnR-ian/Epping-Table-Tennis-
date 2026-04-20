@@ -408,6 +408,56 @@ const TOOLS = [
       required: ['title', 'body'],
     },
   },
+  // ── Group sessions ──
+  {
+    name: 'list_group_sessions',
+    description: 'List group coaching sessions with their students.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date:         { type: 'string', description: 'YYYY-MM-DD — specific date (optional)' },
+        include_past: { type: 'boolean', description: 'Include past sessions (default false)' },
+      },
+    },
+  },
+  {
+    name: 'merge_into_group',
+    description: 'Merge multiple individual 1-on-1 coaching sessions into one group session. Sessions must have the same coach, date, and time.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        session_ids: {
+          type: 'array',
+          items: { type: 'number' },
+          description: 'IDs of the individual sessions to merge into a group (2–5)',
+        },
+      },
+      required: ['session_ids'],
+    },
+  },
+  {
+    name: 'split_from_group',
+    description: 'Remove a student from a group session, converting their session to 1-on-1.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        session_id: { type: 'number', description: 'The session row ID to split out from the group' },
+      },
+      required: ['session_id'],
+    },
+  },
+  {
+    name: 'add_to_group',
+    description: 'Move a student from their individual 1-on-1 session into an existing group session at the same time. Cancels the individual session.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        individual_session_id: { type: 'number', description: "Session ID of the student's current 1-on-1 session" },
+        group_id:              { type: 'string', description: 'The group_id UUID of the target group session' },
+      },
+      required: ['individual_session_id', 'group_id'],
+    },
+  },
   // ── Bulk operations ──
   {
     name: 'cancel_sessions_on_date',
@@ -1063,6 +1113,117 @@ async function executeTool(name, input, clubId, adminId) {
         [input.title, input.body, clubId]
       )
       return `✅ Announcement sent: "${input.title}"`
+    }
+
+    // ── Group sessions ───────────────────────────────────────────────────────
+
+    case 'list_group_sessions': {
+      let q = `SELECT cs.group_id, cs.date, cs.start_time, cs.end_time,
+                      co.name AS coach_name,
+                      array_agg(u.name ORDER BY u.name) AS students,
+                      array_agg(cs.id  ORDER BY u.name) AS session_ids
+               FROM coaching_sessions cs
+               JOIN coaches co ON co.id = cs.coach_id
+               JOIN users   u  ON u.id  = cs.student_id
+               WHERE cs.status='confirmed' AND cs.club_id=$1 AND cs.group_id IS NOT NULL`
+      const params = [clubId]
+      if (input.date) {
+        q += ` AND cs.date=$${params.length+1}`; params.push(input.date)
+      } else if (!input.include_past) {
+        q += ` AND cs.date >= CURRENT_DATE`
+      }
+      q += ` GROUP BY cs.group_id, cs.date, cs.start_time, cs.end_time, co.name
+             ORDER BY cs.date, cs.start_time LIMIT 30`
+      const { rows } = await pool.query(q, params)
+      if (!rows.length) return 'No group sessions found.'
+      return rows.map(r =>
+        `[group: ${r.group_id.slice(0,8)}…] ${fmtDate(r.date)} ${fmtTime(r.start_time)}–${fmtTime(r.end_time)} | ${r.coach_name} | Students: ${r.students.join(', ')} | Session IDs: ${r.session_ids.join(', ')}`
+      ).join('\n')
+    }
+
+    case 'merge_into_group': {
+      if (!input.session_ids || input.session_ids.length < 2) return '❌ Need at least 2 session IDs to form a group.'
+      if (input.session_ids.length > 5) return '❌ Maximum 5 students per group.'
+      // Fetch all sessions
+      const { rows: sessions } = await pool.query(
+        `SELECT cs.*, u.name AS student_name, co.name AS coach_name
+         FROM coaching_sessions cs
+         JOIN users u ON u.id = cs.student_id
+         JOIN coaches co ON co.id = cs.coach_id
+         WHERE cs.id = ANY($1) AND cs.club_id=$2 AND cs.status='confirmed'`,
+        [input.session_ids, clubId]
+      )
+      if (sessions.length !== input.session_ids.length) return '❌ One or more sessions not found or not confirmed.'
+      // Validate same coach, date, time
+      const coach = sessions[0].coach_id
+      const date  = typeof sessions[0].date === 'string' ? sessions[0].date.slice(0,10) : new Date(sessions[0].date).toISOString().slice(0,10)
+      const start = sessions[0].start_time.slice(0,5)
+      const end   = sessions[0].end_time.slice(0,5)
+      for (const s of sessions) {
+        const sDate = typeof s.date === 'string' ? s.date.slice(0,10) : new Date(s.date).toISOString().slice(0,10)
+        if (s.coach_id !== coach) return `❌ All sessions must have the same coach. ${sessions[0].coach_name} ≠ ${s.coach_name}`
+        if (sDate !== date)        return `❌ All sessions must be on the same date.`
+        if (s.start_time.slice(0,5) !== start || s.end_time.slice(0,5) !== end)
+          return `❌ All sessions must have the same time.`
+        if (s.group_id) return `❌ Session ${s.id} (${s.student_name}) is already in a group.`
+      }
+      const { randomUUID } = require('crypto')
+      const groupId = randomUUID()
+      await pool.query(
+        `UPDATE coaching_sessions SET group_id=$1 WHERE id = ANY($2) AND club_id=$3`,
+        [groupId, input.session_ids, clubId]
+      )
+      return `✅ Merged ${sessions.length} sessions into group [${groupId.slice(0,8)}…]:\n${sessions.map(s => `  • ${s.student_name}`).join('\n')}\nDate: ${fmtDate(date)} ${fmtTime(start)}–${fmtTime(end)} with ${sessions[0].coach_name}`
+    }
+
+    case 'split_from_group': {
+      const { rows: [s] } = await pool.query(
+        `SELECT cs.*, u.name AS student_name, co.name AS coach_name
+         FROM coaching_sessions cs
+         JOIN users u ON u.id = cs.student_id
+         JOIN coaches co ON co.id = cs.coach_id
+         WHERE cs.id=$1 AND cs.club_id=$2 AND cs.status='confirmed'`,
+        [input.session_id, clubId]
+      )
+      if (!s) return '❌ Session not found.'
+      if (!s.group_id) return `❌ Session ${input.session_id} (${s.student_name}) is already a 1-on-1.`
+      await pool.query(`UPDATE coaching_sessions SET group_id=NULL WHERE id=$1`, [input.session_id])
+      const date = typeof s.date === 'string' ? s.date.slice(0,10) : new Date(s.date).toISOString().slice(0,10)
+      return `✅ ${s.student_name}'s session split out from group — now a 1-on-1 with ${s.coach_name} on ${fmtDate(date)} ${fmtTime(s.start_time)}–${fmtTime(s.end_time)}.`
+    }
+
+    case 'add_to_group': {
+      // Fetch the individual session
+      const { rows: [ind] } = await pool.query(
+        `SELECT cs.*, u.name AS student_name
+         FROM coaching_sessions cs JOIN users u ON u.id = cs.student_id
+         WHERE cs.id=$1 AND cs.club_id=$2 AND cs.status='confirmed'`,
+        [input.individual_session_id, clubId]
+      )
+      if (!ind) return '❌ Individual session not found.'
+      if (ind.group_id) return `❌ Session ${input.individual_session_id} is already in a group.`
+      // Verify target group exists at same time/date/coach
+      const { rows: groupSessions } = await pool.query(
+        `SELECT cs.*, u.name AS student_name
+         FROM coaching_sessions cs JOIN users u ON u.id = cs.student_id
+         WHERE cs.group_id=$1 AND cs.club_id=$2 AND cs.status='confirmed' LIMIT 5`,
+        [input.group_id, clubId]
+      )
+      if (!groupSessions.length) return `❌ Group ${input.group_id} not found.`
+      if (groupSessions.length >= 5) return '❌ Group already has 5 students (maximum).'
+      const g = groupSessions[0]
+      const indDate  = typeof ind.date  === 'string' ? ind.date.slice(0,10)  : new Date(ind.date).toISOString().slice(0,10)
+      const grpDate  = typeof g.date === 'string' ? g.date.slice(0,10) : new Date(g.date).toISOString().slice(0,10)
+      if (ind.coach_id !== g.coach_id) return `❌ Coach mismatch — individual session has a different coach.`
+      if (indDate !== grpDate) return `❌ Date mismatch — sessions are on different dates.`
+      if (ind.start_time.slice(0,5) !== g.start_time.slice(0,5)) return `❌ Time mismatch — sessions start at different times.`
+      // Move individual session into the group
+      await pool.query(
+        `UPDATE coaching_sessions SET group_id=$1 WHERE id=$2`,
+        [input.group_id, input.individual_session_id]
+      )
+      const allStudents = [...groupSessions.map(s => s.student_name), ind.student_name]
+      return `✅ ${ind.student_name} added to group session.\nGroup now: ${allStudents.join(', ')}`
     }
 
     // ── Bulk operations ──────────────────────────────────────────────────────
