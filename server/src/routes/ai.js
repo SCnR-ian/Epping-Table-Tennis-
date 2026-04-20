@@ -777,13 +777,44 @@ async function executeTool(name, input, clubId, adminId) {
         if (!coachName) { const { rows: c } = await pool.query(`SELECT name FROM coaches WHERE id=$1`, [coachId]); coachName = c[0]?.name }
         return `❌ Conflict: ${coachName} already has a session with ${coachBusy[0].student_name} at ${fmtTime(coachBusy[0].start_time)}–${fmtTime(coachBusy[0].end_time)} on ${fmtDate(input.date)}.`
       }
-      // Student conflict check
+      // Coach booking + social conflict
+      const { rows: [coachRow] } = await pool.query(`SELECT user_id FROM coaches WHERE id=$1 AND club_id=$2`, [coachId, clubId])
+      const coachUserId = coachRow?.user_id
+      if (coachUserId) {
+        const { rows: cBook } = await pool.query(
+          `SELECT 1 FROM bookings WHERE user_id=$1 AND date=$2 AND status='confirmed' AND club_id=$3
+             AND start_time < $5::time AND end_time > $4::time LIMIT 1`,
+          [coachUserId, input.date, clubId, input.start_time, input.end_time]
+        )
+        if (cBook.length) return `❌ Conflict: Coach ${coachName} has a court booking at that time on ${fmtDate(input.date)}.`
+        const { rows: cSocial } = await pool.query(
+          `SELECT 1 FROM social_play_sessions sps JOIN social_play_participants spp ON spp.session_id=sps.id
+           WHERE spp.user_id=$1 AND sps.date=$2 AND sps.status='open' AND sps.club_id=$3
+             AND sps.start_time < $5::time AND sps.end_time > $4::time LIMIT 1`,
+          [coachUserId, input.date, clubId, input.start_time, input.end_time]
+        )
+        if (cSocial.length) return `❌ Conflict: Coach ${coachName} is in a social play session at that time on ${fmtDate(input.date)}.`
+      }
+      // Student conflict check (coaching + booking + social)
       const { rows: stdBusy } = await pool.query(
         `SELECT 1 FROM coaching_sessions WHERE student_id=$1 AND date=$2 AND status='confirmed' AND club_id=$3
            AND start_time < $5::time AND end_time > $4::time LIMIT 1`,
         [input.student_id, input.date, clubId, input.start_time, input.end_time]
       )
       if (stdBusy.length) return `❌ Student already has another coaching session at that time on ${fmtDate(input.date)}.`
+      const { rows: stdBook } = await pool.query(
+        `SELECT 1 FROM bookings WHERE user_id=$1 AND date=$2 AND status='confirmed' AND club_id=$3
+           AND start_time < $5::time AND end_time > $4::time LIMIT 1`,
+        [input.student_id, input.date, clubId, input.start_time, input.end_time]
+      )
+      if (stdBook.length) return `❌ Student already has a court booking at that time on ${fmtDate(input.date)}.`
+      const { rows: stdSocial } = await pool.query(
+        `SELECT 1 FROM social_play_sessions sps JOIN social_play_participants spp ON spp.session_id=sps.id
+         WHERE spp.user_id=$1 AND sps.date=$2 AND sps.status='open' AND sps.club_id=$3
+           AND sps.start_time < $5::time AND sps.end_time > $4::time LIMIT 1`,
+        [input.student_id, input.date, clubId, input.start_time, input.end_time]
+      )
+      if (stdSocial.length) return `❌ Student is signed up for social play at that time on ${fmtDate(input.date)}.`
       // Court availability (count-based, 6 courts total)
       const { rows: [{ total_used }] } = await pool.query(
         `SELECT
@@ -834,13 +865,44 @@ async function executeTool(name, input, clubId, adminId) {
       if (coachBusy.length) {
         return `❌ Conflict: Coach ${sess.coach_name} already has a session with ${coachBusy[0].student_name} at ${fmtTime(coachBusy[0].start_time)}–${fmtTime(coachBusy[0].end_time)} on ${fmtDate(newDate)}. Please choose a different time.`
       }
-      // Student conflict check (exclude the session being rescheduled)
+      // Coach booking + social conflict
+      const { rows: [coachRowR] } = await pool.query(`SELECT user_id FROM coaches WHERE id=$1 AND club_id=$2`, [sess.coach_id, clubId])
+      const coachUserIdR = coachRowR?.user_id
+      if (coachUserIdR) {
+        const { rows: cBookR } = await pool.query(
+          `SELECT 1 FROM bookings WHERE user_id=$1 AND date=$2 AND status='confirmed' AND club_id=$3
+             AND start_time < $5::time AND end_time > $4::time LIMIT 1`,
+          [coachUserIdR, newDate, clubId, input.start_time, input.end_time]
+        )
+        if (cBookR.length) return `❌ Conflict: Coach ${sess.coach_name} has a court booking at that time on ${fmtDate(newDate)}.`
+        const { rows: cSocialR } = await pool.query(
+          `SELECT 1 FROM social_play_sessions sps JOIN social_play_participants spp ON spp.session_id=sps.id
+           WHERE spp.user_id=$1 AND sps.date=$2 AND sps.status='open' AND sps.club_id=$3
+             AND sps.start_time < $5::time AND sps.end_time > $4::time LIMIT 1`,
+          [coachUserIdR, newDate, clubId, input.start_time, input.end_time]
+        )
+        if (cSocialR.length) return `❌ Conflict: Coach ${sess.coach_name} is in a social play session at that time on ${fmtDate(newDate)}.`
+      }
+      // Student conflict check (coaching + booking + social, exclude the session being rescheduled)
       const { rows: stdBusyR } = await pool.query(
         `SELECT 1 FROM coaching_sessions WHERE student_id=$1 AND date=$2 AND status='confirmed' AND club_id=$3
            AND id != $6 AND start_time < $5::time AND end_time > $4::time LIMIT 1`,
         [sess.student_id, newDate, clubId, input.start_time, input.end_time, input.session_id]
       )
       if (stdBusyR.length) return `❌ ${sess.student_name} already has another coaching session at that time on ${fmtDate(newDate)}.`
+      const { rows: stdBookR } = await pool.query(
+        `SELECT 1 FROM bookings WHERE user_id=$1 AND date=$2 AND status='confirmed' AND club_id=$3
+           AND start_time < $5::time AND end_time > $4::time LIMIT 1`,
+        [sess.student_id, newDate, clubId, input.start_time, input.end_time]
+      )
+      if (stdBookR.length) return `❌ ${sess.student_name} already has a court booking at that time on ${fmtDate(newDate)}.`
+      const { rows: stdSocialR } = await pool.query(
+        `SELECT 1 FROM social_play_sessions sps JOIN social_play_participants spp ON spp.session_id=sps.id
+         WHERE spp.user_id=$1 AND sps.date=$2 AND sps.status='open' AND sps.club_id=$3
+           AND sps.start_time < $5::time AND sps.end_time > $4::time LIMIT 1`,
+        [sess.student_id, newDate, clubId, input.start_time, input.end_time]
+      )
+      if (stdSocialR.length) return `❌ ${sess.student_name} is signed up for social play at that time on ${fmtDate(newDate)}.`
       // Court availability (count-based, exclude the session being moved)
       const { rows: [{ total_used: resUsed }] } = await pool.query(
         `SELECT
