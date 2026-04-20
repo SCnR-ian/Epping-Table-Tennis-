@@ -167,6 +167,8 @@ export const coachingAPI = {
   getMyHistory:        ()          => api.get('/coaching/my-history'),
   getStudentPrices:    (userId)    => api.get(`/coaching/student-prices/${userId}`),
   updateStudentPrices: (userId, data) => api.put(`/coaching/student-prices/${userId}`, data),
+  // Coach leave
+  processCoachLeave:   (data)     => api.post('/coaching/coach-leave', data),
   // Leave requests
   createLeaveRequest:  (data)     => api.post('/coaching/leave-requests', data),
   approveLeaveRequest: (id)       => api.post(`/coaching/leave-requests/${id}/approve`),

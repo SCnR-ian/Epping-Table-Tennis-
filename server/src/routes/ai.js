@@ -458,6 +458,20 @@ const TOOLS = [
     },
   },
   {
+    name: 'process_coach_leave',
+    description: 'Process coach leave: cancels sessions on the given date(s) and sends each affected student a message with makeup slot options to pick from. Students select their slot via the chat.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        coach_user_id: { type: 'number', description: 'User ID of the coach taking leave' },
+        date_from:     { type: 'string', description: 'YYYY-MM-DD leave start date' },
+        date_to:       { type: 'string', description: 'YYYY-MM-DD leave end date (optional, defaults to date_from for a single day)' },
+        reason:        { type: 'string', description: 'Reason shown to students (optional)' },
+      },
+      required: ['coach_user_id', 'date_from'],
+    },
+  },
+  {
     name: 'cancel_coach_sessions',
     description: 'Cancel all upcoming sessions for a specific coach. Optionally limit to a date or date range.',
     input_schema: {
@@ -1097,6 +1111,89 @@ async function executeTool(name, input, clubId, adminId) {
       return rows.length
         ? `✅ Cancelled ${rows.length} social session${rows.length > 1 ? 's' : ''} from ${fmtDate(input.date_from)} to ${fmtDate(input.date_to)}.`
         : `No open social sessions found in that range.`
+    }
+
+    case 'process_coach_leave': {
+      const axios = require('axios')
+      // Call the coaching route directly via internal logic
+      const { rows: [coach] } = await pool.query(
+        `SELECT co.id, co.name FROM coaches co WHERE co.user_id=$1 AND co.club_id=$2`,
+        [input.coach_user_id, clubId]
+      )
+      if (!coach) return '❌ Coach not found. Use list_coaches to verify the user ID.'
+
+      const dateTo = input.date_to || input.date_from
+      const { rows: sessions } = await pool.query(
+        `SELECT cs.*, u.name AS student_name
+         FROM coaching_sessions cs JOIN users u ON u.id = cs.student_id
+         WHERE cs.coach_id=$1 AND cs.status='confirmed' AND cs.club_id=$2
+           AND cs.date >= $3 AND cs.date <= $4
+         ORDER BY cs.date, cs.start_time`,
+        [coach.id, clubId, input.date_from, dateTo]
+      )
+      if (!sessions.length) return `No confirmed sessions found for ${coach.name} in that period.`
+
+      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
+      const processed = []
+
+      for (const session of sessions) {
+        const { rows: existing } = await pool.query(
+          `SELECT 1 FROM session_leave_requests WHERE session_id=$1 AND status IN ('pending','approved') LIMIT 1`,
+          [session.id]
+        )
+        if (existing.length) continue
+
+        const [sh, sm] = session.start_time.slice(0,5).split(':').map(Number)
+        const [eh, em] = session.end_time.slice(0,5).split(':').map(Number)
+        const durationMins = (eh * 60 + em) - (sh * 60 + sm)
+
+        // Lazy-load getAvailableSlots from coaching route — replicate its DB logic inline
+        const { rows: schedule } = await pool.query(
+          `SELECT day, start_time, end_time FROM schedule WHERE is_active=TRUE AND club_id=$1`, [clubId]
+        )
+        const slots = []
+        const today = new Date(); today.setHours(0,0,0,0)
+        const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+        for (let d = 1; d <= 14 && slots.length < 20; d++) {
+          const date = new Date(today); date.setDate(today.getDate() + d)
+          const isoDate = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`
+          const openWindows = schedule.filter(s => s.day === dayNames[date.getDay()])
+          for (const win of openWindows) {
+            const [wsh,wsm] = win.start_time.slice(0,5).split(':').map(Number)
+            const [weh,wem] = win.end_time.slice(0,5).split(':').map(Number)
+            let cursor = wsh*60+wsm
+            while (cursor + durationMins <= weh*60+wem && slots.length < 20) {
+              const ss = `${String(Math.floor(cursor/60)).padStart(2,'0')}:${String(cursor%60).padStart(2,'0')}:00`
+              const se = `${String(Math.floor((cursor+durationMins)/60)).padStart(2,'0')}:${String((cursor+durationMins)%60).padStart(2,'0')}:00`
+              const { rows: busy } = await pool.query(
+                `SELECT 1 FROM coaching_sessions WHERE coach_id=$1 AND date=$2 AND status='confirmed' AND club_id=$3 AND id!=$4 AND start_time<$6::time AND end_time>$5::time LIMIT 1`,
+                [coach.id, isoDate, clubId, session.id, ss, se]
+              )
+              if (!busy.length) slots.push({ date: isoDate, start_time: ss, end_time: se })
+              cursor += 30
+            }
+          }
+        }
+
+        const { rows: [lr] } = await pool.query(
+          `INSERT INTO session_leave_requests (session_id, student_id, club_id, reason, status, expires_at, resolved_by)
+           VALUES ($1,$2,$3,$4,'approved',$5,$6) RETURNING id`,
+          [session.id, session.student_id, clubId, input.reason || `${coach.name} leave`, expiresAt, adminId]
+        )
+        const timeRange = `${fmtTime(session.start_time)} – ${fmtTime(session.end_time)}`
+        const msgBody = `📅 Your session with ${coach.name} on ${fmtDate(session.date)} (${timeRange}) has been cancelled due to coach leave.\n\nPlease choose a makeup time within 48 hours:${slots.length === 0 ? '\n\n(No slots found. Please contact us directly.)' : ''}`
+        const { rows: [msg] } = await pool.query(
+          `INSERT INTO messages (sender_id, recipient_id, body, metadata) VALUES ($1,$2,$3,$4) RETURNING id`,
+          [adminId, session.student_id, msgBody, JSON.stringify({ type: 'slot_options', request_id: lr.id, slots, expires_at: expiresAt })]
+        )
+        await pool.query('INSERT INTO message_reads (message_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [msg.id, adminId])
+        await pool.query(`DELETE FROM message_thread_hidden WHERE (user_id=$1 AND other_user_id=$2) OR (user_id=$2 AND other_user_id=$1)`, [adminId, session.student_id])
+        processed.push(session.student_name)
+      }
+
+      return processed.length
+        ? `✅ Processed ${processed.length} session${processed.length > 1 ? 's' : ''} for ${coach.name} (${input.date_from}${dateTo !== input.date_from ? ' to '+dateTo : ''}).\nStudents notified: ${processed.join(', ')}`
+        : `All sessions already have pending leave requests.`
     }
 
     case 'cancel_coach_sessions': {

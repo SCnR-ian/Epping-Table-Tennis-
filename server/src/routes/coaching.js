@@ -2159,4 +2159,102 @@ router.post('/leave-requests/:id/select-slot', requireAuth, async (req, res) => 
   } finally { client.release() }
 })
 
+// POST /api/coaching/coach-leave  (admin)
+// Admin triggers coach leave → creates approved leave requests for each affected student
+// body: { coach_user_id, date_from, date_to?, reason? }
+router.post('/coach-leave', requireAuth, requireAdmin, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  const { coach_user_id, date_from, date_to, reason } = req.body
+  if (!coach_user_id || !date_from) return res.status(400).json({ message: 'coach_user_id and date_from are required.' })
+
+  try {
+    // Resolve coach
+    const { rows: [coach] } = await pool.query(
+      `SELECT co.id, co.name FROM coaches co WHERE co.user_id=$1 AND co.club_id=$2`,
+      [coach_user_id, clubId]
+    )
+    if (!coach) return res.status(404).json({ message: 'Coach not found.' })
+
+    // Find all confirmed sessions for this coach in the date range
+    const { rows: sessions } = await pool.query(
+      `SELECT cs.*, u.name AS student_name
+       FROM coaching_sessions cs
+       JOIN users u ON u.id = cs.student_id
+       WHERE cs.coach_id=$1 AND cs.status='confirmed' AND cs.club_id=$2
+         AND cs.date >= $3 AND cs.date <= $4
+       ORDER BY cs.date, cs.start_time`,
+      [coach.id, clubId, date_from, date_to || date_from]
+    )
+
+    if (!sessions.length) {
+      return res.json({ message: 'No confirmed sessions found in that date range.', processed: 0 })
+    }
+
+    const results = []
+    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
+
+    for (const session of sessions) {
+      // Skip if already has an active leave request
+      const { rows: existing } = await pool.query(
+        `SELECT 1 FROM session_leave_requests
+         WHERE session_id=$1 AND status IN ('pending','approved') LIMIT 1`,
+        [session.id]
+      )
+      if (existing.length) continue
+
+      // Compute session duration in minutes
+      const [sh, sm] = session.start_time.slice(0,5).split(':').map(Number)
+      const [eh, em] = session.end_time.slice(0,5).split(':').map(Number)
+      const durationMins = (eh * 60 + em) - (sh * 60 + sm)
+
+      // Find available makeup slots
+      const slots = await getAvailableSlots(clubId, coach.id, durationMins, session.id)
+
+      // Create an already-approved leave request
+      const { rows: [lr] } = await pool.query(
+        `INSERT INTO session_leave_requests
+           (session_id, student_id, club_id, reason, status, expires_at, resolved_by)
+         VALUES ($1, $2, $3, $4, 'approved', $5, $6)
+         RETURNING id`,
+        [session.id, session.student_id, clubId, reason || `${coach.name} leave`, expiresAt, req.user.id]
+      )
+
+      // Build message body
+      const timeRange = `${fmtTime(session.start_time)} – ${fmtTime(session.end_time)}`
+      let msgBody = `📅 Your session with ${coach.name} on ${fmtDate(session.date)} (${timeRange}) has been cancelled due to coach leave.\n\nPlease choose a makeup time within 48 hours:`
+      if (slots.length === 0) {
+        msgBody += '\n\n(No available slots found. Please contact us to arrange an alternative.)'
+      }
+
+      // Send slot options message to student
+      const { rows: [msg] } = await pool.query(
+        `INSERT INTO messages (sender_id, recipient_id, body, metadata)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [req.user.id, session.student_id, msgBody,
+         JSON.stringify({ type: 'slot_options', request_id: lr.id, slots, expires_at: expiresAt })]
+      )
+      await pool.query(
+        'INSERT INTO message_reads (message_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [msg.id, req.user.id]
+      )
+      await pool.query(
+        `DELETE FROM message_thread_hidden
+         WHERE (user_id=$1 AND other_user_id=$2) OR (user_id=$2 AND other_user_id=$1)`,
+        [req.user.id, session.student_id]
+      )
+
+      results.push({ session_id: session.id, student: session.student_name, slots_offered: slots.length })
+    }
+
+    res.json({
+      message: `Processed ${results.length} session${results.length !== 1 ? 's' : ''}. Students have been notified with makeup options.`,
+      processed: results.length,
+      results,
+    })
+  } catch (e) {
+    console.error('[coach-leave]', e)
+    res.status(500).json({ message: 'Server error.' })
+  }
+})
+
 module.exports = router
