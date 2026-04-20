@@ -239,7 +239,7 @@ async function executeTool(name, input, clubId, adminId) {
       )
       if (!s.length) return `❌ Session ${input.session_id} not found.`
       const sess = s[0]
-      const newDate = input.date ?? sess.date.toISOString().slice(0,10)
+      const newDate = input.date ?? (typeof sess.date === 'string' ? sess.date.slice(0,10) : new Date(sess.date).toISOString().slice(0,10))
       await pool.query(
         `UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3 WHERE id=$4`,
         [newDate, input.start_time, input.end_time, input.session_id]
