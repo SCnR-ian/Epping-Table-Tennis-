@@ -47,8 +47,8 @@ router.get('/available', async (req, res) => {
       [date, clubId]
     )
     const { rows: coachingSessions } = await pool.query(
-      `SELECT start_time, end_time FROM coaching_sessions
-       WHERE date=$1 AND status='confirmed' AND club_id=$2`,
+      `SELECT DISTINCT COALESCE(group_id::text, id::text) AS key, start_time, end_time
+       FROM coaching_sessions WHERE date=$1 AND status='confirmed' AND club_id=$2`,
       [date, clubId]
     )
     const { rows: socialSessions } = await pool.query(
@@ -221,7 +221,7 @@ router.post('/', requireAuth, async (req, res) => {
     // Court availability: count-based (6 courts total)
     const { rows: [{ total_used }] } = await client.query(
       `SELECT
-         (SELECT COUNT(*) FROM coaching_sessions
+         (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions
           WHERE date=$1 AND status='confirmed' AND club_id=$4
             AND start_time < $3::time AND end_time > $2::time) +
          (SELECT COUNT(DISTINCT booking_group_id) FROM bookings

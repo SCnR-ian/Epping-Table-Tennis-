@@ -162,7 +162,7 @@ router.get('/sessions', requireAuth, requireAdmin, async (req, res) => {
        FROM coaching_sessions cs
        JOIN coaches c  ON c.id  = cs.coach_id
        JOIN users   u  ON u.id  = cs.student_id
-       JOIN courts  ct ON ct.id = cs.court_id
+       LEFT JOIN courts  ct ON ct.id = cs.court_id
        LEFT JOIN coaching_reviews cr ON cr.session_id = cs.id
        WHERE cs.status = 'confirmed'
          AND cs.club_id = $1
@@ -455,7 +455,7 @@ router.get('/sessions/groups', requireAuth, requireAdmin, async (req, res) => {
        FROM coaching_sessions cs
        JOIN coaches co ON co.id  = cs.coach_id
        JOIN users   u  ON u.id   = cs.student_id
-       JOIN courts  ct ON ct.id  = cs.court_id
+       LEFT JOIN courts  ct ON ct.id  = cs.court_id
        WHERE cs.status = 'confirmed'
          AND cs.club_id = $1
          AND cs.group_id IS NOT NULL
@@ -962,7 +962,7 @@ router.get('/payment-report', requireAuth, requireAdmin, async (req, res) => {
        FROM coaching_sessions cs
        JOIN coaches co ON co.id  = cs.coach_id
        JOIN users   u  ON u.id   = cs.student_id
-       JOIN courts  ct ON ct.id  = cs.court_id
+       LEFT JOIN courts  ct ON ct.id  = cs.court_id
        WHERE cs.status = 'confirmed'
          AND cs.club_id = $3
          AND cs.date >= $1 AND cs.date <= $2
@@ -1076,7 +1076,7 @@ router.get('/my-coach-sessions', requireAuth, async (req, res) => {
          cr.student_submitted_at    AS student_submitted_at
        FROM coaching_sessions cs
        JOIN users  u  ON u.id  = cs.student_id
-       JOIN courts ct ON ct.id = cs.court_id
+       LEFT JOIN courts ct ON ct.id = cs.court_id
        LEFT JOIN coaching_reviews cr ON cr.session_id = cs.id
        WHERE cs.coach_id = $1
          AND cs.status = 'confirmed'
@@ -1165,7 +1165,7 @@ async function checkAndAssignCourt(client, session, sessionDate, newStart, newEn
   // ── court availability: count-based (6 courts total) ───────────────────────
   const { rows: [usage] } = await client.query(
     `SELECT
-       (SELECT COUNT(*) FROM coaching_sessions
+       (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions
         WHERE date=$1 AND status='confirmed' AND club_id=$4
           AND NOT (id = ANY($5::int[]))
           AND ($6::uuid IS NULL OR group_id IS DISTINCT FROM $6)
@@ -1486,7 +1486,7 @@ router.get('/my', requireAuth, async (req, res) => {
          ) AS has_pending_leave
        FROM coaching_sessions cs
        JOIN coaches c  ON c.id  = cs.coach_id
-       JOIN courts  ct ON ct.id = cs.court_id
+       LEFT JOIN courts  ct ON ct.id = cs.court_id
        LEFT JOIN series_counts sc ON sc.recurrence_id = cs.recurrence_id
        WHERE cs.student_id = $1
          AND cs.club_id = $2
@@ -1878,7 +1878,7 @@ async function getAvailableSlots(clubId, coachId, durationMins, excludeSessionId
         // Check a court is available (count-based, 6 courts total)
         const { rows: [{ total_used }] } = await pool.query(
           `SELECT
-             (SELECT COUNT(*) FROM coaching_sessions
+             (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions
               WHERE date=$1 AND status='confirmed' AND club_id=$4
                 AND id != $5 AND start_time < $3::time AND end_time > $2::time) +
              (SELECT COUNT(DISTINCT booking_group_id) FROM bookings

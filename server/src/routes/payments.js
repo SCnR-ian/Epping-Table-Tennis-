@@ -74,7 +74,7 @@ router.post('/create-intent', requireAuth, async (req, res) => {
     // Check courts still available (count-based)
     const { rows: [{ total_used }] } = await pool.query(
       `SELECT
-         (SELECT COUNT(*) FROM coaching_sessions
+         (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions
           WHERE date=$1 AND status='confirmed' AND club_id=$4
             AND start_time < $3::time AND end_time > $2::time) +
          (SELECT COUNT(DISTINCT booking_group_id) FROM bookings
@@ -153,7 +153,7 @@ router.post('/confirm', requireAuth, async (req, res) => {
     // Check no one else took the last court while the user was paying
     const { rows: [{ total_used }] } = await client.query(
       `SELECT
-         (SELECT COUNT(*) FROM coaching_sessions
+         (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions
           WHERE date=$1 AND status='confirmed' AND club_id=$4
             AND start_time < $3::time AND end_time > $2::time) +
          (SELECT COUNT(DISTINCT booking_group_id) FROM bookings

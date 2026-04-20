@@ -822,7 +822,7 @@ async function executeTool(name, input, clubId, adminId) {
       // Court availability (count-based, 6 courts total)
       const { rows: [{ total_used }] } = await pool.query(
         `SELECT
-           (SELECT COUNT(*) FROM coaching_sessions WHERE date=$1 AND status='confirmed' AND club_id=$4
+           (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions WHERE date=$1 AND status='confirmed' AND club_id=$4
               AND start_time < $3::time AND end_time > $2::time) +
            (SELECT COUNT(DISTINCT booking_group_id) FROM bookings WHERE date=$1 AND status='confirmed' AND club_id=$4
               AND start_time < $3::time AND end_time > $2::time) +
@@ -913,7 +913,7 @@ async function executeTool(name, input, clubId, adminId) {
       // Court availability (count-based, exclude the session being moved)
       const { rows: [{ total_used: resUsed }] } = await pool.query(
         `SELECT
-           (SELECT COUNT(*) FROM coaching_sessions WHERE date=$1 AND status='confirmed' AND club_id=$4
+           (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions WHERE date=$1 AND status='confirmed' AND club_id=$4
               AND id != $5 AND start_time < $3::time AND end_time > $2::time) +
            (SELECT COUNT(DISTINCT booking_group_id) FROM bookings WHERE date=$1 AND status='confirmed' AND club_id=$4
               AND start_time < $3::time AND end_time > $2::time) +
@@ -1004,7 +1004,7 @@ async function executeTool(name, input, clubId, adminId) {
                       b.status, u.name AS user_name, c.name AS court_name
                FROM bookings b
                JOIN users u ON u.id = b.user_id
-               JOIN courts c ON c.id = b.court_id
+               LEFT JOIN courts c ON c.id = b.court_id
                WHERE b.status='confirmed' AND b.club_id=$1 AND b.date=$2`
       const params = [clubId, date]
       if (input.search) { q += ` AND u.name ILIKE $${params.length+1}`; params.push(`%${input.search}%`) }
@@ -1462,7 +1462,7 @@ async function executeTool(name, input, clubId, adminId) {
               // Check court availability (count-based)
               const { rows: [{ total_used }] } = await pool.query(
                 `SELECT
-                   (SELECT COUNT(*) FROM coaching_sessions WHERE date=$1 AND status='confirmed' AND club_id=$4
+                   (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions WHERE date=$1 AND status='confirmed' AND club_id=$4
                       AND id!=$5 AND start_time<$3::time AND end_time>$2::time) +
                    (SELECT COUNT(DISTINCT booking_group_id) FROM bookings WHERE date=$1 AND status='confirmed' AND club_id=$4
                       AND start_time<$3::time AND end_time>$2::time) +
