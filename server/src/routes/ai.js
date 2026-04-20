@@ -231,6 +231,37 @@ const TOOLS = [
   },
   // ── Social Play ──
   {
+    name: 'update_social_session',
+    description: 'Update a single social play session (title, time, courts, max players).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        session_id:  { type: 'number' },
+        start_time:  { type: 'string', description: 'HH:MM (24h)' },
+        end_time:    { type: 'string', description: 'HH:MM (24h)' },
+        title:       { type: 'string' },
+        num_courts:  { type: 'number' },
+        max_players: { type: 'number' },
+      },
+      required: ['session_id'],
+    },
+  },
+  {
+    name: 'bulk_update_social_sessions',
+    description: 'Update time for all upcoming social play sessions on a specific weekday. Use this when the admin wants to change the regular time for e.g. all Tuesday sessions.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        weekday:    { type: 'string', description: 'Day of week: Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday' },
+        start_time: { type: 'string', description: 'New start time HH:MM (24h)' },
+        end_time:   { type: 'string', description: 'New end time HH:MM (24h)' },
+        title:      { type: 'string', description: 'New title (optional)' },
+        num_courts: { type: 'number', description: 'New number of courts (optional)' },
+      },
+      required: ['weekday', 'start_time', 'end_time'],
+    },
+  },
+  {
     name: 'list_social_sessions',
     description: 'List social play sessions. Defaults to upcoming sessions.',
     input_schema: {
@@ -710,6 +741,45 @@ async function executeTool(name, input, clubId, adminId) {
     }
 
     // ── Social Play ───────────────────────────────────────────────────────────
+
+    case 'update_social_session': {
+      const updates = [], values = []
+      if (input.start_time)  { updates.push(`start_time=$${values.length+1}`);  values.push(input.start_time) }
+      if (input.end_time)    { updates.push(`end_time=$${values.length+1}`);    values.push(input.end_time) }
+      if (input.title)       { updates.push(`title=$${values.length+1}`);       values.push(input.title) }
+      if (input.num_courts)  { updates.push(`num_courts=$${values.length+1}`);  values.push(input.num_courts) }
+      if (input.max_players) { updates.push(`max_players=$${values.length+1}`); values.push(input.max_players) }
+      if (!updates.length) return '❌ Nothing to update.'
+      values.push(input.session_id, clubId)
+      const { rows } = await pool.query(
+        `UPDATE social_play_sessions SET ${updates.join(', ')} WHERE id=$${values.length-1} AND club_id=$${values.length} RETURNING title, date`,
+        values
+      )
+      return rows.length ? `✅ Updated social session "${rows[0].title}" on ${fmtDate(rows[0].date)}.` : '❌ Session not found.'
+    }
+
+    case 'bulk_update_social_sessions': {
+      const dayMap = { monday:1, tuesday:2, wednesday:3, thursday:4, friday:5, saturday:6, sunday:0 }
+      const dow = dayMap[input.weekday.toLowerCase()]
+      if (dow === undefined) return `❌ Invalid weekday: ${input.weekday}`
+      const sets = [`start_time=$1`, `end_time=$2`]
+      const values = [input.start_time, input.end_time]
+      if (input.title)      { sets.push(`title=$${values.length+1}`);      values.push(input.title) }
+      if (input.num_courts) { sets.push(`num_courts=$${values.length+1}`); values.push(input.num_courts) }
+      values.push(dow, clubId)
+      const { rowCount } = await pool.query(
+        `UPDATE social_play_sessions
+         SET ${sets.join(', ')}
+         WHERE EXTRACT(DOW FROM date)=$${values.length-1}
+           AND date >= CURRENT_DATE
+           AND status = 'open'
+           AND club_id=$${values.length}`,
+        values
+      )
+      return rowCount
+        ? `✅ Updated ${rowCount} upcoming ${input.weekday} social session${rowCount > 1 ? 's' : ''} to ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}.`
+        : `No upcoming ${input.weekday} social sessions found.`
+    }
 
     case 'list_social_sessions': {
       let q = `SELECT s.id, s.title, s.date, s.start_time, s.end_time,
