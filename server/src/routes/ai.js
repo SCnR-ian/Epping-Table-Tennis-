@@ -408,6 +408,104 @@ const TOOLS = [
       required: ['title', 'body'],
     },
   },
+  // ── Bulk operations ──
+  {
+    name: 'cancel_sessions_on_date',
+    description: 'Cancel ALL coaching sessions on a specific date (e.g. public holiday, venue closure).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date:     { type: 'string', description: 'YYYY-MM-DD' },
+        coach_id: { type: 'number', description: 'Limit to a specific coach (optional)' },
+      },
+      required: ['date'],
+    },
+  },
+  {
+    name: 'cancel_sessions_in_range',
+    description: 'Cancel ALL coaching sessions within a date range (e.g. school holidays).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date_from: { type: 'string', description: 'YYYY-MM-DD start date (inclusive)' },
+        date_to:   { type: 'string', description: 'YYYY-MM-DD end date (inclusive)' },
+        coach_id:  { type: 'number', description: 'Limit to a specific coach (optional)' },
+      },
+      required: ['date_from', 'date_to'],
+    },
+  },
+  {
+    name: 'cancel_social_sessions_on_date',
+    description: 'Cancel ALL social play sessions on a specific date.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: 'YYYY-MM-DD' },
+      },
+      required: ['date'],
+    },
+  },
+  {
+    name: 'cancel_social_sessions_in_range',
+    description: 'Cancel ALL social play sessions within a date range.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date_from: { type: 'string', description: 'YYYY-MM-DD start date (inclusive)' },
+        date_to:   { type: 'string', description: 'YYYY-MM-DD end date (inclusive)' },
+      },
+      required: ['date_from', 'date_to'],
+    },
+  },
+  {
+    name: 'cancel_coach_sessions',
+    description: 'Cancel all upcoming sessions for a specific coach. Optionally limit to a date or date range.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        coach_user_id: { type: 'number', description: 'User ID of the coach' },
+        date_from:     { type: 'string', description: 'YYYY-MM-DD — only cancel from this date (optional)' },
+        date_to:       { type: 'string', description: 'YYYY-MM-DD — only cancel up to this date (optional)' },
+      },
+      required: ['coach_user_id'],
+    },
+  },
+  {
+    name: 'add_balance_to_coach_students',
+    description: 'Add coaching balance to all students of a specific coach.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        coach_user_id: { type: 'number', description: 'User ID of the coach' },
+        amount:        { type: 'number', description: 'Dollar amount to add' },
+        note:          { type: 'string', description: 'Reason or note (optional)' },
+      },
+      required: ['coach_user_id', 'amount'],
+    },
+  },
+  {
+    name: 'message_all_members',
+    description: 'Send a private message to every club member individually.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        body: { type: 'string', description: 'Message text to send to every member' },
+      },
+      required: ['body'],
+    },
+  },
+  {
+    name: 'notify_low_balance',
+    description: 'Send a private message to all members whose coaching balance is below a threshold.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        threshold: { type: 'number', description: 'Members with balance below this amount will be notified' },
+        message:   { type: 'string', description: 'Custom message to send (optional — a default reminder is used if omitted)' },
+      },
+      required: ['threshold'],
+    },
+  },
   // ── Reports ──
   {
     name: 'get_dashboard_stats',
@@ -951,6 +1049,130 @@ async function executeTool(name, input, clubId, adminId) {
         [input.title, input.body, clubId]
       )
       return `✅ Announcement sent: "${input.title}"`
+    }
+
+    // ── Bulk operations ──────────────────────────────────────────────────────
+
+    case 'cancel_sessions_on_date': {
+      let q = `UPDATE coaching_sessions SET status='cancelled'
+               WHERE date=$1 AND status='confirmed' AND club_id=$2`
+      const params = [input.date, clubId]
+      if (input.coach_id) { q += ` AND coach_id=$${params.length+1}`; params.push(input.coach_id) }
+      q += ' RETURNING id'
+      const { rows } = await pool.query(q, params)
+      return rows.length
+        ? `✅ Cancelled ${rows.length} session${rows.length > 1 ? 's' : ''} on ${fmtDate(input.date)}.`
+        : `No confirmed sessions found on ${fmtDate(input.date)}.`
+    }
+
+    case 'cancel_sessions_in_range': {
+      let q = `UPDATE coaching_sessions SET status='cancelled'
+               WHERE date BETWEEN $1 AND $2 AND status='confirmed' AND club_id=$3`
+      const params = [input.date_from, input.date_to, clubId]
+      if (input.coach_id) { q += ` AND coach_id=$${params.length+1}`; params.push(input.coach_id) }
+      q += ' RETURNING id'
+      const { rows } = await pool.query(q, params)
+      return rows.length
+        ? `✅ Cancelled ${rows.length} session${rows.length > 1 ? 's' : ''} from ${fmtDate(input.date_from)} to ${fmtDate(input.date_to)}.`
+        : `No confirmed sessions found in that range.`
+    }
+
+    case 'cancel_social_sessions_on_date': {
+      const { rows } = await pool.query(
+        `UPDATE social_play_sessions SET status='cancelled'
+         WHERE date=$1 AND status='open' AND club_id=$2 RETURNING id`,
+        [input.date, clubId]
+      )
+      return rows.length
+        ? `✅ Cancelled ${rows.length} social session${rows.length > 1 ? 's' : ''} on ${fmtDate(input.date)}.`
+        : `No open social sessions found on ${fmtDate(input.date)}.`
+    }
+
+    case 'cancel_social_sessions_in_range': {
+      const { rows } = await pool.query(
+        `UPDATE social_play_sessions SET status='cancelled'
+         WHERE date BETWEEN $1 AND $2 AND status='open' AND club_id=$3 RETURNING id`,
+        [input.date_from, input.date_to, clubId]
+      )
+      return rows.length
+        ? `✅ Cancelled ${rows.length} social session${rows.length > 1 ? 's' : ''} from ${fmtDate(input.date_from)} to ${fmtDate(input.date_to)}.`
+        : `No open social sessions found in that range.`
+    }
+
+    case 'cancel_coach_sessions': {
+      const { rows: cr } = await pool.query(
+        `SELECT id, name FROM coaches WHERE user_id=$1 AND club_id=$2`, [input.coach_user_id, clubId]
+      )
+      if (!cr[0]) return '❌ Coach not found.'
+      let q = `UPDATE coaching_sessions SET status='cancelled'
+               WHERE coach_id=$1 AND status='confirmed' AND club_id=$2 AND date >= CURRENT_DATE`
+      const params = [cr[0].id, clubId]
+      if (input.date_from) { q += ` AND date >= $${params.length+1}`; params.push(input.date_from) }
+      if (input.date_to)   { q += ` AND date <= $${params.length+1}`; params.push(input.date_to) }
+      q += ' RETURNING id'
+      const { rows } = await pool.query(q, params)
+      return rows.length
+        ? `✅ Cancelled ${rows.length} upcoming session${rows.length > 1 ? 's' : ''} for ${cr[0].name}.`
+        : `No upcoming confirmed sessions found for ${cr[0].name}.`
+    }
+
+    case 'add_balance_to_coach_students': {
+      const { rows: cr } = await pool.query(
+        `SELECT id, name FROM coaches WHERE user_id=$1 AND club_id=$2`, [input.coach_user_id, clubId]
+      )
+      if (!cr[0]) return '❌ Coach not found.'
+      // Get distinct students with at least one confirmed session with this coach
+      const { rows: students } = await pool.query(
+        `SELECT DISTINCT student_id AS id FROM coaching_sessions
+         WHERE coach_id=$1 AND club_id=$2 AND status='confirmed'`,
+        [cr[0].id, clubId]
+      )
+      if (!students.length) return `❌ No students found for ${cr[0].name}.`
+      const note = input.note ?? `Top-up for ${cr[0].name}'s students`
+      await Promise.all(students.map(s =>
+        pool.query(
+          `INSERT INTO coaching_hour_ledger (user_id, delta, note, created_by, club_id) VALUES ($1,$2,$3,$4,$5)`,
+          [s.id, input.amount, note, adminId, clubId]
+        )
+      ))
+      return `✅ Added $${input.amount} to ${students.length} students of ${cr[0].name}.`
+    }
+
+    case 'message_all_members': {
+      const { rows: members } = await pool.query(
+        `SELECT id FROM users WHERE club_id=$1 AND is_walkin IS NOT TRUE AND role='member'`,
+        [clubId]
+      )
+      if (!members.length) return '❌ No members found.'
+      await Promise.all(members.map(m =>
+        pool.query(
+          `INSERT INTO messages (sender_id, recipient_id, body) VALUES ($1,$2,$3)`,
+          [adminId, m.id, input.body]
+        )
+      ))
+      return `✅ Sent message to ${members.length} members.`
+    }
+
+    case 'notify_low_balance': {
+      const { rows } = await pool.query(
+        `SELECT u.id, u.name, COALESCE(SUM(l.delta), 0) AS balance
+         FROM users u
+         LEFT JOIN coaching_hour_ledger l ON l.user_id = u.id AND l.club_id = $1
+         WHERE u.club_id=$1 AND u.role='member' AND u.is_walkin IS NOT TRUE
+         GROUP BY u.id, u.name
+         HAVING COALESCE(SUM(l.delta), 0) < $2`,
+        [clubId, input.threshold]
+      )
+      if (!rows.length) return `No members have balance below $${input.threshold}.`
+      const msg = input.message ?? `⚠️ Your coaching balance is running low ($${input.threshold} threshold). Please top up to continue booking sessions.`
+      await Promise.all(rows.map(r =>
+        pool.query(
+          `INSERT INTO messages (sender_id, recipient_id, body) VALUES ($1,$2,$3)`,
+          [adminId, r.id, msg]
+        )
+      ))
+      return `✅ Notified ${rows.length} member${rows.length > 1 ? 's' : ''} with balance below $${input.threshold}:\n` +
+        rows.map(r => `  ${r.name}: $${Number(r.balance).toFixed(2)}`).join('\n')
     }
 
     // ── Reports ───────────────────────────────────────────────────────────────
