@@ -754,7 +754,6 @@ async function executeTool(name, input, clubId, adminId) {
           coachId = cr[0].id
           coachName = cr[0].name
         } else {
-          // Auto-create coach profile from user
           const { rows: ur } = await pool.query(`SELECT name FROM users WHERE id=$1`, [input.coach_user_id])
           if (!ur[0]) return '❌ Coach user not found.'
           const { rows: newCoach } = await pool.query(
@@ -766,6 +765,18 @@ async function executeTool(name, input, clubId, adminId) {
         }
       }
       if (!coachId) return '❌ Provide coach_id or coach_user_id.'
+      // Coach conflict check
+      const { rows: coachBusy } = await pool.query(
+        `SELECT u.name AS student_name, cs.start_time, cs.end_time FROM coaching_sessions cs
+         JOIN users u ON u.id = cs.student_id
+         WHERE cs.coach_id=$1 AND cs.date=$2 AND cs.status='confirmed' AND cs.club_id=$3
+           AND cs.start_time < $5::time AND cs.end_time > $4::time LIMIT 1`,
+        [coachId, input.date, clubId, input.start_time, input.end_time]
+      )
+      if (coachBusy.length) {
+        if (!coachName) { const { rows: c } = await pool.query(`SELECT name FROM coaches WHERE id=$1`, [coachId]); coachName = c[0]?.name }
+        return `❌ Conflict: ${coachName} already has a session with ${coachBusy[0].student_name} at ${fmtTime(coachBusy[0].start_time)}–${fmtTime(coachBusy[0].end_time)} on ${fmtDate(input.date)}.`
+      }
       const { rows: courts } = await pool.query(
         `SELECT id FROM courts WHERE club_id=$1 AND is_active=TRUE LIMIT 1`, [clubId]
       )
@@ -795,6 +806,18 @@ async function executeTool(name, input, clubId, adminId) {
       if (!s.length) return `❌ Session ${input.session_id} not found.`
       const sess = s[0]
       const newDate = input.date ?? (typeof sess.date === 'string' ? sess.date.slice(0,10) : new Date(sess.date).toISOString().slice(0,10))
+      // Check coach conflict (exclude the session being rescheduled)
+      const { rows: coachBusy } = await pool.query(
+        `SELECT u.name AS student_name, cs.start_time, cs.end_time FROM coaching_sessions cs
+         JOIN users u ON u.id = cs.student_id
+         WHERE cs.coach_id=$1 AND cs.date=$2 AND cs.status='confirmed' AND cs.club_id=$3
+           AND cs.id != $6
+           AND cs.start_time < $5::time AND cs.end_time > $4::time LIMIT 1`,
+        [sess.coach_id, newDate, clubId, input.start_time, input.end_time, input.session_id]
+      )
+      if (coachBusy.length) {
+        return `❌ Conflict: Coach ${sess.coach_name} already has a session with ${coachBusy[0].student_name} at ${fmtTime(coachBusy[0].start_time)}–${fmtTime(coachBusy[0].end_time)} on ${fmtDate(newDate)}. Please choose a different time.`
+      }
       await pool.query(
         `UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3 WHERE id=$4`,
         [newDate, input.start_time, input.end_time, input.session_id]
