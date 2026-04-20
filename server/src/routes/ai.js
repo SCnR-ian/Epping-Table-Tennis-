@@ -2,6 +2,7 @@ const router  = require('express').Router()
 const pool    = require('../db')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
 const Anthropic = require('@anthropic-ai/sdk')
+const { checkOpenHours } = require('../utils/scheduleCheck')
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -765,6 +766,9 @@ async function executeTool(name, input, clubId, adminId) {
         }
       }
       if (!coachId) return '❌ Provide coach_id or coach_user_id.'
+      // Open hours check
+      const schedErr = await checkOpenHours(input.date, input.start_time, input.end_time, clubId)
+      if (schedErr) return `❌ ${schedErr}`
       // Coach conflict check
       const { rows: coachBusy } = await pool.query(
         `SELECT u.name AS student_name, cs.start_time, cs.end_time FROM coaching_sessions cs
@@ -853,6 +857,9 @@ async function executeTool(name, input, clubId, adminId) {
       if (!s.length) return `❌ Session ${input.session_id} not found.`
       const sess = s[0]
       const newDate = input.date ?? (typeof sess.date === 'string' ? sess.date.slice(0,10) : new Date(sess.date).toISOString().slice(0,10))
+      // Open hours check
+      const schedErrR = await checkOpenHours(newDate, input.start_time, input.end_time, clubId)
+      if (schedErrR) return `❌ ${schedErrR}`
       // Check coach conflict (exclude the session being rescheduled)
       const { rows: coachBusy } = await pool.query(
         `SELECT u.name AS student_name, cs.start_time, cs.end_time FROM coaching_sessions cs
