@@ -777,10 +777,25 @@ async function executeTool(name, input, clubId, adminId) {
         if (!coachName) { const { rows: c } = await pool.query(`SELECT name FROM coaches WHERE id=$1`, [coachId]); coachName = c[0]?.name }
         return `❌ Conflict: ${coachName} already has a session with ${coachBusy[0].student_name} at ${fmtTime(coachBusy[0].start_time)}–${fmtTime(coachBusy[0].end_time)} on ${fmtDate(input.date)}.`
       }
+      // Find a free court (not occupied by coaching or bookings at this time)
       const { rows: courts } = await pool.query(
-        `SELECT id FROM courts WHERE club_id=$1 AND is_active=TRUE LIMIT 1`, [clubId]
+        `SELECT c.id FROM courts c
+         WHERE c.club_id=$1 AND c.is_active=TRUE
+           AND c.id NOT IN (
+             SELECT cs2.court_id FROM coaching_sessions cs2
+             WHERE cs2.date=$2 AND cs2.status='confirmed' AND cs2.club_id=$1
+               AND cs2.court_id IS NOT NULL
+               AND cs2.start_time < $4::time AND cs2.end_time > $3::time
+           )
+           AND c.id NOT IN (
+             SELECT b.court_id FROM bookings b
+             WHERE b.date=$2 AND b.status='confirmed' AND b.club_id=$1
+               AND b.start_time < $4::time AND b.end_time > $3::time
+           )
+         ORDER BY c.id LIMIT 1`,
+        [clubId, input.date, input.start_time, input.end_time]
       )
-      if (!courts.length) return '❌ No courts available.'
+      if (!courts.length) return '❌ No free courts available at that time.'
       const { rows: inserted } = await pool.query(
         `INSERT INTO coaching_sessions (coach_id, student_id, date, start_time, end_time, court_id, status, club_id)
          VALUES ($1,$2,$3,$4,$5,$6,'confirmed',$7) RETURNING id`,
@@ -818,9 +833,28 @@ async function executeTool(name, input, clubId, adminId) {
       if (coachBusy.length) {
         return `❌ Conflict: Coach ${sess.coach_name} already has a session with ${coachBusy[0].student_name} at ${fmtTime(coachBusy[0].start_time)}–${fmtTime(coachBusy[0].end_time)} on ${fmtDate(newDate)}. Please choose a different time.`
       }
+      // Find a free court for the new time (exclude the session being moved)
+      const { rows: resCourts } = await pool.query(
+        `SELECT c.id FROM courts c
+         WHERE c.club_id=$1 AND c.is_active=TRUE
+           AND c.id NOT IN (
+             SELECT cs2.court_id FROM coaching_sessions cs2
+             WHERE cs2.date=$2 AND cs2.status='confirmed' AND cs2.club_id=$1
+               AND cs2.court_id IS NOT NULL AND cs2.id != $5
+               AND cs2.start_time < $4::time AND cs2.end_time > $3::time
+           )
+           AND c.id NOT IN (
+             SELECT b.court_id FROM bookings b
+             WHERE b.date=$2 AND b.status='confirmed' AND b.club_id=$1
+               AND b.start_time < $4::time AND b.end_time > $3::time
+           )
+         ORDER BY c.id LIMIT 1`,
+        [clubId, newDate, input.start_time, input.end_time, input.session_id]
+      )
+      if (!resCourts.length) return `❌ No free courts available at ${fmtDate(newDate)} ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}.`
       await pool.query(
-        `UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3 WHERE id=$4`,
-        [newDate, input.start_time, input.end_time, input.session_id]
+        `UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=$5 WHERE id=$4`,
+        [newDate, input.start_time, input.end_time, input.session_id, resCourts[0].id]
       )
       return `✅ Rescheduled session ${input.session_id} (${sess.student_name} w/ Coach ${sess.coach_name}) to ${fmtDate(newDate)} ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}.`
     }
