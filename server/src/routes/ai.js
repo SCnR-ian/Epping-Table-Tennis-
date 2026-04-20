@@ -93,6 +93,20 @@ const TOOLS = [
     },
   },
   {
+    name: 'reschedule_session',
+    description: 'Reschedule a coaching session to a new time on the same or different date. Keeps the same coach and student.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        session_id: { type: 'number' },
+        date:       { type: 'string', description: 'YYYY-MM-DD — omit to keep same date' },
+        start_time: { type: 'string', description: 'HH:MM (24h) new start time' },
+        end_time:   { type: 'string', description: 'HH:MM (24h) new end time' },
+      },
+      required: ['session_id', 'start_time', 'end_time'],
+    },
+  },
+  {
     name: 'cancel_session',
     description: 'Cancel a coaching session by session ID.',
     input_schema: {
@@ -214,6 +228,25 @@ async function executeTool(name, input, clubId, adminId) {
       return `✅ Session created (ID ${inserted[0].id}): ${co[0]?.name} teaching ${u[0]?.name} on ${fmtDate(input.date)} ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}.`
     }
 
+    case 'reschedule_session': {
+      const { rows: s } = await pool.query(
+        `SELECT cs.*, co.name AS coach_name, u.name AS student_name
+         FROM coaching_sessions cs
+         JOIN coaches co ON co.id=cs.coach_id
+         JOIN users u ON u.id=cs.student_id
+         WHERE cs.id=$1 AND cs.club_id=$2`,
+        [input.session_id, clubId]
+      )
+      if (!s.length) return `❌ Session ${input.session_id} not found.`
+      const sess = s[0]
+      const newDate = input.date ?? sess.date.toISOString().slice(0,10)
+      await pool.query(
+        `UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3 WHERE id=$4`,
+        [newDate, input.start_time, input.end_time, input.session_id]
+      )
+      return `✅ Rescheduled session ${input.session_id} (${sess.student_name} w/ Coach ${sess.coach_name}) to ${fmtDate(newDate)} ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}.`
+    }
+
     case 'cancel_session': {
       const { rows } = await pool.query(
         `UPDATE coaching_sessions SET status='cancelled' WHERE id=$1 AND club_id=$2 RETURNING id`,
@@ -278,14 +311,20 @@ Today's date is ${today}.
 
 Your ONLY job is to help the admin manage this club — members, coaching sessions, balances, announcements, check-ins, and payment reports.
 
-Strict rules:
-- ONLY answer questions or perform actions that are directly related to managing this club's system.
-- If the admin asks anything unrelated (e.g. general knowledge, coding, recipes, weather, writing, math, personal advice), respond with exactly: "I can only help with club management tasks."
-- Never make exceptions, even if the admin insists or rephrases.
+## How to handle requests
+- ALWAYS look up information yourself using tools before asking the admin anything.
+- If the admin mentions a name (e.g. "Alex Bai"), call list_members to find their ID — never ask the admin for IDs.
+- If the admin says "today's session" or "move to 7", call list_sessions to find the session first, then act on it.
+- If a time like "7" or "7pm" is given without AM/PM context, assume PM (19:00) for coaching sessions.
+- If the session duration is not specified, keep the same duration as the original session.
+- Only ask the admin a clarifying question if you genuinely cannot determine the intent after using all relevant tools.
 
-When you use a tool, briefly explain what you're doing. After getting a tool result, summarise it clearly.
-Always respond in the same language the admin uses (English or Traditional Chinese).
-Keep responses concise.`
+## Restrictions
+- ONLY answer questions or perform actions directly related to managing this club.
+- If the admin asks anything unrelated (general knowledge, coding, recipes, weather, personal advice), respond with exactly: "I can only help with club management tasks."
+- Never make exceptions.
+
+Always respond in the same language the admin uses (English or Traditional Chinese). Keep responses concise.`
 
   // Build messages array from history + new message
   const messages = [
