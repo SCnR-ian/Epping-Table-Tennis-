@@ -101,6 +101,18 @@ const TOOLS = [
     },
   },
   {
+    name: 'add_balance_all',
+    description: 'Add coaching balance (dollars) to ALL members in one operation. Use this instead of calling add_balance repeatedly when the admin wants to top up everyone.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        amount: { type: 'number', description: 'Dollar amount to add to every member' },
+        note:   { type: 'string', description: 'Reason or note' },
+      },
+      required: ['amount'],
+    },
+  },
+  {
     name: 'list_coaches',
     description: 'List all coaches in the club.',
     input_schema: { type: 'object', properties: {} },
@@ -471,6 +483,22 @@ async function executeTool(name, input, clubId, adminId) {
         [input.user_id, input.amount, input.note ?? 'Added by admin', adminId, clubId]
       )
       return `✅ Added $${input.amount} to ${uname}'s balance.`
+    }
+
+    case 'add_balance_all': {
+      const { rows: members } = await pool.query(
+        `SELECT id FROM users WHERE club_id=$1 AND is_walkin IS NOT TRUE AND role='member'`,
+        [clubId]
+      )
+      if (!members.length) return '❌ No members found.'
+      const note = input.note ?? 'Bulk top-up by admin'
+      await Promise.all(members.map(m =>
+        pool.query(
+          `INSERT INTO coaching_hour_ledger (user_id, delta, note, created_by, club_id) VALUES ($1,$2,$3,$4,$5)`,
+          [m.id, input.amount, note, adminId, clubId]
+        )
+      ))
+      return `✅ Added $${input.amount} to all ${members.length} members' balances.`
     }
 
     case 'list_coaches': {
