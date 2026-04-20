@@ -5,10 +5,6 @@ import { useAuth } from "@/context/AuthContext";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const COURTS = [
-  { id: 1 }, { id: 2 }, { id: 3 },
-  { id: 4 }, { id: 5 }, { id: 6 },
-];
 
 const WEEKDAY_SLOTS  = ["15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30","20:00"];
 const SATURDAY_SLOTS = ["12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30"];
@@ -57,18 +53,17 @@ function isUserBooked(slotTime, duration, userBookedSlots) {
   return userBookedSlots.some(b => slotStart < b.endMins && slotEnd > b.startMins);
 }
 
-// Returns courts that are free for the given slot + duration
-function getFreeCourts(slotTime, duration, bookedSlots) {
-  const slotStart = toMins(slotTime);
-  const slotEnd   = slotStart + duration;
-  return COURTS.filter(c =>
-    !bookedSlots.some(b => {
-      if (b.courtId !== c.id) return false;
-      const bStart = toMins(b.startTime);
-      const bEnd   = bStart + b.duration;
-      return slotStart < bEnd && slotEnd > bStart;
-    })
-  );
+// Returns number of courts available for the given slot + duration.
+// slotUsage is a map of { "HH:MM": courtsUsed } from the API.
+function getAvailableCount(slotTime, duration, slotUsage) {
+  const start = toMins(slotTime);
+  const end   = start + duration;
+  let minAvail = 6;
+  for (let t = start; t < end; t += 30) {
+    const key = `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+    minAvail = Math.min(minAvail, 6 - (slotUsage[key] ?? 0));
+  }
+  return Math.max(0, minAvail);
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -81,7 +76,7 @@ export default function BookingPage({ embedded = false }) {
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedTime, setSelectedTime] = useState("");
   const [duration,     setDuration]     = useState(60);
-  const [bookedSlots,     setBookedSlots]     = useState([]);
+  const [slotUsage,        setSlotUsage]        = useState({});
   const [userBookedSlots, setUserBookedSlots] = useState([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [submitting,   setSubmitting]   = useState(false);
@@ -113,13 +108,7 @@ export default function BookingPage({ embedded = false }) {
     bookingsAPI.getAvailable(selectedDate)
       .then(({ data }) => {
         if (cancelled) return;
-        setBookedSlots(
-          data.booked.map(b => ({
-            courtId:   b.court_id,
-            startTime: b.start_time.substring(0, 5),
-            duration:  toMins(b.end_time.substring(0, 5)) - toMins(b.start_time.substring(0, 5)),
-          }))
-        );
+        setSlotUsage(data.slot_usage ?? {});
         setUserBookedSlots(
           (data.user_booked || []).map(b => ({
             startMins: toMins(b.start_time.substring(0, 5)),
@@ -127,7 +116,7 @@ export default function BookingPage({ embedded = false }) {
           }))
         );
       })
-      .catch(() => { if (!cancelled) setBookedSlots([]); })
+      .catch(() => { if (!cancelled) setSlotUsage({}); })
       .finally(() => { if (!cancelled) setSlotsLoading(false); });
     return () => { cancelled = true; };
   }, [selectedDate]);
@@ -135,14 +124,12 @@ export default function BookingPage({ embedded = false }) {
   const selectedDow = selectedDate ? new Date(selectedDate + "T12:00:00").getDay() : null;
   const timeSlots   = selectedDow === 6 ? SATURDAY_SLOTS : WEEKDAY_SLOTS;
 
-  // Free courts for the currently selected slot
-  const freeCourts     = selectedTime ? getFreeCourts(selectedTime, duration, bookedSlots) : COURTS;
-  const availableCount = freeCourts.length;
+  // Available court count for the currently selected slot
+  const availableCount = selectedTime ? getAvailableCount(selectedTime, duration, slotUsage) : 6;
 
   // ── Move to payment step: create PaymentIntent ───────────────────────────
   const handleProceedToPayment = async () => {
-    const free = getFreeCourts(selectedTime, duration, bookedSlots);
-    if (free.length === 0) {
+    if (getAvailableCount(selectedTime, duration, slotUsage) === 0) {
       alert("Sorry, this slot is no longer available. Please choose another time.");
       setStep(1);
       return;
@@ -151,7 +138,6 @@ export default function BookingPage({ embedded = false }) {
     setPaymentError(null);
     try {
       const { data } = await paymentsAPI.createIntent({
-        court_id:   free[0].id,
         date:       selectedDate,
         start_time: selectedTime,
         end_time:   addMins(selectedTime, duration),
@@ -379,7 +365,7 @@ export default function BookingPage({ embedded = false }) {
                 ) : (
                   <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
                     {timeSlots.map(t => {
-                      const free     = getFreeCourts(t, duration, bookedSlots).length;
+                      const free     = getAvailableCount(t, duration, slotUsage);
                       const full     = free === 0;
                       const mine     = isUserBooked(t, duration, userBookedSlots);
                       const disabled = full || mine;

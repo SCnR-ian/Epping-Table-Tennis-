@@ -70,8 +70,8 @@ function getUpcomingOpenDates(count = 7) {
 function countFreeAtSlot(bookings, sessions, socialSessions, slotTime) {
   const slotMins = toMins(slotTime)
   const inSlot = ({ start_time, end_time }) => slotMins >= toMins(start_time) && slotMins < toMins(end_time)
-  const bookingCourts  = new Set(bookings.filter(inSlot).map(b => b.court_id)).size
-  const coachingCourts = new Set(sessions.filter(inSlot).map(s => s.court_id)).size
+  const bookingCourts  = bookings.filter(inSlot).length
+  const coachingCourts = sessions.filter(inSlot).length
   const socialCourts   = socialSessions.filter(inSlot).reduce((sum, s) => sum + (s.num_courts ?? 0), 0)
   return Math.max(0, BOOKABLE_COURTS.length - bookingCourts - coachingCourts - socialCourts)
 }

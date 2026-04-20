@@ -777,29 +777,30 @@ async function executeTool(name, input, clubId, adminId) {
         if (!coachName) { const { rows: c } = await pool.query(`SELECT name FROM coaches WHERE id=$1`, [coachId]); coachName = c[0]?.name }
         return `❌ Conflict: ${coachName} already has a session with ${coachBusy[0].student_name} at ${fmtTime(coachBusy[0].start_time)}–${fmtTime(coachBusy[0].end_time)} on ${fmtDate(input.date)}.`
       }
-      // Find a free court (not occupied by coaching or bookings at this time)
-      const { rows: courts } = await pool.query(
-        `SELECT c.id FROM courts c
-         WHERE c.club_id=$1 AND c.is_active=TRUE
-           AND c.id NOT IN (
-             SELECT cs2.court_id FROM coaching_sessions cs2
-             WHERE cs2.date=$2 AND cs2.status='confirmed' AND cs2.club_id=$1
-               AND cs2.court_id IS NOT NULL
-               AND cs2.start_time < $4::time AND cs2.end_time > $3::time
-           )
-           AND c.id NOT IN (
-             SELECT b.court_id FROM bookings b
-             WHERE b.date=$2 AND b.status='confirmed' AND b.club_id=$1
-               AND b.start_time < $4::time AND b.end_time > $3::time
-           )
-         ORDER BY c.id LIMIT 1`,
-        [clubId, input.date, input.start_time, input.end_time]
+      // Student conflict check
+      const { rows: stdBusy } = await pool.query(
+        `SELECT 1 FROM coaching_sessions WHERE student_id=$1 AND date=$2 AND status='confirmed' AND club_id=$3
+           AND start_time < $5::time AND end_time > $4::time LIMIT 1`,
+        [input.student_id, input.date, clubId, input.start_time, input.end_time]
       )
-      if (!courts.length) return '❌ No free courts available at that time.'
+      if (stdBusy.length) return `❌ Student already has another coaching session at that time on ${fmtDate(input.date)}.`
+      // Court availability (count-based, 6 courts total)
+      const { rows: [{ total_used }] } = await pool.query(
+        `SELECT
+           (SELECT COUNT(*) FROM coaching_sessions WHERE date=$1 AND status='confirmed' AND club_id=$4
+              AND start_time < $3::time AND end_time > $2::time) +
+           (SELECT COUNT(DISTINCT booking_group_id) FROM bookings WHERE date=$1 AND status='confirmed' AND club_id=$4
+              AND start_time < $3::time AND end_time > $2::time) +
+           (SELECT COALESCE(SUM(num_courts),0) FROM social_play_sessions WHERE date=$1 AND status='open' AND club_id=$4
+              AND start_time < $3::time AND end_time > $2::time)
+         AS total_used`,
+        [input.date, input.start_time, input.end_time, clubId]
+      )
+      if (Number(total_used) >= 6) return `❌ All 6 courts are fully booked at ${fmtTime(input.start_time)}–${fmtTime(input.end_time)} on ${fmtDate(input.date)}.`
       const { rows: inserted } = await pool.query(
-        `INSERT INTO coaching_sessions (coach_id, student_id, date, start_time, end_time, court_id, status, club_id)
-         VALUES ($1,$2,$3,$4,$5,$6,'confirmed',$7) RETURNING id`,
-        [coachId, input.student_id, input.date, input.start_time, input.end_time, courts[0].id, clubId]
+        `INSERT INTO coaching_sessions (coach_id, student_id, date, start_time, end_time, status, club_id)
+         VALUES ($1,$2,$3,$4,$5,'confirmed',$6) RETURNING id`,
+        [coachId, input.student_id, input.date, input.start_time, input.end_time, clubId]
       )
       const { rows: u } = await pool.query(`SELECT name FROM users WHERE id=$1`, [input.student_id])
       if (!coachName) {
@@ -833,28 +834,29 @@ async function executeTool(name, input, clubId, adminId) {
       if (coachBusy.length) {
         return `❌ Conflict: Coach ${sess.coach_name} already has a session with ${coachBusy[0].student_name} at ${fmtTime(coachBusy[0].start_time)}–${fmtTime(coachBusy[0].end_time)} on ${fmtDate(newDate)}. Please choose a different time.`
       }
-      // Find a free court for the new time (exclude the session being moved)
-      const { rows: resCourts } = await pool.query(
-        `SELECT c.id FROM courts c
-         WHERE c.club_id=$1 AND c.is_active=TRUE
-           AND c.id NOT IN (
-             SELECT cs2.court_id FROM coaching_sessions cs2
-             WHERE cs2.date=$2 AND cs2.status='confirmed' AND cs2.club_id=$1
-               AND cs2.court_id IS NOT NULL AND cs2.id != $5
-               AND cs2.start_time < $4::time AND cs2.end_time > $3::time
-           )
-           AND c.id NOT IN (
-             SELECT b.court_id FROM bookings b
-             WHERE b.date=$2 AND b.status='confirmed' AND b.club_id=$1
-               AND b.start_time < $4::time AND b.end_time > $3::time
-           )
-         ORDER BY c.id LIMIT 1`,
-        [clubId, newDate, input.start_time, input.end_time, input.session_id]
+      // Student conflict check (exclude the session being rescheduled)
+      const { rows: stdBusyR } = await pool.query(
+        `SELECT 1 FROM coaching_sessions WHERE student_id=$1 AND date=$2 AND status='confirmed' AND club_id=$3
+           AND id != $6 AND start_time < $5::time AND end_time > $4::time LIMIT 1`,
+        [sess.student_id, newDate, clubId, input.start_time, input.end_time, input.session_id]
       )
-      if (!resCourts.length) return `❌ No free courts available at ${fmtDate(newDate)} ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}.`
+      if (stdBusyR.length) return `❌ ${sess.student_name} already has another coaching session at that time on ${fmtDate(newDate)}.`
+      // Court availability (count-based, exclude the session being moved)
+      const { rows: [{ total_used: resUsed }] } = await pool.query(
+        `SELECT
+           (SELECT COUNT(*) FROM coaching_sessions WHERE date=$1 AND status='confirmed' AND club_id=$4
+              AND id != $5 AND start_time < $3::time AND end_time > $2::time) +
+           (SELECT COUNT(DISTINCT booking_group_id) FROM bookings WHERE date=$1 AND status='confirmed' AND club_id=$4
+              AND start_time < $3::time AND end_time > $2::time) +
+           (SELECT COALESCE(SUM(num_courts),0) FROM social_play_sessions WHERE date=$1 AND status='open' AND club_id=$4
+              AND start_time < $3::time AND end_time > $2::time)
+         AS total_used`,
+        [newDate, input.start_time, input.end_time, clubId, input.session_id]
+      )
+      if (Number(resUsed) >= 6) return `❌ All 6 courts are fully booked at ${fmtDate(newDate)} ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}.`
       await pool.query(
-        `UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=$5 WHERE id=$4`,
-        [newDate, input.start_time, input.end_time, input.session_id, resCourts[0].id]
+        `UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=NULL WHERE id=$4`,
+        [newDate, input.start_time, input.end_time, input.session_id]
       )
       return `✅ Rescheduled session ${input.session_id} (${sess.student_name} w/ Coach ${sess.coach_name}) to ${fmtDate(newDate)} ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}.`
     }

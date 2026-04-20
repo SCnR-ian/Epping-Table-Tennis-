@@ -1162,52 +1162,25 @@ async function checkAndAssignCourt(client, session, sessionDate, newStart, newEn
   if (stdCoach.length)
     throw Object.assign(new Error('student_conflict'), { sessionDate, reason: 'coaching' })
 
-  // ── free court ───────────────────────────────────────────────────────────────
-  const { rows: free } = await client.query(
-    `WITH social_count AS (
-       SELECT COALESCE(MAX(num_courts), 0)::int AS total
-       FROM social_play_sessions
-       WHERE date=$1 AND status='open' AND club_id=$7
-         AND start_time < $3::time AND end_time > $2::time
-     ),
-     free_courts AS (
-       SELECT c.id
-       FROM courts c
-       WHERE c.club_id=$7
-       AND c.id NOT IN (
-         SELECT cs2.court_id FROM coaching_sessions cs2
-         WHERE cs2.date=$1 AND cs2.status='confirmed' AND cs2.club_id=$7 AND NOT (cs2.id = ANY($4::int[]))
-           AND cs2.court_id IS NOT NULL
-           AND ($5::uuid IS NULL OR cs2.group_id IS DISTINCT FROM $5)
-           AND cs2.start_time < $3::time AND cs2.end_time > $2::time
-       )
-       AND c.id NOT IN (
-         SELECT b.court_id FROM bookings b
-         WHERE b.date=$1 AND b.status='confirmed' AND b.club_id=$7
-           AND b.court_id IS NOT NULL
-           AND b.start_time < $3::time AND b.end_time > $2::time
-       )
-     ),
-     free_count AS (SELECT COUNT(*)::int AS n FROM free_courts),
-     adj_court AS (
-       SELECT court_id FROM coaching_sessions
-       WHERE coach_id = $6 AND date = $1 AND status = 'confirmed' AND club_id = $7
-         AND NOT (id = ANY($4::int[]))
-         AND (end_time = $2::time OR start_time = $3::time)
-       LIMIT 1
-     )
-     SELECT fc.id FROM free_courts fc, free_count fcnt, social_count sc
-     WHERE fcnt.n > sc.total
-     ORDER BY
-       CASE WHEN fc.id = (SELECT court_id FROM adj_court) THEN 0 ELSE 1 END,
-       fc.id
-     LIMIT 1`,
-    [sessionDate, newStart, newEnd, excludeIds, groupId ?? null, coachId, clubId]
+  // ── court availability: count-based (6 courts total) ───────────────────────
+  const { rows: [usage] } = await client.query(
+    `SELECT
+       (SELECT COUNT(*) FROM coaching_sessions
+        WHERE date=$1 AND status='confirmed' AND club_id=$4
+          AND NOT (id = ANY($5::int[]))
+          AND ($6::uuid IS NULL OR group_id IS DISTINCT FROM $6)
+          AND start_time < $3::time AND end_time > $2::time) +
+       (SELECT COUNT(DISTINCT booking_group_id) FROM bookings
+        WHERE date=$1 AND status='confirmed' AND club_id=$4
+          AND start_time < $3::time AND end_time > $2::time) +
+       (SELECT COALESCE(SUM(num_courts), 0) FROM social_play_sessions
+        WHERE date=$1 AND status='open' AND club_id=$4
+          AND start_time < $3::time AND end_time > $2::time)
+     AS total_used`,
+    [sessionDate, newStart, newEnd, clubId, excludeIds, groupId ?? null]
   )
-  if (!free[0])
+  if (Number(usage.total_used) >= 6)
     throw Object.assign(new Error('no_court'), { sessionDate })
-
-  return free[0].id
 }
 
 function rescheduleConflictResponse(err, res) {
@@ -1274,10 +1247,10 @@ router.put('/sessions/reschedule-bulk', requireAuth, requireAdmin, async (req, r
       const session = sessionMap[u.id]
       const newStart = u.start_time || session.start_time
       const newEnd   = u.end_time   || session.end_time
-      const courtId  = await checkAndAssignCourt(client, session, u.date, newStart, newEnd, allUpdateIds, clubId)
+      await checkAndAssignCourt(client, session, u.date, newStart, newEnd, allUpdateIds, clubId)
       await client.query(
-        'UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=$4 WHERE id=$5 AND club_id=$6',
-        [u.date, newStart, newEnd, courtId, u.id, clubId]
+        'UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=NULL WHERE id=$4 AND club_id=$5',
+        [u.date, newStart, newEnd, u.id, clubId]
       )
     }
     await client.query('COMMIT')
@@ -1437,10 +1410,10 @@ router.put('/sessions/:id/reschedule', requireAuth, requireAdmin, async (req, re
     }
     const newStart = start_time || session.start_time
     const newEnd   = end_time   || session.end_time
-    const courtId  = await checkAndAssignCourt(client, session, date, newStart, newEnd, [], clubId)
+    await checkAndAssignCourt(client, session, date, newStart, newEnd, [], clubId)
     const { rows } = await client.query(
-      'UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=$4 WHERE id=$5 AND club_id=$6 RETURNING *',
-      [date, newStart, newEnd, courtId, session.id, clubId]
+      'UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=NULL WHERE id=$4 AND club_id=$5 RETURNING *',
+      [date, newStart, newEnd, session.id, clubId]
     )
     await client.query('COMMIT')
     res.json({ session: rows[0] })
@@ -2112,10 +2085,10 @@ router.post('/leave-requests/:id/select-slot', requireAuth, async (req, res) => 
       return res.status(404).json({ message: 'Session not found.' })
     }
 
-    const courtId = await checkAndAssignCourt(client, session, date, start_time, end_time, [], clubId)
+    await checkAndAssignCourt(client, session, date, start_time, end_time, [], clubId)
     const { rows: [updated] } = await client.query(
-      'UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=$4 WHERE id=$5 AND club_id=$6 RETURNING *',
-      [date, start_time, end_time, courtId, session.id, clubId]
+      'UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=NULL WHERE id=$4 AND club_id=$5 RETURNING *',
+      [date, start_time, end_time, session.id, clubId]
     )
 
     // Mark leave request as rescheduled

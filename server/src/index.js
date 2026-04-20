@@ -296,6 +296,10 @@ async function runMigrations() {
        UNIQUE(user_id, club_id, date)
      )`,
 
+    // ── Court assignment: no longer required per-session ────────────────────
+    `ALTER TABLE bookings          ALTER COLUMN court_id DROP NOT NULL`,
+    `ALTER TABLE coaching_sessions ALTER COLUMN court_id DROP NOT NULL`,
+
     // ── Shop products ────────────────────────────────────────────────────────
     `CREATE TABLE IF NOT EXISTS products (
        id          SERIAL PRIMARY KEY,

@@ -53,9 +53,9 @@ router.get('/config', (req, res) => {
 // 3. Returns { clientSecret, amount, currency } to the frontend
 // (No booking is saved to DB yet — that happens after payment succeeds)
 router.post('/create-intent', requireAuth, async (req, res) => {
-  const { court_id, date, start_time, end_time } = req.body
-  if (!court_id || !date || !start_time || !end_time)
-    return res.status(400).json({ message: 'court_id, date, start_time and end_time are required.' })
+  const { date, start_time, end_time } = req.body
+  if (!date || !start_time || !end_time)
+    return res.status(400).json({ message: 'date, start_time and end_time are required.' })
 
   const startMins = toMins(start_time)
   const endMins   = toMins(end_time)
@@ -67,19 +67,27 @@ router.post('/create-intent', requireAuth, async (req, res) => {
 
     const clubId = req.club?.id ?? 1
 
-    // Check slot is still free (read-only check — no lock needed here)
-    const { rows: conflict } = await pool.query(
-      `SELECT 1 FROM bookings
-       WHERE court_id=$1 AND date=$2 AND status='confirmed' AND club_id=$5
-         AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
-      [court_id, date, start_time, end_time, clubId]
-    )
-    if (conflict.length)
-      return res.status(409).json({ message: 'That slot is no longer available.' })
-
     const scheduleError = await checkOpenHours(date, start_time, end_time, clubId)
     if (scheduleError)
       return res.status(409).json({ message: scheduleError })
+
+    // Check courts still available (count-based)
+    const { rows: [{ total_used }] } = await pool.query(
+      `SELECT
+         (SELECT COUNT(*) FROM coaching_sessions
+          WHERE date=$1 AND status='confirmed' AND club_id=$4
+            AND start_time < $3::time AND end_time > $2::time) +
+         (SELECT COUNT(DISTINCT booking_group_id) FROM bookings
+          WHERE date=$1 AND status='confirmed' AND club_id=$4
+            AND start_time < $3::time AND end_time > $2::time) +
+         (SELECT COALESCE(SUM(num_courts), 0) FROM social_play_sessions
+          WHERE date=$1 AND status='open' AND club_id=$4
+            AND start_time < $3::time AND end_time > $2::time)
+       AS total_used`,
+      [date, start_time, end_time, clubId]
+    )
+    if (Number(total_used) >= 6)
+      return res.status(409).json({ message: 'Sorry, all courts are fully booked at that time.' })
 
     const amount   = calcAmount(start_time, end_time)
     const durationMins = endMins - startMins
@@ -91,12 +99,11 @@ router.post('/create-intent', requireAuth, async (req, res) => {
       metadata: {
         user_id:    String(req.user.id),
         club_id:    String(clubId),
-        court_id:   String(court_id),
         date,
         start_time,
         end_time,
       },
-      description: `Court ${court_id} – ${date} ${start_time.substring(0,5)}–${end_time.substring(0,5)} (${durationMins} min)`,
+      description: `Court booking – ${date} ${start_time.substring(0,5)}–${end_time.substring(0,5)} (${durationMins} min)`,
     })
 
     res.json({
@@ -137,25 +144,32 @@ router.post('/confirm', requireAuth, async (req, res) => {
     if (String(paymentIntent.metadata.user_id) !== String(req.user.id))
       return res.status(403).json({ message: 'Payment does not belong to this user.' })
 
-    const { court_id, date, start_time, end_time, club_id: metaClubId } = paymentIntent.metadata
+    const { date, start_time, end_time, club_id: metaClubId } = paymentIntent.metadata
     const clubId     = Number(metaClubId) || (req.club?.id ?? 1)
     const amountPaid = paymentIntent.amount / 100  // convert cents → dollars
 
     await client.query('BEGIN')
 
-    // Check no one else booked while the user was paying
-    const { rows: conflict } = await client.query(
-      `SELECT 1 FROM bookings
-       WHERE court_id=$1 AND date=$2 AND status='confirmed' AND club_id=$5
-         AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
-      [court_id, date, start_time, end_time, clubId]
+    // Check no one else took the last court while the user was paying
+    const { rows: [{ total_used }] } = await client.query(
+      `SELECT
+         (SELECT COUNT(*) FROM coaching_sessions
+          WHERE date=$1 AND status='confirmed' AND club_id=$4
+            AND start_time < $3::time AND end_time > $2::time) +
+         (SELECT COUNT(DISTINCT booking_group_id) FROM bookings
+          WHERE date=$1 AND status='confirmed' AND club_id=$4
+            AND start_time < $3::time AND end_time > $2::time) +
+         (SELECT COALESCE(SUM(num_courts), 0) FROM social_play_sessions
+          WHERE date=$1 AND status='open' AND club_id=$4
+            AND start_time < $3::time AND end_time > $2::time)
+       AS total_used`,
+      [date, start_time, end_time, clubId]
     )
-    if (conflict.length) {
+    if (Number(total_used) >= 6) {
       await client.query('ROLLBACK')
-      // Refund the payment since we can't fulfil the booking
       await stripe.refunds.create({ payment_intent: paymentIntentId, reason: 'duplicate' }).catch(() => {})
       return res.status(409).json({
-        message: 'Sorry, that slot was just taken. Your payment will be fully refunded within 5–10 business days.',
+        message: 'Sorry, all courts were just taken. Your payment will be fully refunded within 5–10 business days.',
       })
     }
 
@@ -167,9 +181,9 @@ router.post('/confirm', requireAuth, async (req, res) => {
     for (let t = startMins; t < endMins; t += 30) {
       await client.query(
         `INSERT INTO bookings
-           (user_id, court_id, date, start_time, end_time, booking_group_id, payment_intent_id, amount_paid, club_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [req.user.id, court_id, date, minsToTime(t), minsToTime(t + 30),
+           (user_id, date, start_time, end_time, booking_group_id, payment_intent_id, amount_paid, club_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [req.user.id, date, minsToTime(t), minsToTime(t + 30),
          groupId, paymentIntentId, amountPaid / ((endMins - startMins) / 30), clubId]
       )
     }

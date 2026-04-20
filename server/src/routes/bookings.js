@@ -39,49 +39,37 @@ router.get('/available', async (req, res) => {
   softAuth(req)
   const clubId = req.club?.id ?? 1
   try {
-    const { rows: bookedRows } = await pool.query(
-      `SELECT court_id, start_time, end_time FROM bookings
+    // Fetch all occupied blocks and compute per-30-min-slot court usage
+    const { rows: bookingGroups } = await pool.query(
+      `SELECT MIN(start_time) AS start_time, MAX(end_time) AS end_time
+       FROM bookings WHERE date=$1 AND status='confirmed' AND club_id=$2
+       GROUP BY booking_group_id`,
+      [date, clubId]
+    )
+    const { rows: coachingSessions } = await pool.query(
+      `SELECT start_time, end_time FROM coaching_sessions
        WHERE date=$1 AND status='confirmed' AND club_id=$2`,
       [date, clubId]
     )
-    const { rows: coachingRows } = await pool.query(
-      `SELECT
-         cs.court_id,
-         (cs.start_time + gs * INTERVAL '30 minutes')       AS start_time,
-         (cs.start_time + (gs + 1) * INTERVAL '30 minutes') AS end_time
-       FROM coaching_sessions cs,
-       LATERAL generate_series(
-         0,
-         (  EXTRACT(HOUR   FROM cs.end_time)::int * 60 + EXTRACT(MINUTE FROM cs.end_time)::int
-          - EXTRACT(HOUR   FROM cs.start_time)::int * 60 - EXTRACT(MINUTE FROM cs.start_time)::int
-         ) / 30 - 1
-       ) AS gs
-       WHERE cs.date=$1 AND cs.status='confirmed' AND cs.club_id=$2`,
+    const { rows: socialSessions } = await pool.query(
+      `SELECT start_time, end_time, num_courts
+       FROM social_play_sessions WHERE date=$1 AND status='open' AND club_id=$2`,
       [date, clubId]
     )
-    const { rows: socialRows } = await pool.query(
-      `SELECT
-         c.court_id,
-         (sps.start_time + gs * INTERVAL '30 minutes')       AS start_time,
-         (sps.start_time + (gs + 1) * INTERVAL '30 minutes') AS end_time
-       FROM social_play_sessions sps,
-       LATERAL generate_series(
-         0,
-         (  EXTRACT(HOUR   FROM sps.end_time)::int * 60 + EXTRACT(MINUTE FROM sps.end_time)::int
-          - EXTRACT(HOUR   FROM sps.start_time)::int * 60 - EXTRACT(MINUTE FROM sps.start_time)::int
-         ) / 30 - 1
-       ) AS gs,
-       LATERAL generate_series(1, sps.num_courts) AS c(court_id)
-       WHERE sps.date=$1 AND sps.status='open' AND sps.club_id=$2`,
-      [date, clubId]
-    )
-    const seen = new Set()
-    const booked = [...bookedRows, ...coachingRows, ...socialRows].filter(r => {
-      const key = `${r.court_id}:${r.start_time}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
+
+    // Build slot_usage: how many courts are in use per 30-min slot
+    const slotUsage = {}
+    const addUsage = (startStr, endStr, courts) => {
+      const s = toMins(startStr), e = toMins(endStr)
+      for (let t = s; t < e; t += 30) {
+        const key = minsToTime(t).substring(0, 5)
+        slotUsage[key] = (slotUsage[key] ?? 0) + courts
+      }
+    }
+    bookingGroups.forEach(b => addUsage(b.start_time, b.end_time, 1))
+    coachingSessions.forEach(s => addUsage(s.start_time, s.end_time, 1))
+    socialSessions.forEach(s => addUsage(s.start_time, s.end_time, s.num_courts ?? 0))
+
     let userBooked = []
     if (req.user) {
       const { rows: ubBookings } = await pool.query(
@@ -103,7 +91,7 @@ router.get('/available', async (req, res) => {
       )
       userBooked = [...ubBookings, ...ubCoaching, ...ubSocial]
     }
-    res.json({ booked, user_booked: userBooked })
+    res.json({ slot_usage: slotUsage, user_booked: userBooked })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
@@ -156,9 +144,9 @@ router.get('/:id', requireAuth, async (req, res) => {
 
 // POST /api/bookings
 router.post('/', requireAuth, async (req, res) => {
-  const { court_id, date, start_time, end_time } = req.body
-  if (!court_id || !date || !start_time || !end_time)
-    return res.status(400).json({ message: 'court_id, date, start_time and end_time are required.' })
+  const { date, start_time, end_time } = req.body
+  if (!date || !start_time || !end_time)
+    return res.status(400).json({ message: 'date, start_time and end_time are required.' })
 
   const startMins = toMins(start_time)
   const endMins   = toMins(end_time)
@@ -181,6 +169,18 @@ router.post('/', requireAuth, async (req, res) => {
     if (scheduleError) {
       await client.query('ROLLBACK')
       return res.status(409).json({ message: scheduleError })
+    }
+
+    // User conflict checks
+    const { rows: bookConflict } = await client.query(
+      `SELECT 1 FROM bookings
+       WHERE user_id=$1 AND date=$2 AND status='confirmed' AND club_id=$3
+         AND start_time < $5::time AND end_time > $4::time LIMIT 1`,
+      [req.user.id, date, clubId, start_time, end_time]
+    )
+    if (bookConflict.length) {
+      await client.query('ROLLBACK')
+      return res.status(409).json({ message: 'You already have a booking during that time.' })
     }
 
     const { rows: coachConflict } = await client.query(
@@ -218,11 +218,31 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(409).json({ message: 'You have a coaching session to teach during that time.' })
     }
 
+    // Court availability: count-based (6 courts total)
+    const { rows: [{ total_used }] } = await client.query(
+      `SELECT
+         (SELECT COUNT(*) FROM coaching_sessions
+          WHERE date=$1 AND status='confirmed' AND club_id=$4
+            AND start_time < $3::time AND end_time > $2::time) +
+         (SELECT COUNT(DISTINCT booking_group_id) FROM bookings
+          WHERE date=$1 AND status='confirmed' AND club_id=$4
+            AND start_time < $3::time AND end_time > $2::time) +
+         (SELECT COALESCE(SUM(num_courts), 0) FROM social_play_sessions
+          WHERE date=$1 AND status='open' AND club_id=$4
+            AND start_time < $3::time AND end_time > $2::time)
+       AS total_used`,
+      [date, start_time, end_time, clubId]
+    )
+    if (Number(total_used) >= 6) {
+      await client.query('ROLLBACK')
+      return res.status(409).json({ message: 'Sorry, all courts are fully booked at that time.' })
+    }
+
     for (const [s, e] of slots) {
       await client.query(
-        `INSERT INTO bookings (user_id, court_id, date, start_time, end_time, booking_group_id, club_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [req.user.id, court_id, date, s, e, groupId, clubId]
+        `INSERT INTO bookings (user_id, date, start_time, end_time, booking_group_id, club_id)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [req.user.id, date, s, e, groupId, clubId]
       )
     }
     await client.query('COMMIT')
