@@ -1657,8 +1657,8 @@ Your ONLY job is to help the admin manage this club. You have full access to all
 
 Always respond in the same language the admin uses (English or Traditional Chinese). Keep responses concise.`
 
-  // Keep only the last 10 turns (5 exchanges) to prevent context contamination
-  const recentHistory = history.slice(-10)
+  // Keep only the last 6 turns (3 exchanges) to reduce token usage and prevent context contamination
+  const recentHistory = history.slice(-6)
   const messages = [
     ...recentHistory.map(h => ({ role: h.role, content: h.content })),
     { role: 'user', content: message },
@@ -1706,7 +1706,9 @@ Always respond in the same language the admin uses (English or Traditional Chine
     const text = response.content.find(b => b.type === 'text')?.text ?? ''
     res.json({ reply: text })
   } catch (err) {
-    console.error('[ai/chat]', err.message)
+    console.error('[ai/chat]', err.status ?? '', err.message)
+    if (err.status === 429)
+      return res.status(429).json({ message: 'Too many requests — please wait a moment and try again.' })
     res.status(500).json({ message: 'AI error: ' + err.message })
   }
 })
