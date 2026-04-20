@@ -86,6 +86,7 @@ export default function FloatingMessages() {
   }, [])
 
   const loadThread = useCallback(async (uid, scroll = false) => {
+    if (uid === 'ai') return   // AI thread is local-only, no server fetch
     try {
       const { data } = await messagesAPI.getThread(uid)
       setThread(data.messages)
