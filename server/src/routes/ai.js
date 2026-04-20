@@ -1645,9 +1645,10 @@ Your ONLY job is to help the admin manage this club. You have full access to all
 - Only ask the admin a clarifying question if you genuinely cannot determine the intent after using all relevant tools.
 
 ## CRITICAL — Data integrity
-- NEVER fabricate, guess, or invent data. Every name, number, and record you mention MUST come directly from a tool result.
+- NEVER fabricate, guess, or invent data. Every name, number, date, and time you mention MUST come directly from a tool result in THIS response — not from earlier conversation turns.
 - If a tool returns empty results, say so plainly. Do NOT fill in with example names or hypothetical data.
 - If you are unsure whether you have called a tool, call it again rather than guessing.
+- When reporting dates and times, copy them EXACTLY as returned by the tool. Do NOT translate or paraphrase day names (e.g. if the tool says "Sat" do not change it).
 
 ## Restrictions
 - ONLY answer questions or perform actions directly related to managing this club.
@@ -1656,8 +1657,10 @@ Your ONLY job is to help the admin manage this club. You have full access to all
 
 Always respond in the same language the admin uses (English or Traditional Chinese). Keep responses concise.`
 
+  // Keep only the last 10 turns (5 exchanges) to prevent context contamination
+  const recentHistory = history.slice(-10)
   const messages = [
-    ...history.map(h => ({ role: h.role, content: h.content })),
+    ...recentHistory.map(h => ({ role: h.role, content: h.content })),
     { role: 'user', content: message },
   ]
 
