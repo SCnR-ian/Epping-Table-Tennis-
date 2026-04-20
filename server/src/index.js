@@ -67,6 +67,7 @@ app.use('/api/clubs',        require('./routes/clubs'))
 app.use('/api/super-admin', require('./routes/superAdmin'))
 app.use('/api/venue',        require('./routes/venue'))
 app.use('/api/shop',         require('./routes/shop'))
+app.use('/api/ai',           require('./routes/ai'))
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }))

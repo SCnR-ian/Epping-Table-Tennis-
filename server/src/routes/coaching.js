@@ -1067,6 +1067,7 @@ router.get('/my-coach-sessions', requireAuth, async (req, res) => {
          cs.end_time,
          cs.notes,
          cs.recurrence_id,
+         cs.student_id,
          u.name  AS student_name,
          ct.name AS court_name,
          cr.id        IS NOT NULL   AS has_review,

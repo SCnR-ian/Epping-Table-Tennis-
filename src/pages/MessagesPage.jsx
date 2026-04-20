@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import { messagesAPI, adminAPI, coachingAPI } from '@/api/api'
+import { messagesAPI, adminAPI, coachingAPI, aiAPI } from '@/api/api'
 
 const PRESET_EMOJIS = ['👍', '❤️', '😂', '😮', '😢']
 
@@ -53,6 +53,9 @@ export default function MessagesPage() {
   const [leaveReason, setLeaveReason] = useState('')
   const [leaveSubmitting, setLeaveSubmitting] = useState(false)
   const [leaveActioning, setLeaveActioning] = useState(null) // request_id being actioned
+  // AI thread
+  const [aiMessages, setAiMessages] = useState([]) // { role: 'user'|'assistant', content: string, ts: Date }
+  const [aiLoading, setAiLoading]   = useState(false)
 
   const messagesContainerRef = useRef(null)
   const threadContainerRef = useRef(null)
@@ -222,6 +225,33 @@ export default function MessagesPage() {
   }
 
   const partnerIsAdmin = threadUser && inbox.threads.find(t => t.other_user === threadUser.id)?.other_role === 'admin'
+  const isAIThread = threadUser?.id === 'ai'
+
+  const openAIThread = () => {
+    setThreadUser({ id: 'ai', name: 'AI Assistant' })
+    setView('thread')
+    setActiveMsg(null); setActiveMsgAnchor(null); setEditingMsg(null)
+    setTimeout(() => inputRef.current?.focus(), 100)
+  }
+
+  const handleAISend = async () => {
+    if (!body.trim() || aiLoading) return
+    const userMsg = body.trim()
+    setBody('')
+    const history = aiMessages.map(m => ({ role: m.role, content: m.content }))
+    setAiMessages(prev => [...prev, { role: 'user', content: userMsg, ts: new Date() }])
+    setAiLoading(true)
+    setTimeout(() => scrollToBottom(), 50)
+    try {
+      const { data } = await aiAPI.chat(userMsg, history)
+      setAiMessages(prev => [...prev, { role: 'assistant', content: data.reply, ts: new Date() }])
+    } catch (err) {
+      setAiMessages(prev => [...prev, { role: 'assistant', content: '❌ ' + (err.response?.data?.message ?? 'Something went wrong.'), ts: new Date() }])
+    } finally {
+      setAiLoading(false)
+      setTimeout(() => scrollToBottom(), 50)
+    }
+  }
 
   // Find the last message sent by me that the recipient has read
   const lastReadIdx = thread.reduce((acc, m, i) => m.sender_id === user?.id && m.read_by_recipient ? i : acc, -1)
@@ -289,12 +319,61 @@ export default function MessagesPage() {
             </svg>
           </button>
           <div className="flex-1 text-center">
-            <p className="text-sm font-semibold text-gray-900">{threadUser?.name}</p>
+            {isAIThread
+              ? <p className="text-sm font-semibold text-gray-900">✦ AI Assistant</p>
+              : <p className="text-sm font-semibold text-gray-900">{threadUser?.name}</p>
+            }
           </div>
           <div className="w-7" />
         </div>
 
-        {/* Messages */}
+        {/* AI Thread messages */}
+        {isAIThread && (
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
+            {aiMessages.length === 0 && (
+              <div className="py-10 text-center space-y-2">
+                <div className="text-4xl">✦</div>
+                <p className="text-sm font-medium text-gray-700">Hi! I'm your club AI assistant.</p>
+                <p className="text-xs text-gray-400">You can ask me to manage sessions, check balances, send announcements, and more.</p>
+                <div className="flex flex-wrap gap-2 justify-center mt-4">
+                  {['List all coaches', '今天誰簽到了？', 'Show upcoming sessions for this week'].map(s => (
+                    <button key={s} onClick={() => { setBody(s); inputRef.current?.focus() }}
+                      className="text-xs bg-purple-50 text-purple-600 border border-purple-200 rounded-full px-3 py-1.5 hover:bg-purple-100 transition-colors">
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {aiMessages.map((m, i) => (
+              <div key={i} className={`flex items-end gap-2 ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                {m.role === 'assistant' && (
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shrink-0 text-white text-sm">✦</div>
+                )}
+                <div className={`max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
+                  m.role === 'user'
+                    ? 'bg-[#07c160] text-white rounded-br-sm'
+                    : 'bg-white text-gray-900 rounded-bl-sm shadow-sm'
+                }`}>
+                  {m.content}
+                </div>
+              </div>
+            ))}
+            {aiLoading && (
+              <div className="flex items-end gap-2">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shrink-0 text-white text-sm">✦</div>
+                <div className="bg-white rounded-2xl rounded-bl-sm shadow-sm px-4 py-3">
+                  <div className="flex gap-1">
+                    {[0,1,2].map(i => <div key={i} className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: `${i*0.15}s` }} />)}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Regular thread messages */}
+        {!isAIThread && (
         <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
           {thread.length === 0 && (
             <p className="text-center text-gray-400 text-xs py-8">No messages yet. Say hello!</p>
@@ -451,6 +530,8 @@ export default function MessagesPage() {
           })}
         </div>
 
+        )} {/* end !isAIThread regular thread */}
+
         {/* Fixed action popup — outside scroll container so it's never clipped */}
         {activeMsg && activeMsgAnchor && !editingMsg && (() => {
           const activeMsgData = thread.find(m => m.id === activeMsg)
@@ -504,7 +585,7 @@ export default function MessagesPage() {
 
         {/* Input bar */}
         <div className="shrink-0 bg-white border-t border-gray-200 px-3 py-2 flex items-center gap-2 pb-[max(env(safe-area-inset-bottom),8px)]">
-          {!isAdmin && partnerIsAdmin && (
+          {!isAIThread && !isAdmin && partnerIsAdmin && (
             <button
               onClick={openLeaveModal}
               className="text-gray-400 hover:text-amber-500 shrink-0 transition-colors"
@@ -515,24 +596,24 @@ export default function MessagesPage() {
               </svg>
             </button>
           )}
-          <button onClick={() => fileInputRef.current?.click()} className="text-gray-400 hover:text-gray-700 shrink-0">
+          {!isAIThread && <button onClick={() => fileInputRef.current?.click()} className="text-gray-400 hover:text-gray-700 shrink-0">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
             </svg>
-          </button>
+          </button>}
           <input
             ref={inputRef}
             type="text"
             value={body}
             onChange={e => setBody(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
-            placeholder="Type a message…"
+            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (isAIThread ? handleAISend() : handleSend())}
+            placeholder={isAIThread ? 'Ask AI Assistant…' : 'Type a message…'}
             className="flex-1 bg-gray-100 rounded-full px-4 py-2 text-sm text-black placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-1 focus:ring-gray-300 transition-all"
           />
           <button
-            onClick={handleSend}
-            disabled={!body.trim() && !attachPreview || sending}
-            className="w-9 h-9 rounded-full bg-[#07c160] disabled:bg-gray-200 flex items-center justify-center shrink-0 transition-colors"
+            onClick={isAIThread ? handleAISend : handleSend}
+            disabled={isAIThread ? (!body.trim() || aiLoading) : (!body.trim() && !attachPreview || sending)}
+            className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors disabled:bg-gray-200 ${isAIThread ? 'bg-gradient-to-br from-violet-500 to-purple-600' : 'bg-[#07c160]'}`}
           >
             <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
               <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
@@ -701,6 +782,23 @@ export default function MessagesPage() {
                 )}
               </div>
             ))}
+
+            {/* AI Assistant — admin only */}
+            {isAdmin && (!inboxSearch || 'ai assistant'.includes(inboxSearch.toLowerCase())) && (
+              <button
+                onClick={openAIThread}
+                className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-purple-50/50 transition-colors"
+              >
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shrink-0 text-white text-lg">✦</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-gray-900">AI Assistant</p>
+                    <p className="text-xs text-purple-400">Admin only</p>
+                  </div>
+                  <p className="text-sm text-gray-400 mt-0.5 truncate">Ask me to manage sessions, members, and more…</p>
+                </div>
+              </button>
+            )}
 
             {/* DM threads */}
             {inbox.threads

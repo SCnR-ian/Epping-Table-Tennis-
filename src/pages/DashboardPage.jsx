@@ -108,6 +108,7 @@ export default function DashboardPage() {
   const [reviewBody,      setReviewBody]      = useState('')
   const [savingReview,    setSavingReview]    = useState(false)
   const [pastReviewsOpen, setPastReviewsOpen] = useState(false)
+  const [selectedStudent, setSelectedStudent] = useState(null) // student_id for by-student view
   const [myAttendance,      setMyAttendance]      = useState([])
   const [attendanceOpen,    setAttendanceOpen]    = useState(true)
   const [showAllAttendance, setShowAllAttendance] = useState(false)
@@ -403,10 +404,12 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Session Reviews — today only (coach view) */}
-          {(() => {
-            const todaySessions   = coachSessions.filter(s => s.date?.slice(0,10) === todayISO)
-            const pastWithReviews = coachSessions.filter(s => s.date?.slice(0,10) < todayISO && (s.has_review || s.student_rating))
+          {/* Session Reviews — coach view */}
+          {coachSessions.length > 0 && (() => {
+            const todayISO_ = new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Sydney' })
+            const todaySessions = coachSessions.filter(s => s.date?.slice(0,10) === todayISO_)
+            const pastSessions  = coachSessions.filter(s => s.date?.slice(0,10) < todayISO_)
+
             const openReviewModal = async (s) => {
               let existingReview = null
               if (s.has_review) {
@@ -421,12 +424,21 @@ export default function DashboardPage() {
                 existingReview,
               })
             }
-            if (todaySessions.length === 0 && pastWithReviews.length === 0) return null
+
+            // Group past sessions by student
+            const studentMap = {}
+            for (const s of pastSessions) {
+              const key = s.student_id
+              if (!studentMap[key]) studentMap[key] = { name: s.student_name, id: key, sessions: [] }
+              studentMap[key].sessions.push(s)
+            }
+            const students = Object.values(studentMap).sort((a, b) => a.name.localeCompare(b.name))
+
             return (
               <>
-                {/* Today */}
+                {/* Today's sessions */}
                 <div className="border border-gray-300 rounded-xl p-6">
-                  <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 mb-4">Session Reviews</p>
+                  <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 mb-4">Today's Sessions</p>
                   {todaySessions.length === 0 ? (
                     <p className="text-sm text-gray-500">No sessions today.</p>
                   ) : (
@@ -438,14 +450,12 @@ export default function DashboardPage() {
                             <p className="text-xs text-gray-500">{fmtTime(s.start_time)}–{fmtTime(s.end_time)}</p>
                             {s.student_rating && (
                               <div className="flex items-center gap-0.5 mt-0.5">
-                                {[1,2,3,4,5].map(n => (
-                                  <span key={n} className={`text-xs ${n <= s.student_rating ? 'text-amber-400' : 'text-gray-200'}`}>★</span>
-                                ))}
+                                {[1,2,3,4,5].map(n => <span key={n} className={`text-xs ${n <= s.student_rating ? 'text-amber-400' : 'text-gray-200'}`}>★</span>)}
                               </div>
                             )}
                           </div>
                           <button onClick={() => openReviewModal(s)} className="flex-shrink-0 text-xs text-sky-600 hover:text-sky-500 whitespace-nowrap">
-                            {s.has_review ? '✎ Edit' : 'Write Review'}
+                            {s.has_review ? '✎ Edit' : 'Write Feedback'}
                           </button>
                         </div>
                       ))}
@@ -453,38 +463,83 @@ export default function DashboardPage() {
                   )}
                 </div>
 
-                {/* Past Reviews (collapsible) */}
-                {pastWithReviews.length > 0 && (
-                  <div className="border border-gray-300 rounded-xl p-6">
-                    <button onClick={() => setPastReviewsOpen(o => !o)} className="flex items-center justify-between w-full">
-                      <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800">Past Reviews</p>
-                      <span className="text-xs text-gray-400">{pastReviewsOpen ? '▲' : '▼'}</span>
-                    </button>
-                    {pastReviewsOpen && (
-                      <div className="divide-y divide-gray-200 mt-4">
-                        {pastWithReviews.map(s => (
-                          <div key={s.id} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-sm text-gray-900 truncate">{s.student_name}</p>
-                              <p className="text-xs text-gray-500">
-                                {new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})}
-                                {' · '}{fmtTime(s.start_time)}–{fmtTime(s.end_time)}
-                              </p>
-                              {s.student_rating && (
-                                <div className="flex items-center gap-0.5 mt-0.5">
-                                  {[1,2,3,4,5].map(n => (
-                                    <span key={n} className={`text-xs ${n <= s.student_rating ? 'text-amber-400' : 'text-gray-200'}`}>★</span>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                            <button onClick={() => openReviewModal(s)} className="flex-shrink-0 text-xs text-sky-600 hover:text-sky-500 whitespace-nowrap">
-                              {s.has_review ? '✎ Edit' : 'Write Review'}
+                {/* By Student */}
+                {students.length > 0 && (
+                  <div className="border border-gray-300 rounded-xl overflow-hidden">
+                    <div className="px-6 pt-5 pb-3 flex items-center justify-between">
+                      <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800">Feedback by Student</p>
+                      {selectedStudent && (
+                        <button onClick={() => setSelectedStudent(null)} className="text-xs text-gray-400 hover:text-black transition-colors">
+                          ← All Students
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Student list */}
+                    {!selectedStudent && (
+                      <div className="divide-y divide-gray-200">
+                        {students.map(st => {
+                          const unreviewed = st.sessions.filter(s => !s.has_review).length
+                          return (
+                            <button
+                              key={st.id}
+                              onClick={() => setSelectedStudent(st.id)}
+                              className="w-full flex items-center justify-between px-6 py-3.5 hover:bg-gray-50 transition-colors text-left"
+                            >
+                              <div>
+                                <p className="text-sm text-gray-900">{st.name}</p>
+                                <p className="text-xs text-gray-400">{st.sessions.length} session{st.sessions.length !== 1 ? 's' : ''}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {unreviewed > 0 && (
+                                  <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
+                                    {unreviewed} pending
+                                  </span>
+                                )}
+                                <svg className="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                </svg>
+                              </div>
                             </button>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
+
+                    {/* Sessions for selected student */}
+                    {selectedStudent && (() => {
+                      const st = studentMap[selectedStudent]
+                      if (!st) return null
+                      return (
+                        <div className="divide-y divide-gray-200">
+                          {st.sessions.map(s => {
+                            const isPast = s.date?.slice(0,10) < todayISO_
+                            const dateStr = new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'})
+                            return (
+                              <div key={s.id} className={`px-6 py-3.5 flex items-center justify-between gap-3 ${!s.has_review && isPast ? 'bg-amber-50' : ''}`}>
+                                <div className="min-w-0">
+                                  <p className="text-sm text-gray-900">{dateStr}</p>
+                                  <p className="text-xs text-gray-500">{fmtTime(s.start_time)}–{fmtTime(s.end_time)}</p>
+                                  {s.student_rating && (
+                                    <div className="flex items-center gap-0.5 mt-0.5">
+                                      {[1,2,3,4,5].map(n => <span key={n} className={`text-xs ${n <= s.student_rating ? 'text-amber-400' : 'text-gray-200'}`}>★</span>)}
+                                    </div>
+                                  )}
+                                  {s.has_review && <p className="text-xs text-green-600 mt-0.5">✓ Feedback written</p>}
+                                  {!s.has_review && isPast && <p className="text-xs text-amber-600 mt-0.5">No feedback yet</p>}
+                                </div>
+                                {isPast && (
+                                  <button onClick={() => openReviewModal(s)} className="flex-shrink-0 text-xs text-sky-600 hover:text-sky-500 whitespace-nowrap">
+                                    {s.has_review ? '✎ Edit' : 'Write Feedback'}
+                                  </button>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    })()}
+                    <div className="pb-2" />
                   </div>
                 )}
               </>

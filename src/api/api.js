@@ -313,4 +313,11 @@ export const clubAPI = {
   update:     (data)   => api.patch('/clubs/current', data),
 }
 
+// ---------------------------------------------------------------------------
+// AI Assistant
+// ---------------------------------------------------------------------------
+export const aiAPI = {
+  chat: (message, history) => api.post('/ai/chat', { message, history }),
+}
+
 export default api;
