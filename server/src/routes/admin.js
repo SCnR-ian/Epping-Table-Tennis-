@@ -311,7 +311,7 @@ router.get('/bookings', async (req, res) => {
          c.name  AS court_name
        FROM bookings b
        JOIN users u ON u.id  = b.user_id
-       JOIN courts c ON c.id = b.court_id
+       LEFT JOIN courts c ON c.id = b.court_id
        WHERE b.status = 'confirmed' AND b.club_id = $1 ${date ? 'AND b.date = $2' : ''}
        GROUP BY b.booking_group_id, b.court_id, b.date, b.user_id, b.status, u.name, u.email, c.name
        ORDER BY b.date DESC, MIN(b.start_time) DESC`,

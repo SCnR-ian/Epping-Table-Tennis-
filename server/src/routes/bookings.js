@@ -115,7 +115,7 @@ router.get('/my', requireAuth, async (req, res) => {
          END               AS status,
          MIN(b.created_at) AS created_at
        FROM bookings b
-       JOIN courts c ON c.id = b.court_id
+       LEFT JOIN courts c ON c.id = b.court_id
        WHERE b.user_id = $1 AND b.club_id = $2
          AND b.date >= CURRENT_DATE
        GROUP BY b.booking_group_id, b.court_id, b.date, c.name
@@ -132,7 +132,7 @@ router.get('/:id', requireAuth, async (req, res) => {
     const clubId = req.club?.id ?? 1
     const { rows } = await pool.query(
       `SELECT b.*, c.name AS court_name FROM bookings b
-       JOIN courts c ON c.id=b.court_id WHERE b.id=$1 AND b.club_id=$2`,
+       LEFT JOIN courts c ON c.id=b.court_id WHERE b.id=$1 AND b.club_id=$2`,
       [req.params.id, clubId]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Booking not found.' })
