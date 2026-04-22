@@ -1785,13 +1785,6 @@ const [sessionForm,      setSessionForm]      = useState({
     await Promise.all([refreshAfterReschedule(), refreshBookingView()])
   }
 
-  // Refresh dashboard whenever AI assistant makes a data change
-  useEffect(() => {
-    const handler = () => refreshAll()
-    window.addEventListener('ai-data-changed', handler)
-    return () => window.removeEventListener('ai-data-changed', handler)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
   const handleMoveSingle = async (sessionId) => {
     const pickedDate = rescheduleDates[sessionId]
     const currentDate = rescheduleModal?.sessions.find(s => s.id === sessionId)?.date
