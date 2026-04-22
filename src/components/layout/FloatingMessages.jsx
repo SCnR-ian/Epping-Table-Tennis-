@@ -199,11 +199,16 @@ export default function FloatingMessages() {
   const partnerIsAdmin = threadUser && inbox.threads.find(t => t.other_user === threadUser.id)?.other_role === 'admin'
   const isAIThread = threadUser?.id === 'ai'
 
+  // Auto-scroll to bottom when AI thread is open and messages change
+  useEffect(() => {
+    if (isAIThread) setTimeout(scrollToBottom, 50)
+  }, [aiMessages, aiLoading, isAIThread, scrollToBottom])
+
   const openAIThread = () => {
     setThreadUser({ id: 'ai', name: 'AI Assistant' })
     setView('thread')
     setActiveMsg(null); setActiveMsgAnchor(null); setEditingMsg(null)
-    setTimeout(() => inputRef.current?.focus(), 150)
+    setTimeout(() => { scrollToBottom(); inputRef.current?.focus() }, 150)
   }
 
   const handleAISend = async () => {
