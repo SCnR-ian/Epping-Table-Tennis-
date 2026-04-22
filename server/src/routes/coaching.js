@@ -4,6 +4,16 @@ const { requireAuth, requireAdmin } = require('../middleware/auth')
 const { randomUUID } = require('crypto')
 const { checkOpenHours } = require('../utils/scheduleCheck')
 
+// ─── Time helpers ─────────────────────────────────────────────────────────────
+
+function toMins(t) {
+  const [h, m] = t.substring(0, 5).split(':').map(Number)
+  return h * 60 + m
+}
+function minsToTime(mins) {
+  return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}:00`
+}
+
 // ─── Coaching hours helpers ───────────────────────────────────────────────────
 
 function sessionHours(startTime, endTime) {
@@ -1162,32 +1172,41 @@ async function checkAndAssignCourt(client, session, sessionDate, newStart, newEn
   if (stdCoach.length)
     throw Object.assign(new Error('student_conflict'), { sessionDate, reason: 'coaching' })
 
-  // ── court availability: count-based (6 courts total) ───────────────────────
-  const { rows: [usage] } = await client.query(
-    `SELECT
-       (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions
-        WHERE date=$1 AND status='confirmed' AND club_id=$4
-          AND NOT (id = ANY($5::int[]))
-          AND ($6::uuid IS NULL OR group_id IS DISTINCT FROM $6)
-          AND start_time < $3::time AND end_time > $2::time) AS coaching_used,
-       (SELECT COUNT(DISTINCT booking_group_id) FROM bookings
-        WHERE date=$1 AND status='confirmed' AND club_id=$4
-          AND start_time < $3::time AND end_time > $2::time) AS booking_used,
-       (SELECT COALESCE(SUM(num_courts), 0) FROM social_play_sessions
-        WHERE date=$1 AND status='open' AND club_id=$4
-          AND start_time < $3::time AND end_time > $2::time) AS social_used`,
-    [sessionDate, newStart, newEnd, clubId, excludeIds, groupId ?? null]
-  )
-  const totalUsed = Number(usage.coaching_used) + Number(usage.booking_used) + Number(usage.social_used)
-  if (totalUsed >= 6) {
-    const detail = `(${usage.coaching_used} coaching + ${usage.booking_used} bookings + ${usage.social_used} social = ${totalUsed}/6)`
-    throw Object.assign(new Error('no_court'), { sessionDate, detail })
+  // ── court availability: check each 30-min sub-slot independently ─────────
+  // Checking the whole window at once overcounts: sessions in the first half
+  // and sessions in the second half both get included even though they never
+  // overlap with each other, making the total exceed 6 when it shouldn't.
+  const startM = toMins(newStart)
+  const endM   = toMins(newEnd)
+  for (let t = startM; t < endM; t += 30) {
+    const slotStart = minsToTime(t)
+    const slotEnd   = minsToTime(t + 30)
+    const { rows: [usage] } = await client.query(
+      `SELECT
+         (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions
+          WHERE date=$1 AND status='confirmed' AND club_id=$4
+            AND NOT (id = ANY($5::int[]))
+            AND ($6::uuid IS NULL OR group_id IS DISTINCT FROM $6)
+            AND start_time < $3::time AND end_time > $2::time) AS coaching_used,
+         (SELECT COUNT(DISTINCT booking_group_id) FROM bookings
+          WHERE date=$1 AND status='confirmed' AND club_id=$4
+            AND start_time < $3::time AND end_time > $2::time) AS booking_used,
+         (SELECT COALESCE(SUM(num_courts), 0) FROM social_play_sessions
+          WHERE date=$1 AND status='open' AND club_id=$4
+            AND start_time < $3::time AND end_time > $2::time) AS social_used`,
+      [sessionDate, slotStart, slotEnd, clubId, excludeIds, groupId ?? null]
+    )
+    const totalUsed = Number(usage.coaching_used) + Number(usage.booking_used) + Number(usage.social_used)
+    if (totalUsed >= 6) {
+      const detail = `(${usage.coaching_used} coaching + ${usage.booking_used} bookings + ${usage.social_used} social = ${totalUsed}/6 at ${slotStart.slice(0,5)})`
+      throw Object.assign(new Error('no_court'), { sessionDate, detail })
+    }
   }
 }
 
 function rescheduleConflictResponse(err, res) {
   if (err.message === 'no_court')
-    return res.status(409).json({ message: `No courts available on ${err.sessionDate} at that time.` })
+    return res.status(409).json({ message: `No courts available on ${err.sessionDate} at that time. ${err.detail ?? ''}`.trim() })
   if (err.message === 'student_conflict') {
     const what = err.reason === 'booking' ? 'a court booking' : err.reason === 'social' ? 'a social play session' : 'another coaching session'
     return res.status(409).json({ message: `Student already has ${what} on ${err.sessionDate} at that time.` })
