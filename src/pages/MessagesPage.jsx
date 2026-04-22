@@ -250,6 +250,7 @@ export default function MessagesPage() {
     try {
       const { data } = await aiAPI.chat(userMsg, history)
       setAiMessages(prev => [...prev, { role: 'assistant', content: data.reply, ts: new Date() }])
+      window.dispatchEvent(new CustomEvent('ai-data-changed'))
     } catch (err) {
       setAiMessages(prev => [...prev, { role: 'assistant', content: '❌ ' + (err.response?.data?.message ?? 'Something went wrong.'), ts: new Date() }])
     } finally {
