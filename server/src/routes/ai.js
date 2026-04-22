@@ -723,7 +723,7 @@ async function executeTool(name, input, clubId, adminId) {
         )
         resolvedCoachId = cr[0]?.id ?? null
       }
-      let q = `SELECT cs.id, cs.date, cs.start_time, cs.end_time, cs.status,
+      let q = `SELECT cs.id, cs.date, cs.start_time, cs.end_time, cs.status, cs.group_id,
                       u.name AS student_name, co.name AS coach_name
                FROM coaching_sessions cs
                JOIN users u ON u.id=cs.student_id
@@ -738,9 +738,30 @@ async function executeTool(name, input, clubId, adminId) {
       else                   { /* no status filter — return all statuses */ }
       q += ' ORDER BY cs.date, cs.start_time LIMIT 50'
       const { rows } = await pool.query(q, params)
-      return rows.length
-        ? rows.map(r => `[${r.id}] ${fmtDate(r.date)} ${fmtTime(r.start_time)}–${fmtTime(r.end_time)} | ${r.student_name} w/ Coach ${r.coach_name} (${r.status})`).join('\n')
-        : 'No sessions found.'
+      if (!rows.length) return 'No sessions found.'
+      // Group sessions by group_id so group lessons appear as one entry
+      const grouped = []
+      const seen = new Map()
+      for (const r of rows) {
+        if (r.group_id) {
+          const key = r.group_id
+          if (seen.has(key)) {
+            seen.get(key).students.push(r.student_name)
+            seen.get(key).ids.push(r.id)
+          } else {
+            const entry = { ids: [r.id], date: r.date, start_time: r.start_time, end_time: r.end_time, status: r.status, coach_name: r.coach_name, students: [r.student_name], group_id: key }
+            seen.set(key, entry)
+            grouped.push(entry)
+          }
+        } else {
+          grouped.push({ ids: [r.id], date: r.date, start_time: r.start_time, end_time: r.end_time, status: r.status, coach_name: r.coach_name, students: [r.student_name], group_id: null })
+        }
+      }
+      return grouped.map(r => {
+        const idStr = r.ids.length > 1 ? `[${r.ids.join(',')}]` : `[${r.ids[0]}]`
+        const studentStr = r.students.length > 1 ? `${r.students.join(' & ')} (group)` : r.students[0]
+        return `${idStr} ${fmtDate(r.date)} ${fmtTime(r.start_time)}–${fmtTime(r.end_time)} | ${studentStr} w/ Coach ${r.coach_name} (${r.status})`
+      }).join('\n')
     }
 
     case 'create_session': {
