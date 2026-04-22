@@ -1781,6 +1781,10 @@ const [sessionForm,      setSessionForm]      = useState({
     setAdminCheckIns(kid.checkIns)
   }
 
+  const refreshAll = async () => {
+    await refreshAll()
+  }
+
   const handleMoveSingle = async (sessionId) => {
     const pickedDate = rescheduleDates[sessionId]
     const currentDate = rescheduleModal?.sessions.find(s => s.id === sessionId)?.date
@@ -1790,7 +1794,7 @@ const [sessionForm,      setSessionForm]      = useState({
     const { start_time: newStart, end_time: newEnd } = rescheduleTime
     try {
       await coachingAPI.rescheduleSession(sessionId, newDate, newStart || undefined, newEnd || undefined)
-      await refreshAfterReschedule()
+      await refreshAll()
       // update modal in-place
       const patch = { date: newDate, ...(newStart && newEnd ? { start_time: newStart, end_time: newEnd } : {}) }
       setRescheduleModal(prev => prev ? {
@@ -1824,7 +1828,7 @@ const [sessionForm,      setSessionForm]      = useState({
     setRescheduleSaving(true)
     try {
       await coachingAPI.rescheduleBulk(updates)
-      await refreshAfterReschedule()
+      await refreshAll()
       setRescheduleModal(null)
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not reschedule.')
@@ -1851,7 +1855,7 @@ const [sessionForm,      setSessionForm]      = useState({
     setRescheduleSaving(true)
     try {
       await coachingAPI.rescheduleBulk(updates)
-      await refreshAfterReschedule()
+      await refreshAll()
       setRescheduleSelected(new Set())
       setRescheduleDates({})
     } catch (err) {
@@ -1939,7 +1943,7 @@ const [sessionForm,      setSessionForm]      = useState({
         ? [{ id: ev.id, date: newDate, ...timeFields }]
         : ev.session_ids.map(id => ({ id, date: newDate, ...timeFields }))
       await coachingAPI.rescheduleBulk(updates)
-      await refreshBookingView()
+      await refreshAll()
       setCalendarReschedule(null)
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not reschedule.')
@@ -2061,7 +2065,7 @@ const [sessionForm,      setSessionForm]      = useState({
       try {
         for (const s of sessions) await coachingAPI.recordLeave(s.id).catch(() => {})
         await coachingAPI.rescheduleBulk(sessions.map(s => ({ id: s.id, date: moveToISO })))
-        await Promise.all([refreshAfterReschedule(), refreshBookingView()])
+        await refreshAll()
       } catch (err) { alert(err.response?.data?.message ?? 'Could not move sessions.') }
       return
     }
@@ -2071,7 +2075,7 @@ const [sessionForm,      setSessionForm]      = useState({
       for (const s of sessions) {
         await coachingAPI.cancelSession(s.id)
       }
-      await Promise.all([refreshAfterReschedule(), refreshBookingView()])
+      await refreshAll()
     } catch (err) { alert(err.response?.data?.message ?? 'Could not cancel sessions.') }
   }
 
@@ -2141,7 +2145,7 @@ const [sessionForm,      setSessionForm]      = useState({
       const { data } = await coachingAPI.addStudentToGroup(groupId, studentId)
       const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
       setGroupSessions(gd.groups)
-      await refreshAfterReschedule()
+      await refreshAll()
       setAddStudentGroupId(null)
       setAddStudentSearch('')
     } catch (err) {
@@ -2154,7 +2158,7 @@ const [sessionForm,      setSessionForm]      = useState({
     setGroupEditAddSaving(true)
     try {
       await coachingAPI.addStudentToGroup(groupEditModal.group_id, studentId)
-      await refreshAfterReschedule()
+      await refreshAll()
       const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
       setGroupSessions(gd.groups)
       const updated = gd.groups.find(g => g.group_id === groupEditModal.group_id)
@@ -2170,7 +2174,7 @@ const [sessionForm,      setSessionForm]      = useState({
     if (!window.confirm(`Remove ${studentName} from this group?`)) return
     try {
       await coachingAPI.removeStudentFromGroup(groupEditModal.group_id, studentId)
-      await refreshAfterReschedule()
+      await refreshAll()
       const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
       setGroupSessions(gd.groups)
       const updated = gd.groups.find(g => g.group_id === groupEditModal.group_id)
@@ -2187,7 +2191,7 @@ const [sessionForm,      setSessionForm]      = useState({
     try {
       await coachingAPI.addStudentToGroup(groupEditModal.group_id, studentId, fromDate)
       setDateAddSearch(prev => { const n = { ...prev }; delete n[fromDate]; return n })
-      await refreshAfterReschedule()
+      await refreshAll()
       const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
       setGroupSessions(gd.groups)
       const updated = gd.groups.find(g => g.group_id === groupEditModal.group_id)
@@ -2202,7 +2206,7 @@ const [sessionForm,      setSessionForm]      = useState({
     if (!window.confirm(`Remove ${studentName} from all sessions from ${fmtDate(fromDate)} onwards?`)) return
     try {
       await coachingAPI.removeStudentFromGroup(groupEditModal.group_id, studentId, fromDate)
-      await refreshAfterReschedule()
+      await refreshAll()
       const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
       setGroupSessions(gd.groups)
       const updated = gd.groups.find(g => g.group_id === groupEditModal.group_id)
@@ -2246,7 +2250,7 @@ const [sessionForm,      setSessionForm]      = useState({
     setRescheduleSaving(true)
     try {
       await coachingAPI.rescheduleBulk(updates)
-      await refreshAfterReschedule()
+      await refreshAll()
       const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
       setGroupSessions(gd.groups)
       const updated = gd.groups.find(g => g.group_id === groupEditModal.group_id)
@@ -2283,7 +2287,7 @@ const [sessionForm,      setSessionForm]      = useState({
     const moveToISO = moveToDate.toISOString().slice(0, 10)
 
     const refreshGroup = async () => {
-      await refreshAfterReschedule()
+      await refreshAll()
       const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
       setGroupSessions(gd.groups)
       const updated = gd.groups.find(g => g.group_id === groupEditModal.group_id)
@@ -2347,7 +2351,7 @@ const [sessionForm,      setSessionForm]      = useState({
     setGroupEditSaving(true)
     try {
       await coachingAPI.rescheduleBulk(updates)
-      await refreshAfterReschedule()
+      await refreshAll()
       const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
       setGroupSessions(gd.groups)
       setGroupEditModal(prev => gd.groups.find(g => g.group_id === prev?.group_id) ?? null)
@@ -2381,7 +2385,7 @@ const [sessionForm,      setSessionForm]      = useState({
     setGroupEditSaving(true)
     try {
       await coachingAPI.rescheduleBulk(updates)
-      await refreshAfterReschedule()
+      await refreshAll()
       const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
       setGroupSessions(gd.groups)
       setGroupEditModal(prev => gd.groups.find(g => g.group_id === prev?.group_id) ?? null)
@@ -2395,7 +2399,7 @@ const [sessionForm,      setSessionForm]      = useState({
     if (!window.confirm(`Cancel ${session.student_name}'s session on ${fmtDate(session.date?.slice(0, 10))}?`)) return
 
     const refreshGroup = async () => {
-      await refreshAfterReschedule()
+      await refreshAll()
       const { data: gd } = await coachingAPI.getGroupSessions({ date: coachingDate })
       setGroupSessions(gd.groups)
       const updated = gd.groups.find(g => g.group_id === groupEditModal.group_id)
