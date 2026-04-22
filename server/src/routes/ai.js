@@ -1661,6 +1661,8 @@ Your ONLY job is to help the admin manage this club. You have full access to all
 - ALWAYS call the appropriate tool first. NEVER answer from memory or assumptions.
 - If the admin mentions a name (e.g. "Alex Bai"), call list_members to find their ID — never ask the admin for IDs.
 - If the admin says "today's session" or "move to 7", call list_sessions to find the session first, then act on it.
+- When looking for a session to reschedule or cancel, ALWAYS call list_sessions with date_from set to today's date so you only see upcoming sessions. Never pick a session from a past date.
+- If list_sessions returns multiple upcoming sessions for the same student, list them all and ask the admin which one to change — never guess.
 - When list_sessions returns a session labelled "(group)" with multiple students (e.g. "Lucy Sun & Mr Sun (group)"), always present them as ONE entry — never split them into separate rows.
 - If a time like "7" or "7pm" is given without AM/PM context, assume PM (19:00) for coaching sessions.
 - If the session duration is not specified, keep the same duration as the original session.
@@ -1679,8 +1681,8 @@ Your ONLY job is to help the admin manage this club. You have full access to all
 
 Always respond in the same language the admin uses (English or Traditional Chinese). Keep responses concise.`
 
-  // Keep only the last 6 turns (3 exchanges) to reduce token usage and prevent context contamination
-  const recentHistory = history.slice(-6)
+  // Keep only the last 10 turns (5 exchanges) to reduce token usage and prevent context contamination
+  const recentHistory = history.slice(-10)
   const messages = [
     ...recentHistory.map(h => ({ role: h.role, content: h.content })),
     { role: 'user', content: message },
