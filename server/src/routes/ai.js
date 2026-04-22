@@ -961,7 +961,7 @@ async function executeTool(name, input, clubId, adminId) {
         `UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=NULL WHERE id=$4`,
         [newDate, input.start_time, input.end_time, input.session_id]
       )
-      return `✅ Rescheduled session ${input.session_id} (${sess.student_name} w/ Coach ${sess.coach_name}) to ${fmtDate(newDate)} ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}.`
+      return `✅ SUCCESS: Session ${input.session_id} for ${sess.student_name} with Coach ${sess.coach_name} has been rescheduled to ${fmtDate(newDate)} ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}. The database has been updated.`
     }
 
     case 'cancel_session': {
@@ -1747,8 +1747,9 @@ Your ONLY job is to help the admin manage this club. You have full access to all
 - If the session duration is not specified, keep the same duration as the original session.
 - Only ask the admin a clarifying question if you genuinely cannot determine the intent after using all relevant tools.
 
-## Error handling
+## Error handling and result reporting
 - When a tool returns an ❌ error message, always relay the FULL error text to the admin — never summarize, shorten, or replace it with generic phrases like "could not reschedule". The exact error tells the admin what to fix.
+- When a tool returns a ✅ message, you MUST report success to the admin. NEVER say "could not", "failed", or imply failure after a tool returns ✅. If the tool succeeded, the action succeeded — trust the tool result, not your own assumptions.
 
 ## CRITICAL — Data integrity
 - NEVER fabricate, guess, or invent data. Every name, number, date, and time you mention MUST come directly from a tool result in THIS response — not from earlier conversation turns.
