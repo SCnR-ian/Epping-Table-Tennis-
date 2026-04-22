@@ -319,7 +319,7 @@ export const clubAPI = {
 // AI Assistant
 // ---------------------------------------------------------------------------
 export const aiAPI = {
-  chat: (message, history) => api.post('/ai/chat', { message, history }),
+  chat: (message, history) => api.post('/ai/chat', { message, history }, { timeout: 60_000 }),
 }
 
 export default api;

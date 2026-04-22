@@ -151,11 +151,11 @@ const TOOLS = [
   },
   {
     name: 'reschedule_session',
-    description: 'Reschedule a coaching session to a new time on the same or different date.',
+    description: 'Reschedule a coaching session to a new time on the same or different date. For group sessions listed as [10,11], pass any one of the IDs — the system will automatically reschedule all group members together.',
     input_schema: {
       type: 'object',
       properties: {
-        session_id: { type: 'number' },
+        session_id: { type: 'number', description: 'Session ID. For group sessions shown as [10,11], use the first ID (10).' },
         date:       { type: 'string', description: 'YYYY-MM-DD — omit to keep same date' },
         start_time: { type: 'string', description: 'HH:MM (24h) new start time' },
         end_time:   { type: 'string', description: 'HH:MM (24h) new end time' },
@@ -241,6 +241,20 @@ const TOOLS = [
         booking_group_id: { type: 'string', description: 'The booking group UUID' },
       },
       required: ['booking_group_id'],
+    },
+  },
+  {
+    name: 'reschedule_booking',
+    description: 'Reschedule a court booking (from the bookings table) to a new date and/or time. The booking_group_id comes from list_bookings.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        booking_group_id: { type: 'string', description: 'The booking group UUID from list_bookings' },
+        date:             { type: 'string', description: 'New date YYYY-MM-DD — omit to keep same date' },
+        start_time:       { type: 'string', description: 'New start time HH:MM (24h)' },
+        end_time:         { type: 'string', description: 'New end time HH:MM (24h) — omit to keep same duration' },
+      },
+      required: ['booking_group_id', 'start_time'],
     },
   },
   // ── Social Play ──
@@ -880,18 +894,34 @@ async function executeTool(name, input, clubId, adminId) {
       )
       if (!s.length) return `❌ Session ${input.session_id} not found.`
       const sess = s[0]
-      const newDate = input.date ?? (typeof sess.date === 'string' ? sess.date.slice(0,10) : new Date(sess.date).toISOString().slice(0,10))
+      const origDate = typeof sess.date === 'string' ? sess.date.slice(0,10) : new Date(sess.date).toISOString().slice(0,10)
+      const newDate = input.date ?? origDate
+
+      // For group sessions, collect all sibling session IDs so we can exclude them from conflict checks
+      let excludeIds = [input.session_id]
+      let groupLabel = sess.student_name
+      if (sess.group_id) {
+        const { rows: siblings } = await pool.query(
+          `SELECT id, u.name AS student_name FROM coaching_sessions cs
+           JOIN users u ON u.id = cs.student_id
+           WHERE cs.group_id=$1 AND cs.date=$2 AND cs.status='confirmed' AND cs.club_id=$3`,
+          [sess.group_id, origDate, clubId]
+        )
+        excludeIds = siblings.map(r => r.id)
+        groupLabel = siblings.map(r => r.student_name).join(', ')
+      }
+
       // Open hours check
       const schedErrR = await checkOpenHours(newDate, input.start_time, input.end_time, clubId)
       if (schedErrR) return `❌ ${schedErrR}`
-      // Check coach conflict (exclude the session being rescheduled)
+      // Check coach conflict (exclude all sessions being rescheduled)
       const { rows: coachBusy } = await pool.query(
         `SELECT u.name AS student_name, cs.start_time, cs.end_time FROM coaching_sessions cs
          JOIN users u ON u.id = cs.student_id
          WHERE cs.coach_id=$1 AND cs.date=$2 AND cs.status='confirmed' AND cs.club_id=$3
-           AND cs.id != $6
+           AND NOT (cs.id = ANY($6::int[]))
            AND cs.start_time < $5::time AND cs.end_time > $4::time LIMIT 1`,
-        [sess.coach_id, newDate, clubId, input.start_time, input.end_time, input.session_id]
+        [sess.coach_id, newDate, clubId, input.start_time, input.end_time, excludeIds]
       )
       if (coachBusy.length) {
         return `❌ Conflict: Coach ${sess.coach_name} already has a session with ${coachBusy[0].student_name} at ${fmtTime(coachBusy[0].start_time)}–${fmtTime(coachBusy[0].end_time)} on ${fmtDate(newDate)}. Please choose a different time.`
@@ -914,11 +944,11 @@ async function executeTool(name, input, clubId, adminId) {
         )
         if (cSocialR.length) return `❌ Conflict: Coach ${sess.coach_name} is in a social play session at that time on ${fmtDate(newDate)}.`
       }
-      // Student conflict check (coaching + booking + social, exclude the session being rescheduled)
+      // Student conflict check (coaching + booking + social, exclude the sessions being rescheduled)
       const { rows: stdBusyR } = await pool.query(
         `SELECT 1 FROM coaching_sessions WHERE student_id=$1 AND date=$2 AND status='confirmed' AND club_id=$3
-           AND id != $6 AND start_time < $5::time AND end_time > $4::time LIMIT 1`,
-        [sess.student_id, newDate, clubId, input.start_time, input.end_time, input.session_id]
+           AND NOT (id = ANY($6::int[])) AND start_time < $5::time AND end_time > $4::time LIMIT 1`,
+        [sess.student_id, newDate, clubId, input.start_time, input.end_time, excludeIds]
       )
       if (stdBusyR.length) return `❌ ${sess.student_name} already has another coaching session at that time on ${fmtDate(newDate)}.`
       const { rows: stdBookR } = await pool.query(
@@ -934,14 +964,24 @@ async function executeTool(name, input, clubId, adminId) {
         [sess.student_id, newDate, clubId, input.start_time, input.end_time]
       )
       if (stdSocialR.length) return `❌ ${sess.student_name} is signed up for social play at that time on ${fmtDate(newDate)}.`
-      // Court availability (peak concurrent per 30-min sub-slot, exclude session being moved)
-      const { maxUsed: rsMax } = await maxConcurrentCourts(pool, newDate, input.start_time, input.end_time, clubId, [input.session_id])
+      // Court availability (peak concurrent per 30-min sub-slot, exclude all sessions being moved)
+      const { maxUsed: rsMax } = await maxConcurrentCourts(pool, newDate, input.start_time, input.end_time, clubId, excludeIds)
       if (rsMax >= 6) return `❌ All 6 courts are fully booked at ${fmtDate(newDate)} ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}.`
-      await pool.query(
-        `UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=NULL WHERE id=$4`,
-        [newDate, input.start_time, input.end_time, input.session_id]
-      )
-      return `✅ SUCCESS: Session ${input.session_id} for ${sess.student_name} with Coach ${sess.coach_name} has been rescheduled to ${fmtDate(newDate)} ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}. The database has been updated.`
+      // Update — for group sessions update all members on the same original date
+      if (sess.group_id) {
+        await pool.query(
+          `UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=NULL
+           WHERE group_id=$4 AND date=$5 AND status='confirmed' AND club_id=$6`,
+          [newDate, input.start_time, input.end_time, sess.group_id, origDate, clubId]
+        )
+      } else {
+        await pool.query(
+          `UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=NULL WHERE id=$4`,
+          [newDate, input.start_time, input.end_time, input.session_id]
+        )
+      }
+      const groupNote = sess.group_id ? ` (group session — all ${excludeIds.length} students updated)` : ''
+      return `✅ SUCCESS: Session ${input.session_id} for ${groupLabel} with Coach ${sess.coach_name} has been rescheduled to ${fmtDate(newDate)} ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}${groupNote}. The database has been updated.`
     }
 
     case 'cancel_session': {
@@ -1095,6 +1135,67 @@ async function executeTool(name, input, clubId, adminId) {
         [input.booking_group_id, clubId]
       )
       return `✅ Booking for ${u[0]?.name ?? 'member'} cancelled.`
+    }
+
+    case 'reschedule_booking': {
+      // Fetch all slots for this booking group
+      const { rows: bRows } = await pool.query(
+        `SELECT b.*, u.name AS user_name
+         FROM bookings b JOIN users u ON u.id=b.user_id
+         WHERE b.booking_group_id=$1 AND b.status='confirmed' AND b.club_id=$2
+         ORDER BY b.start_time`,
+        [input.booking_group_id, clubId]
+      )
+      if (!bRows.length) return '❌ Booking not found.'
+      const bk = bRows[0]
+      const origDate = typeof bk.date === 'string' ? bk.date.slice(0,10) : new Date(bk.date).toISOString().slice(0,10)
+      const newDate  = input.date ?? origDate
+
+      // Compute new times: keep same duration if end_time not provided
+      function toMinsAI(t) { const [h,m] = t.substring(0,5).split(':').map(Number); return h*60+m }
+      function minsToTimeAI(mins) { return `${String(Math.floor(mins/60)).padStart(2,'0')}:${String(mins%60).padStart(2,'0')}:00` }
+      const origDurMins = toMinsAI(bRows[bRows.length-1].end_time) - toMinsAI(bRows[0].start_time)
+      const newStart    = input.start_time
+      const newStartMins = toMinsAI(newStart)
+      const newEndMins  = input.end_time ? toMinsAI(input.end_time) : newStartMins + origDurMins
+      const newEnd      = input.end_time ?? minsToTimeAI(newEndMins)
+
+      if (newEndMins <= newStartMins || (newEndMins - newStartMins) < 30 || (newEndMins - newStartMins) % 30 !== 0)
+        return '❌ Invalid duration. Must be at least 30 minutes and a multiple of 30.'
+
+      // Open hours check
+      const schedErrBk = await checkOpenHours(newDate, newStart, newEnd, clubId)
+      if (schedErrBk) return `❌ ${schedErrBk}`
+
+      // Court availability (exclude the booking being moved)
+      const { maxUsed: bkMax } = await maxConcurrentCourts(pool, newDate, newStart, newEnd, clubId)
+      if (bkMax >= 6) return `❌ All 6 courts are fully booked at ${fmtDate(newDate)} ${fmtTime(newStart)}–${fmtTime(newEnd)}.`
+
+      // Update all slots: cancel old, insert new 30-min slots
+      const { randomUUID } = require('crypto')
+      const client2 = await pool.connect()
+      try {
+        await client2.query('BEGIN')
+        await client2.query(
+          `UPDATE bookings SET status='cancelled' WHERE booking_group_id=$1 AND club_id=$2`,
+          [input.booking_group_id, clubId]
+        )
+        const newGroupId = randomUUID()
+        for (let t = newStartMins; t < newEndMins; t += 30) {
+          await client2.query(
+            `INSERT INTO bookings (user_id, date, start_time, end_time, booking_group_id, payment_intent_id, amount_paid, club_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+            [bk.user_id, newDate, minsToTimeAI(t), minsToTimeAI(t+30),
+             newGroupId, bk.payment_intent_id, bk.amount_paid, clubId]
+          )
+        }
+        await client2.query('COMMIT')
+      } catch(e) {
+        await client2.query('ROLLBACK')
+        throw e
+      } finally { client2.release() }
+
+      return `✅ SUCCESS: Booking for ${bk.user_name} rescheduled to ${fmtDate(newDate)} ${fmtTime(newStart)}–${fmtTime(newEnd)}. The database has been updated.`
     }
 
     // ── Social Play ───────────────────────────────────────────────────────────
@@ -1696,7 +1797,7 @@ Your ONLY job is to help the admin manage this club. You have full access to all
 - Members: list, create, update, delete members
 - Coaching: list/create/reschedule/cancel sessions, manage coach balances, payment reports
 - Leave requests: list, approve, reject student leave requests
-- Bookings: list court bookings, cancel bookings
+- Bookings: list court bookings, reschedule bookings, cancel bookings
 - Social play: list/create/cancel social sessions, add/remove participants
 - Tournaments: list/create/update/delete tournaments
 - Venue: view check-in records for any date
@@ -1711,8 +1812,12 @@ Your ONLY job is to help the admin manage this club. You have full access to all
 - If list_sessions returns multiple upcoming sessions for the same student, list them all and ask the admin which one to change — never guess.
 - When list_sessions returns a session labelled "(group)" with multiple students (e.g. "Lucy Sun & Mr Sun (group)"), always present them as ONE entry — never split them into separate rows.
 - If a time like "7" or "7pm" is given without AM/PM context, assume PM (19:00) for coaching sessions.
-- If the session duration is not specified, keep the same duration as the original session.
-- Only ask the admin a clarifying question if you genuinely cannot determine the intent after using all relevant tools.
+- If the session duration is not specified, keep the same duration as the original session. Do NOT ask the admin to confirm the end time — calculate it yourself and execute immediately.
+- Only ask the admin a clarifying question if you genuinely cannot determine the intent after using all relevant tools. Time changes where only the start time is given are NOT ambiguous — use the original duration.
+
+## Confirmation and follow-up turns
+- When the admin says "yes", "ok", "correct", "確認", "好", "是" or similar to confirm a pending action you described, you MUST call the relevant tool immediately to execute that action. NEVER generate a success or completion message without first calling the tool and receiving a ✅ result.
+- If you described what you are about to do and are waiting for confirmation, treat a "yes" response as the signal to call the tool — not as permission to skip the tool call and fabricate the result.
 
 ## Error handling and result reporting
 - When a tool returns an ❌ error message, always relay the FULL error text to the admin — never summarize, shorten, or replace it with generic phrases like "could not reschedule". The exact error tells the admin what to fix.
@@ -1740,8 +1845,8 @@ Always respond in the same language the admin uses (English or Traditional Chine
 
   try {
     let response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
       temperature: 0,
       system: systemPrompt,
       tools: TOOLS,
@@ -1773,8 +1878,8 @@ Always respond in the same language the admin uses (English or Traditional Chine
       messages.push({ role: 'user', content: toolResults })
 
       response = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1024,
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4096,
         temperature: 0,
         system: systemPrompt,
         tools: TOOLS,
