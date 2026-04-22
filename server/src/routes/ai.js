@@ -209,6 +209,19 @@ const TOOLS = [
   },
   // ── Bookings ──
   {
+    name: 'check_court_availability',
+    description: 'Check how many courts are free at a given date and time range. Returns courts used, courts free, and a breakdown of what is occupying each court.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date:       { type: 'string', description: 'YYYY-MM-DD' },
+        start_time: { type: 'string', description: 'HH:MM (24h)' },
+        end_time:   { type: 'string', description: 'HH:MM (24h)' },
+      },
+      required: ['date', 'start_time', 'end_time'],
+    },
+  },
+  {
     name: 'list_bookings',
     description: 'List confirmed court bookings. Filter by date or member name.',
     input_schema: {
@@ -1017,6 +1030,72 @@ async function executeTool(name, input, clubId, adminId) {
     }
 
     // ── Bookings ──────────────────────────────────────────────────────────────
+
+    case 'check_court_availability': {
+      const { date, start_time, end_time } = input
+      // Count occupied courts
+      const { rows: [{ total_used }] } = await pool.query(
+        `SELECT
+           (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions
+            WHERE date=$1 AND status='confirmed' AND club_id=$4
+              AND start_time < $3::time AND end_time > $2::time) +
+           (SELECT COUNT(DISTINCT booking_group_id) FROM bookings
+            WHERE date=$1 AND status='confirmed' AND club_id=$4
+              AND start_time < $3::time AND end_time > $2::time) +
+           (SELECT COALESCE(SUM(num_courts),0) FROM social_play_sessions
+            WHERE date=$1 AND status='open' AND club_id=$4
+              AND start_time < $3::time AND end_time > $2::time)
+         AS total_used`,
+        [date, start_time, end_time, clubId]
+      )
+      const used = Number(total_used)
+      const free = Math.max(0, 6 - used)
+      // Fetch breakdown
+      const { rows: coaching } = await pool.query(
+        `SELECT COALESCE(group_id::text, id::text) AS key,
+                MIN(start_time) AS start_time, MAX(end_time) AS end_time,
+                string_agg(DISTINCT u.name, ' & ') AS students,
+                co.name AS coach_name
+         FROM coaching_sessions cs
+         JOIN users u ON u.id = cs.student_id
+         JOIN coaches co ON co.id = cs.coach_id
+         WHERE cs.date=$1 AND cs.status='confirmed' AND cs.club_id=$4
+           AND cs.start_time < $3::time AND cs.end_time > $2::time
+         GROUP BY COALESCE(cs.group_id::text, cs.id::text), co.name`,
+        [date, start_time, end_time, clubId]
+      )
+      const { rows: bookings } = await pool.query(
+        `SELECT u.name AS user_name, MIN(b.start_time) AS start_time, MAX(b.end_time) AS end_time
+         FROM bookings b JOIN users u ON u.id=b.user_id
+         WHERE b.date=$1 AND b.status='confirmed' AND b.club_id=$4
+           AND b.start_time < $3::time AND b.end_time > $2::time
+         GROUP BY b.booking_group_id, u.name`,
+        [date, start_time, end_time, clubId]
+      )
+      const { rows: social } = await pool.query(
+        `SELECT title, num_courts, start_time, end_time
+         FROM social_play_sessions
+         WHERE date=$1 AND status='open' AND club_id=$4
+           AND start_time < $3::time AND end_time > $2::time`,
+        [date, start_time, end_time, clubId]
+      )
+      const lines = [
+        `${fmtDate(date)} ${fmtTime(start_time)}–${fmtTime(end_time)}: ${used}/6 courts used, ${free}/6 free.`,
+      ]
+      if (coaching.length) {
+        lines.push('Coaching sessions:')
+        coaching.forEach(r => lines.push(`  • ${r.students} w/ Coach ${r.coach_name} (${fmtTime(r.start_time)}–${fmtTime(r.end_time)})`))
+      }
+      if (bookings.length) {
+        lines.push('Court bookings:')
+        bookings.forEach(r => lines.push(`  • ${r.user_name} (${fmtTime(r.start_time)}–${fmtTime(r.end_time)})`))
+      }
+      if (social.length) {
+        lines.push('Social play:')
+        social.forEach(r => lines.push(`  • ${r.title} — ${r.num_courts} court(s) (${fmtTime(r.start_time)}–${fmtTime(r.end_time)})`))
+      }
+      return lines.join('\n')
+    }
 
     case 'list_bookings': {
       const date = input.date || todaySydney()
