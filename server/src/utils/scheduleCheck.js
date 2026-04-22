@@ -27,4 +27,62 @@ async function checkOpenHours(date, start_time, end_time, clubId = 1) {
   return null
 }
 
-module.exports = { checkOpenHours }
+// ─── Court availability helpers ───────────────────────────────────────────────
+
+function _toMins(t) {
+  const [h, m] = t.substring(0, 5).split(':').map(Number)
+  return h * 60 + m
+}
+function _minsToTime(mins) {
+  return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}:00`
+}
+
+/**
+ * Returns the maximum concurrent court usage across each 30-min sub-slot
+ * within [start_time, end_time] on the given date.
+ *
+ * Checking the whole window at once overcounts: sessions touching only the
+ * first half and sessions touching only the second half both get included
+ * even though they never overlap each other. Per-slot checking is correct.
+ *
+ * @param {object}   db          - node-postgres Pool or PoolClient
+ * @param {string}   date        - YYYY-MM-DD
+ * @param {string}   start_time  - HH:MM or HH:MM:SS
+ * @param {string}   end_time    - HH:MM or HH:MM:SS
+ * @param {number}   clubId
+ * @param {number[]} excludeIds  - coaching_session IDs to exclude (being rescheduled)
+ * @returns {{ maxUsed, detail }} maxUsed = peak concurrent courts in window
+ */
+async function maxConcurrentCourts(db, date, start_time, end_time, clubId = 1, excludeIds = []) {
+  const startMins = _toMins(start_time)
+  const endMins   = _toMins(end_time)
+  let maxUsed = 0
+  let worstDetail = ''
+
+  for (let t = startMins; t < endMins; t += 30) {
+    const slotStart = _minsToTime(t)
+    const slotEnd   = _minsToTime(t + 30)
+    const { rows: [u] } = await db.query(
+      `SELECT
+         (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions
+          WHERE date=$1 AND status='confirmed' AND club_id=$4
+            AND NOT (id = ANY($5::int[]))
+            AND start_time < $3::time AND end_time > $2::time) AS coaching,
+         (SELECT COUNT(DISTINCT booking_group_id) FROM bookings
+          WHERE date=$1 AND status='confirmed' AND club_id=$4
+            AND start_time < $3::time AND end_time > $2::time) AS booking,
+         (SELECT COALESCE(SUM(num_courts), 0) FROM social_play_sessions
+          WHERE date=$1 AND status='open' AND club_id=$4
+            AND start_time < $3::time AND end_time > $2::time) AS social`,
+      [date, slotStart, slotEnd, clubId, excludeIds.length ? excludeIds : [0]]
+    )
+    const total = Number(u.coaching) + Number(u.booking) + Number(u.social)
+    if (total > maxUsed) {
+      maxUsed = total
+      worstDetail = `(${u.coaching} coaching + ${u.booking} bookings + ${u.social} social = ${total}/6 at ${slotStart.slice(0,5)})`
+    }
+  }
+  return { maxUsed, detail: worstDetail }
+}
+
+module.exports = { checkOpenHours, maxConcurrentCourts }

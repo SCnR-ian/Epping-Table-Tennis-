@@ -8,7 +8,7 @@ const router       = require('express').Router()
 const pool         = require('../db')
 const { requireAuth } = require('../middleware/auth')
 const { randomUUID }  = require('crypto')
-const { checkOpenHours } = require('../utils/scheduleCheck')
+const { checkOpenHours, maxConcurrentCourts } = require('../utils/scheduleCheck')
 
 // Lazy-load Stripe so the server still boots without the package installed
 // (will throw a clear error only when a payment endpoint is called)
@@ -71,22 +71,9 @@ router.post('/create-intent', requireAuth, async (req, res) => {
     if (scheduleError)
       return res.status(409).json({ message: scheduleError })
 
-    // Check courts still available (count-based)
-    const { rows: [{ total_used }] } = await pool.query(
-      `SELECT
-         (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions
-          WHERE date=$1 AND status='confirmed' AND club_id=$4
-            AND start_time < $3::time AND end_time > $2::time) +
-         (SELECT COUNT(DISTINCT booking_group_id) FROM bookings
-          WHERE date=$1 AND status='confirmed' AND club_id=$4
-            AND start_time < $3::time AND end_time > $2::time) +
-         (SELECT COALESCE(SUM(num_courts), 0) FROM social_play_sessions
-          WHERE date=$1 AND status='open' AND club_id=$4
-            AND start_time < $3::time AND end_time > $2::time)
-       AS total_used`,
-      [date, start_time, end_time, clubId]
-    )
-    if (Number(total_used) >= 6)
+    // Check courts still available (peak concurrent per 30-min slot)
+    const { maxUsed: intentMax } = await maxConcurrentCourts(pool, date, start_time, end_time, clubId)
+    if (intentMax >= 6)
       return res.status(409).json({ message: 'Sorry, all courts are fully booked at that time.' })
 
     const amount   = calcAmount(start_time, end_time)
@@ -150,22 +137,9 @@ router.post('/confirm', requireAuth, async (req, res) => {
 
     await client.query('BEGIN')
 
-    // Check no one else took the last court while the user was paying
-    const { rows: [{ total_used }] } = await client.query(
-      `SELECT
-         (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions
-          WHERE date=$1 AND status='confirmed' AND club_id=$4
-            AND start_time < $3::time AND end_time > $2::time) +
-         (SELECT COUNT(DISTINCT booking_group_id) FROM bookings
-          WHERE date=$1 AND status='confirmed' AND club_id=$4
-            AND start_time < $3::time AND end_time > $2::time) +
-         (SELECT COALESCE(SUM(num_courts), 0) FROM social_play_sessions
-          WHERE date=$1 AND status='open' AND club_id=$4
-            AND start_time < $3::time AND end_time > $2::time)
-       AS total_used`,
-      [date, start_time, end_time, clubId]
-    )
-    if (Number(total_used) >= 6) {
+    // Check no one else took the last court while the user was paying (peak concurrent per slot)
+    const { maxUsed: confirmMax } = await maxConcurrentCourts(client, date, start_time, end_time, clubId)
+    if (confirmMax >= 6) {
       await client.query('ROLLBACK')
       await stripe.refunds.create({ payment_intent: paymentIntentId, reason: 'duplicate' }).catch(() => {})
       return res.status(409).json({

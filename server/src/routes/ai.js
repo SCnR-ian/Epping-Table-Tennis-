@@ -2,7 +2,7 @@ const router  = require('express').Router()
 const pool    = require('../db')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
 const Anthropic = require('@anthropic-ai/sdk')
-const { checkOpenHours } = require('../utils/scheduleCheck')
+const { checkOpenHours, maxConcurrentCourts } = require('../utils/scheduleCheck')
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -853,19 +853,9 @@ async function executeTool(name, input, clubId, adminId) {
         [input.student_id, input.date, clubId, input.start_time, input.end_time]
       )
       if (stdSocial.length) return `❌ Student is signed up for social play at that time on ${fmtDate(input.date)}.`
-      // Court availability (count-based, 6 courts total)
-      const { rows: [{ total_used }] } = await pool.query(
-        `SELECT
-           (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions WHERE date=$1 AND status='confirmed' AND club_id=$4
-              AND start_time < $3::time AND end_time > $2::time) +
-           (SELECT COUNT(DISTINCT booking_group_id) FROM bookings WHERE date=$1 AND status='confirmed' AND club_id=$4
-              AND start_time < $3::time AND end_time > $2::time) +
-           (SELECT COALESCE(SUM(num_courts),0) FROM social_play_sessions WHERE date=$1 AND status='open' AND club_id=$4
-              AND start_time < $3::time AND end_time > $2::time)
-         AS total_used`,
-        [input.date, input.start_time, input.end_time, clubId]
-      )
-      if (Number(total_used) >= 6) return `❌ All 6 courts are fully booked at ${fmtTime(input.start_time)}–${fmtTime(input.end_time)} on ${fmtDate(input.date)}.`
+      // Court availability (peak concurrent per 30-min sub-slot)
+      const { maxUsed: csMax } = await maxConcurrentCourts(pool, input.date, input.start_time, input.end_time, clubId)
+      if (csMax >= 6) return `❌ All 6 courts are fully booked at ${fmtTime(input.start_time)}–${fmtTime(input.end_time)} on ${fmtDate(input.date)}.`
       const { rows: inserted } = await pool.query(
         `INSERT INTO coaching_sessions (coach_id, student_id, date, start_time, end_time, status, club_id)
          VALUES ($1,$2,$3,$4,$5,'confirmed',$6) RETURNING id`,
@@ -944,19 +934,9 @@ async function executeTool(name, input, clubId, adminId) {
         [sess.student_id, newDate, clubId, input.start_time, input.end_time]
       )
       if (stdSocialR.length) return `❌ ${sess.student_name} is signed up for social play at that time on ${fmtDate(newDate)}.`
-      // Court availability (count-based, exclude the session being moved)
-      const { rows: [{ total_used: resUsed }] } = await pool.query(
-        `SELECT
-           (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions WHERE date=$1 AND status='confirmed' AND club_id=$4
-              AND id != $5 AND start_time < $3::time AND end_time > $2::time) +
-           (SELECT COUNT(DISTINCT booking_group_id) FROM bookings WHERE date=$1 AND status='confirmed' AND club_id=$4
-              AND start_time < $3::time AND end_time > $2::time) +
-           (SELECT COALESCE(SUM(num_courts),0) FROM social_play_sessions WHERE date=$1 AND status='open' AND club_id=$4
-              AND start_time < $3::time AND end_time > $2::time)
-         AS total_used`,
-        [newDate, input.start_time, input.end_time, clubId, input.session_id]
-      )
-      if (Number(resUsed) >= 6) return `❌ All 6 courts are fully booked at ${fmtDate(newDate)} ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}.`
+      // Court availability (peak concurrent per 30-min sub-slot, exclude session being moved)
+      const { maxUsed: rsMax } = await maxConcurrentCourts(pool, newDate, input.start_time, input.end_time, clubId, [input.session_id])
+      if (rsMax >= 6) return `❌ All 6 courts are fully booked at ${fmtDate(newDate)} ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}.`
       await pool.query(
         `UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=NULL WHERE id=$4`,
         [newDate, input.start_time, input.end_time, input.session_id]
@@ -1033,22 +1013,9 @@ async function executeTool(name, input, clubId, adminId) {
 
     case 'check_court_availability': {
       const { date, start_time, end_time } = input
-      // Count occupied courts
-      const { rows: [{ total_used }] } = await pool.query(
-        `SELECT
-           (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions
-            WHERE date=$1 AND status='confirmed' AND club_id=$4
-              AND start_time < $3::time AND end_time > $2::time) +
-           (SELECT COUNT(DISTINCT booking_group_id) FROM bookings
-            WHERE date=$1 AND status='confirmed' AND club_id=$4
-              AND start_time < $3::time AND end_time > $2::time) +
-           (SELECT COALESCE(SUM(num_courts),0) FROM social_play_sessions
-            WHERE date=$1 AND status='open' AND club_id=$4
-              AND start_time < $3::time AND end_time > $2::time)
-         AS total_used`,
-        [date, start_time, end_time, clubId]
-      )
-      const used = Number(total_used)
+      // Peak concurrent courts across each 30-min sub-slot
+      const { maxUsed } = await maxConcurrentCourts(pool, date, start_time, end_time, clubId)
+      const used = maxUsed
       const free = Math.max(0, 6 - used)
       // Fetch breakdown
       const { rows: coaching } = await pool.query(

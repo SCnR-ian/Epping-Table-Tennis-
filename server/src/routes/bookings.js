@@ -3,7 +3,7 @@ const pool   = require('../db')
 const { requireAuth } = require('../middleware/auth')
 const { randomUUID } = require('crypto')
 const jwt    = require('jsonwebtoken')
-const { checkOpenHours } = require('../utils/scheduleCheck')
+const { checkOpenHours, maxConcurrentCourts } = require('../utils/scheduleCheck')
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -218,22 +218,9 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(409).json({ message: 'You have a coaching session to teach during that time.' })
     }
 
-    // Court availability: count-based (6 courts total)
-    const { rows: [{ total_used }] } = await client.query(
-      `SELECT
-         (SELECT COUNT(DISTINCT COALESCE(group_id::text, id::text)) FROM coaching_sessions
-          WHERE date=$1 AND status='confirmed' AND club_id=$4
-            AND start_time < $3::time AND end_time > $2::time) +
-         (SELECT COUNT(DISTINCT booking_group_id) FROM bookings
-          WHERE date=$1 AND status='confirmed' AND club_id=$4
-            AND start_time < $3::time AND end_time > $2::time) +
-         (SELECT COALESCE(SUM(num_courts), 0) FROM social_play_sessions
-          WHERE date=$1 AND status='open' AND club_id=$4
-            AND start_time < $3::time AND end_time > $2::time)
-       AS total_used`,
-      [date, start_time, end_time, clubId]
-    )
-    if (Number(total_used) >= 6) {
+    // Court availability: check peak concurrent usage per 30-min sub-slot
+    const { maxUsed } = await maxConcurrentCourts(client, date, start_time, end_time, clubId)
+    if (maxUsed >= 6) {
       await client.query('ROLLBACK')
       return res.status(409).json({ message: 'Sorry, all courts are fully booked at that time.' })
     }
