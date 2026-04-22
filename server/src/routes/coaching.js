@@ -373,7 +373,7 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK')
     if (err.message === 'no_court')
-      return res.status(409).json({ message: `No courts available on ${err.sessionDate} at that time.` })
+      return res.status(409).json({ message: `No courts available on ${err.sessionDate} at that time. ${err.detail ?? ''}`.trim() })
     if (err.message === 'student_conflict') {
       const what = err.reason === 'booking' ? 'a court booking' : err.reason === 'social' ? 'a social play session' : 'another coaching session'
       return res.status(409).json({ message: `Student already has ${what} on ${err.sessionDate} at that time.` })
@@ -664,7 +664,7 @@ router.post('/sessions/group', requireAuth, requireAdmin, async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK')
     if (err.message === 'no_court')
-      return res.status(409).json({ message: `No courts available on ${err.sessionDate} at that time.` })
+      return res.status(409).json({ message: `No courts available on ${err.sessionDate} at that time. ${err.detail ?? ''}`.trim() })
     if (err.message === 'student_conflict') {
       const what = err.reason === 'booking' ? 'a court booking' : err.reason === 'social' ? 'a social play session' : 'another coaching session'
       return res.status(409).json({ message: `A student already has ${what} on ${err.sessionDate} at that time.` })
@@ -1169,18 +1169,20 @@ async function checkAndAssignCourt(client, session, sessionDate, newStart, newEn
         WHERE date=$1 AND status='confirmed' AND club_id=$4
           AND NOT (id = ANY($5::int[]))
           AND ($6::uuid IS NULL OR group_id IS DISTINCT FROM $6)
-          AND start_time < $3::time AND end_time > $2::time) +
+          AND start_time < $3::time AND end_time > $2::time) AS coaching_used,
        (SELECT COUNT(DISTINCT booking_group_id) FROM bookings
         WHERE date=$1 AND status='confirmed' AND club_id=$4
-          AND start_time < $3::time AND end_time > $2::time) +
+          AND start_time < $3::time AND end_time > $2::time) AS booking_used,
        (SELECT COALESCE(SUM(num_courts), 0) FROM social_play_sessions
         WHERE date=$1 AND status='open' AND club_id=$4
-          AND start_time < $3::time AND end_time > $2::time)
-     AS total_used`,
+          AND start_time < $3::time AND end_time > $2::time) AS social_used`,
     [sessionDate, newStart, newEnd, clubId, excludeIds, groupId ?? null]
   )
-  if (Number(usage.total_used) >= 6)
-    throw Object.assign(new Error('no_court'), { sessionDate })
+  const totalUsed = Number(usage.coaching_used) + Number(usage.booking_used) + Number(usage.social_used)
+  if (totalUsed >= 6) {
+    const detail = `(${usage.coaching_used} coaching + ${usage.booking_used} bookings + ${usage.social_used} social = ${totalUsed}/6)`
+    throw Object.assign(new Error('no_court'), { sessionDate, detail })
+  }
 }
 
 function rescheduleConflictResponse(err, res) {
