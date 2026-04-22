@@ -231,8 +231,13 @@ export default function MessagesPage() {
     setThreadUser({ id: 'ai', name: 'AI Assistant' })
     setView('thread')
     setActiveMsg(null); setActiveMsgAnchor(null); setEditingMsg(null)
-    setTimeout(() => inputRef.current?.focus(), 100)
+    setTimeout(() => { scrollToBottom(); inputRef.current?.focus() }, 100)
   }
+
+  // Auto-scroll to bottom when AI messages change
+  useEffect(() => {
+    if (isAIThread) setTimeout(() => scrollToBottom(), 50)
+  }, [aiMessages, aiLoading, isAIThread, scrollToBottom])
 
   const handleAISend = async () => {
     if (!body.trim() || aiLoading) return
