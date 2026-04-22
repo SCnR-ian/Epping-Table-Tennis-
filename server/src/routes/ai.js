@@ -1790,7 +1790,13 @@ Always respond in the same language the admin uses (English or Traditional Chine
       for (const block of response.content) {
         if (block.type !== 'tool_use') continue
         console.log(`[ai] tool_call: ${block.name}`, JSON.stringify(block.input))
-        const result = await executeTool(block.name, block.input, clubId, adminId)
+        let result
+        try {
+          result = await executeTool(block.name, block.input, clubId, adminId)
+        } catch (toolErr) {
+          result = `❌ Tool error: ${toolErr.message}`
+          console.error(`[ai] tool_error (${block.name}):`, toolErr.message)
+        }
         console.log(`[ai] tool_result (preview): ${String(result).substring(0, 120)}`)
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result })
       }
