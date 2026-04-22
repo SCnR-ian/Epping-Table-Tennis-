@@ -1782,7 +1782,7 @@ const [sessionForm,      setSessionForm]      = useState({
   }
 
   const refreshAll = async () => {
-    await refreshAll()
+    await Promise.all([refreshAfterReschedule(), refreshBookingView()])
   }
 
   const handleMoveSingle = async (sessionId) => {
