@@ -21,6 +21,8 @@ import CoachingPage        from '@/pages/CoachingPage'
 import NotFoundPage        from '@/pages/NotFoundPage'
 import OAuthCallbackPage   from '@/pages/OAuthCallbackPage'
 import ScanPage            from '@/pages/ScanPage'
+import NewsPage            from '@/pages/NewsPage'
+import NewsDetailPage      from '@/pages/NewsDetailPage'
 import ShoppingPage        from '@/pages/ShoppingPage'
 import ProductDetailPage   from '@/pages/ProductDetailPage'
 import CartPage            from '@/pages/CartPage'
@@ -40,6 +42,8 @@ const router = createBrowserRouter([
       { path: '/booking',       element: <BookingPage /> },
       { path: '/coaching',      element: <CoachingPage /> },
       { path: '/auth/callback', element: <OAuthCallbackPage /> },
+      { path: '/news',           element: <NewsPage /> },
+      { path: '/news/:id',       element: <NewsDetailPage /> },
       { path: '/shopping',      element: <ShoppingPage /> },
       { path: '/shopping/:id',  element: <ProductDetailPage /> },
       { path: '/bag',           element: <CartPage /> },

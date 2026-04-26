@@ -2096,7 +2096,7 @@ router.post('/leave-requests/:id/select-slot', requireAuth, async (req, res) => 
 
     await checkAndAssignCourt(client, session, date, start_time, end_time, [], clubId)
     const { rows: [updated] } = await client.query(
-      'UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=NULL WHERE id=$4 AND club_id=$5 RETURNING *',
+      'UPDATE coaching_sessions SET date=$1, start_time=$2, end_time=$3, court_id=NULL, status=\'confirmed\' WHERE id=$4 AND club_id=$5 RETURNING *',
       [date, start_time, end_time, session.id, clubId]
     )
 
@@ -2235,6 +2235,182 @@ router.post('/coach-leave', requireAuth, requireAdmin, async (req, res) => {
     })
   } catch (e) {
     console.error('[coach-leave]', e)
+    res.status(500).json({ message: 'Server error.' })
+  }
+})
+
+// ── Coach Leave Requests (coach-initiated) ────────────────────────────────────
+
+// POST /api/coaching/coach-leave-requests  (coach)
+// Coach submits a leave request to admin. Admin sees Approve/Reject in chat.
+router.post('/coach-leave-requests', requireAuth, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  if (req.user.role !== 'coach') return res.status(403).json({ message: 'Only coaches can submit leave requests.' })
+
+  const { date_from, date_to, reason } = req.body
+  if (!date_from) return res.status(400).json({ message: 'date_from is required.' })
+  const dateTo = date_to || date_from
+
+  try {
+    // Find admin for this club
+    const { rows: [admin] } = await pool.query(
+      `SELECT id FROM users WHERE role='admin' AND club_id=$1 LIMIT 1`, [clubId]
+    )
+    if (!admin) return res.status(500).json({ message: 'No admin found for this club.' })
+
+    // Insert leave request
+    const { rows: [lr] } = await pool.query(
+      `INSERT INTO coach_leave_requests (coach_user_id, date_from, date_to, reason, club_id)
+       VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+      [req.user.id, date_from, dateTo, reason || null, clubId]
+    )
+
+    // Format dates for message
+    const fromStr = new Date(date_from + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+    const toStr   = dateTo !== date_from
+      ? new Date(dateTo + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+      : null
+
+    const dateLabel = toStr ? `${fromStr} – ${toStr}` : fromStr
+    const msgBody = `📋 Coach Leave Request\nDate: ${dateLabel}\nReason: ${reason || 'No reason given.'}`
+
+    // Send message to admin
+    const { rows: [msg] } = await pool.query(
+      `INSERT INTO messages (sender_id, recipient_id, body, metadata)
+       VALUES ($1,$2,$3,$4) RETURNING id`,
+      [req.user.id, admin.id, msgBody,
+       JSON.stringify({ type: 'coach_leave_request', request_id: lr.id })]
+    )
+    await pool.query(
+      'INSERT INTO message_reads (message_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+      [msg.id, req.user.id]
+    )
+    await pool.query(
+      `DELETE FROM message_thread_hidden
+       WHERE (user_id=$1 AND other_user_id=$2) OR (user_id=$2 AND other_user_id=$1)`,
+      [req.user.id, admin.id]
+    )
+
+    res.status(201).json({ request_id: lr.id })
+  } catch (e) {
+    console.error('[coach-leave-requests]', e)
+    res.status(500).json({ message: 'Server error.' })
+  }
+})
+
+// POST /api/coaching/coach-leave-requests/:id/approve  (admin)
+router.post('/coach-leave-requests/:id/approve', requireAuth, requireAdmin, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  try {
+    const { rows: [lr] } = await pool.query(
+      `SELECT clr.*, u.name AS coach_name
+       FROM coach_leave_requests clr
+       JOIN users u ON u.id = clr.coach_user_id
+       WHERE clr.id=$1 AND clr.status='pending' AND clr.club_id=$2`,
+      [req.params.id, clubId]
+    )
+    if (!lr) return res.status(404).json({ message: 'Leave request not found or already actioned.' })
+
+    // Approve the request
+    await pool.query(
+      `UPDATE coach_leave_requests SET status='approved', resolved_by=$1, resolved_at=NOW() WHERE id=$2`,
+      [req.user.id, lr.id]
+    )
+
+    // Process coach leave: cancel sessions + notify students with makeup options
+    const { rows: [coach] } = await pool.query(
+      `SELECT id FROM coaches WHERE user_id=$1 AND club_id=$2`, [lr.coach_user_id, clubId]
+    )
+    let processedCount = 0
+    if (coach) {
+      const { rows: sessions } = await pool.query(
+        `SELECT cs.*, u.name AS student_name
+         FROM coaching_sessions cs JOIN users u ON u.id = cs.student_id
+         WHERE cs.coach_id=$1 AND cs.status='confirmed' AND cs.club_id=$2
+           AND cs.date >= $3 AND cs.date <= $4
+         ORDER BY cs.date, cs.start_time`,
+        [coach.id, clubId, lr.date_from, lr.date_to]
+      )
+      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
+      for (const session of sessions) {
+        try {
+          const { rows: existing } = await pool.query(
+            `SELECT 1 FROM session_leave_requests WHERE session_id=$1 AND status IN ('pending','approved','rescheduled') LIMIT 1`,
+            [session.id]
+          )
+          if (existing.length) continue
+
+          const [sh, sm] = session.start_time.slice(0,5).split(':').map(Number)
+          const [eh, em] = session.end_time.slice(0,5).split(':').map(Number)
+          const durationMins = (eh * 60 + em) - (sh * 60 + sm)
+          const slots = await getAvailableSlots(clubId, coach.id, durationMins, session.id)
+
+          // Mark session as needing rescheduling
+          await pool.query(
+            `UPDATE coaching_sessions SET status='leave_cancelled' WHERE id=$1`,
+            [session.id]
+          )
+
+          const { rows: [slr] } = await pool.query(
+            `INSERT INTO session_leave_requests
+               (session_id, student_id, club_id, reason, status, expires_at, resolved_by)
+             VALUES ($1,$2,$3,$4,'approved',$5,$6) RETURNING id`,
+            [session.id, session.student_id, clubId, lr.reason || `${lr.coach_name} leave`, expiresAt, req.user.id]
+          )
+          const timeRange = `${fmtTime(session.start_time)} – ${fmtTime(session.end_time)}`
+          const msgBody = `📅 Your session with ${lr.coach_name} on ${fmtDate(session.date)} (${timeRange}) has been cancelled due to coach leave.\n\nPlease choose a makeup time within 48 hours:${slots.length === 0 ? '\n\n(No available slots found. Please contact us.)' : ''}`
+          const { rows: [msg] } = await pool.query(
+            `INSERT INTO messages (sender_id, recipient_id, body, metadata)
+             VALUES ($1,$2,$3,$4) RETURNING id`,
+            [req.user.id, session.student_id, msgBody,
+             JSON.stringify({ type: 'slot_options', request_id: slr.id, slots, expires_at: expiresAt })]
+          )
+          await pool.query('INSERT INTO message_reads (message_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [msg.id, req.user.id])
+          await pool.query(`DELETE FROM message_thread_hidden WHERE (user_id=$1 AND other_user_id=$2) OR (user_id=$2 AND other_user_id=$1)`, [req.user.id, session.student_id])
+          processedCount++
+        } catch (sessionErr) {
+          console.error(`[coach-leave approve] failed to process session ${session.id}:`, sessionErr)
+        }
+      }
+    }
+
+    // Notify coach
+    const fromStr = new Date(String(lr.date_from).slice(0,10) + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+    const toStr   = String(lr.date_to).slice(0,10) !== String(lr.date_from).slice(0,10)
+      ? new Date(String(lr.date_to).slice(0,10) + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+      : null
+    const dateLabel = toStr ? `${fromStr} – ${toStr}` : fromStr
+    const coachMsg = `✅ Your leave request for ${dateLabel} has been approved. ${processedCount > 0 ? `${processedCount} student${processedCount > 1 ? 's have' : ' has'} been notified with makeup options.` : 'No sessions were affected.'}`
+    const { rows: [notif] } = await pool.query(
+      `INSERT INTO messages (sender_id, recipient_id, body) VALUES ($1,$2,$3) RETURNING id`,
+      [req.user.id, lr.coach_user_id, coachMsg]
+    )
+    await pool.query('INSERT INTO message_reads (message_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [notif.id, req.user.id])
+
+    res.json({ message: 'Approved.', sessions_processed: processedCount })
+  } catch (e) {
+    console.error('[coach-leave-requests/approve]', e)
+    res.status(500).json({ message: 'Server error.' })
+  }
+})
+
+// POST /api/coaching/coach-leave-requests/:id/reject  (admin)
+router.post('/coach-leave-requests/:id/reject', requireAuth, requireAdmin, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  try {
+    const { rows: [lr] } = await pool.query(
+      `SELECT * FROM coach_leave_requests WHERE id=$1 AND status='pending' AND club_id=$2`,
+      [req.params.id, clubId]
+    )
+    if (!lr) return res.status(404).json({ message: 'Leave request not found or already actioned.' })
+
+    await pool.query(
+      `UPDATE coach_leave_requests SET status='rejected', resolved_by=$1, resolved_at=NOW() WHERE id=$2`,
+      [req.user.id, lr.id]
+    )
+    res.json({ message: 'Rejected.' })
+  } catch (e) {
+    console.error('[coach-leave-requests/reject]', e)
     res.status(500).json({ message: 'Server error.' })
   }
 })

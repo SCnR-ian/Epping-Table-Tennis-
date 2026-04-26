@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Camera, Plus, Trash2 } from 'lucide-react'
-import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, homepageAPI, pagesAPI, clubAPI, venueAPI } from '@/api/api'
+import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, homepageAPI, pagesAPI, clubAPI, venueAPI, articlesAPI } from '@/api/api'
 import ShopManager from './ShopManager'
 import QRCode from 'react-qr-code'
 import { useClub } from '@/context/ClubContext'
@@ -128,7 +128,7 @@ function groupByWeek(sessions) {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 
-const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Pay Report', 'Analytics', 'Venue', 'Shop']
+const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Pay Report', 'Analytics', 'Venue', 'Shop', 'Articles']
 
 const BOOKABLE_COURTS = [
   { id: 1, label: 'Court 1' },
@@ -1023,6 +1023,222 @@ function PagesTab() {
   )
 }
 
+// ── Articles Manager ──────────────────────────────────────────────────────────
+const ARTICLE_TYPES = ['competition', 'news', 'achievement']
+const TYPE_LABELS   = { competition: 'Competition', news: 'News', achievement: 'Achievement' }
+
+function ArticlesManager() {
+  const [articles, setArticles]   = useState([])
+  const [loading,  setLoading]    = useState(true)
+  const [showForm, setShowForm]   = useState(false)
+  const [editing,  setEditing]    = useState(null) // article being edited
+  const [deleting, setDeleting]   = useState(null)
+  const [saving,   setSaving]     = useState(false)
+  const [filterType, setFilterType] = useState('')
+
+  const emptyForm = { type: 'news', title: '', subtitle: '', body: '', image_data: '', image_type: '', is_pinned: false, published_at: new Date().toISOString().slice(0,16) }
+  const [form, setForm] = useState(emptyForm)
+
+  const load = () => {
+    setLoading(true)
+    const params = filterType ? { type: filterType } : {}
+    articlesAPI.getAll(params)
+      .then(r => setArticles(r.data.articles))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }
+  useEffect(load, [filterType])
+
+  const openNew  = () => { setForm(emptyForm); setEditing(null); setShowForm(true) }
+  const openEdit = (a) => {
+    setForm({ type: a.type, title: a.title, subtitle: a.subtitle||'', body: a.body||'',
+              image_data: a.image_data||'', image_type: a.image_type||'',
+              is_pinned: a.is_pinned, published_at: new Date(a.published_at).toISOString().slice(0,16) })
+    setEditing(a)
+    setShowForm(true)
+  }
+
+  const handleImage = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => setForm(f => ({ ...f, image_data: ev.target.result, image_type: file.type }))
+    reader.readAsDataURL(file)
+  }
+
+  const handleSave = async () => {
+    if (!form.title.trim()) return alert('Title is required.')
+    setSaving(true)
+    try {
+      const payload = { ...form, published_at: new Date(form.published_at).toISOString() }
+      if (editing) await articlesAPI.update(editing.id, payload)
+      else         await articlesAPI.create(payload)
+      setShowForm(false)
+      load()
+    } catch (e) {
+      alert(e.response?.data?.message ?? 'Error saving article.')
+    } finally { setSaving(false) }
+  }
+
+  const handleDelete = async (id) => {
+    try {
+      await articlesAPI.delete(id)
+      setDeleting(null)
+      load()
+    } catch { alert('Could not delete.') }
+  }
+
+  return (
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto">
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-lg font-semibold text-gray-900">Articles</h2>
+        <button onClick={openNew}
+          className="flex items-center gap-1.5 bg-black text-white text-sm px-4 py-2 rounded-full hover:bg-gray-800 transition-colors">
+          <Plus className="w-4 h-4" /> New Article
+        </button>
+      </div>
+
+      {/* Filter */}
+      <div className="flex gap-2 mb-5 flex-wrap">
+        {[{key:'',label:'All'}, ...ARTICLE_TYPES.map(t=>({key:t,label:TYPE_LABELS[t]}))].map(t => (
+          <button key={t.key} onClick={() => setFilterType(t.key)}
+            className={`px-3 py-1 rounded-full text-sm border transition-colors ${filterType===t.key ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-16"><div className="w-6 h-6 border-2 border-gray-200 border-t-black rounded-full animate-spin" /></div>
+      ) : articles.length === 0 ? (
+        <div className="text-center py-16 text-gray-400 text-sm">No articles yet. Click "New Article" to add one.</div>
+      ) : (
+        <div className="space-y-3">
+          {articles.map(a => (
+            <div key={a.id} className="flex gap-4 items-start bg-white border border-gray-200 rounded-xl p-4">
+              {a.image_data && (
+                <img src={a.image_data} alt="" className="w-20 h-14 object-cover rounded-lg shrink-0" />
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                    a.type==='competition' ? 'bg-blue-100 text-blue-700' :
+                    a.type==='achievement' ? 'bg-amber-100 text-amber-700' :
+                    'bg-green-100 text-green-700'}`}>
+                    {TYPE_LABELS[a.type]}
+                  </span>
+                  {a.is_pinned && <span className="text-[10px] text-gray-400">📌 Pinned</span>}
+                </div>
+                <p className="font-medium text-gray-900 truncate">{a.title}</p>
+                {a.subtitle && <p className="text-sm text-gray-500 truncate">{a.subtitle}</p>}
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {new Date(a.published_at).toLocaleDateString('en-AU', {day:'numeric',month:'short',year:'numeric'})}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={() => openEdit(a)}
+                  className="text-xs text-gray-500 hover:text-black border border-gray-200 rounded-lg px-3 py-1.5 transition-colors">Edit</button>
+                <button onClick={() => setDeleting(a.id)}
+                  className="text-xs text-red-500 hover:text-red-700 border border-red-200 rounded-lg px-3 py-1.5 transition-colors">Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Form modal */}
+      {showForm && (
+        <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4"
+             onClick={e => { if (e.target===e.currentTarget) setShowForm(false) }}>
+          <div className="bg-white rounded-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
+            <h3 className="text-base font-semibold">{editing ? 'Edit Article' : 'New Article'}</h3>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Type</label>
+                <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  value={form.type} onChange={e => setForm(f=>({...f,type:e.target.value}))}>
+                  {ARTICLE_TYPES.map(t => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Date</label>
+                <input type="datetime-local" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  value={form.published_at} onChange={e => setForm(f=>({...f,published_at:e.target.value}))} />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Title *</label>
+              <input type="text" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                placeholder="Article title" value={form.title} onChange={e => setForm(f=>({...f,title:e.target.value}))} />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Subtitle</label>
+              <input type="text" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                placeholder="Short description" value={form.subtitle} onChange={e => setForm(f=>({...f,subtitle:e.target.value}))} />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Body</label>
+              <textarea rows={6} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none"
+                placeholder="Full article content…" value={form.body} onChange={e => setForm(f=>({...f,body:e.target.value}))} />
+            </div>
+
+            {/* Image upload */}
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Cover Image</label>
+              {form.image_data && (
+                <div className="relative mb-2">
+                  <img src={form.image_data} alt="" className="w-full h-40 object-cover rounded-lg" />
+                  <button onClick={() => setForm(f=>({...f,image_data:'',image_type:''}))}
+                    className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1 hover:bg-black">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+              <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-500 hover:text-black border border-dashed border-gray-300 rounded-lg px-4 py-3 transition-colors">
+                <Camera className="w-4 h-4" />
+                <span>{form.image_data ? 'Change image' : 'Upload image'}</span>
+                <input type="file" accept="image/*" className="hidden" onChange={handleImage} />
+              </label>
+            </div>
+
+            <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input type="checkbox" className="w-4 h-4 rounded"
+                checked={form.is_pinned} onChange={e => setForm(f=>({...f,is_pinned:e.target.checked}))} />
+              <span className="text-gray-700">Pin to top (shown as hero)</span>
+            </label>
+
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => setShowForm(false)}
+                className="flex-1 py-2.5 rounded-full border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+              <button onClick={handleSave} disabled={saving}
+                className="flex-1 py-2.5 rounded-full bg-black text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-50">
+                {saving ? 'Saving…' : (editing ? 'Save Changes' : 'Publish')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      {deleting && (
+        <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4">
+            <p className="text-sm text-gray-700">Delete this article? This cannot be undone.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setDeleting(null)}
+                className="flex-1 py-2 rounded-full border border-gray-200 text-sm">Cancel</button>
+              <button onClick={() => handleDelete(deleting)}
+                className="flex-1 py-2 rounded-full bg-red-500 text-white text-sm font-medium hover:bg-red-600">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function AdminDashboard() {
   const [activeTab,    setActiveTab]    = useState('Bookings')
   const [showMoreMenu, setShowMoreMenu] = useState(false)
@@ -1136,6 +1352,7 @@ const [sessionForm,      setSessionForm]      = useState({
   const [payTo,      setPayTo]      = useState(() => toISO(new Date()))
   const [payReport,  setPayReport]  = useState(null)
   const [payLoading, setPayLoading] = useState(false)
+  const [expandedCoaches, setExpandedCoaches] = useState({})
 
   // Venue tab state
   const [venueDate,       setVenueDate]       = useState(() => new Date().toISOString().slice(0, 10))
@@ -1165,10 +1382,12 @@ const [sessionForm,      setSessionForm]      = useState({
   const [socialForm,      setSocialForm]      = useState({
     title: '', description: '', num_courts: 1, date: '', start_time: '', end_time: '', max_players: 12, weeks: 1,
   })
-  // { [sessionId]: { start_time: 'HH:MM', end_time: 'HH:MM' } } — open when admin is editing times
-  const [editingTimes,   setEditingTimes]   = useState({})
-  // { [sessionId]: { title, max_players, date } } — open when admin is editing session details
-  const [editingDetails, setEditingDetails] = useState({})
+  // { [sessionId]: { title, date, start_time, end_time, max_players } } — unified edit state
+  const [editingTimes,   setEditingTimes]   = useState({})   // kept for legacy refs, unused after refactor
+  const [editingDetails, setEditingDetails] = useState({})   // kept for legacy refs, unused after refactor
+  const [editingSocial,  setEditingSocial]  = useState({})   // unified: { [sessionId]: { title, date, start_time, end_time, max_players } }
+  // cancel-series selection modal
+  const [cancelSeriesModal, setCancelSeriesModal] = useState(null) // { recurrenceId, sessions: [], selected: Set }
   const [calendarReschedule, setCalendarReschedule] = useState(null) // { type:'solo'|'group', ev, newDate, saving }
   const [socialCalendarEdit, setSocialCalendarEdit] = useState(null) // { id, title, num_courts, max_players, date, start_time, end_time, saving }
   // { [sessionId]: { query: '', userId: '' } } — add-member state per session
@@ -1613,6 +1832,46 @@ const [sessionForm,      setSessionForm]      = useState({
       })
       setSocialSessions(prev => prev.map(s => s.id === id ? { ...s, ...data.session } : s))
       setEditingDetails(prev => { const n = { ...prev }; delete n[id]; return n })
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not update session.')
+    }
+  }
+
+  const openCancelSeriesModal = (recurrenceId) => {
+    const today = new Date().toISOString().slice(0, 10)
+    const sessions = socialSessions
+      .filter(s => s.recurrence_id === recurrenceId && s.date >= today)
+      .sort((a, b) => a.date.localeCompare(b.date))
+    const selected = new Set()
+    setCancelSeriesModal({ recurrenceId, sessions, selected })
+  }
+
+  const handleBatchCancel = async () => {
+    if (!cancelSeriesModal) return
+    const ids = [...cancelSeriesModal.selected]
+    if (ids.length === 0) return
+    try {
+      await socialAPI.cancelBatch(ids)
+      setSocialSessions(prev => prev.filter(s => !cancelSeriesModal.selected.has(s.id)))
+      setCancelSeriesModal(null)
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not cancel sessions.')
+    }
+  }
+
+  const handleSaveSocial = async (id) => {
+    const edits = editingSocial[id]
+    if (!edits) return
+    try {
+      const { data } = await socialAPI.updateSession(id, {
+        title:       edits.title,
+        date:        edits.date,
+        start_time:  edits.start_time,
+        end_time:    edits.end_time,
+        max_players: Number(edits.max_players),
+      })
+      setSocialSessions(prev => prev.map(s => s.id === id ? { ...s, ...data.session } : s))
+      setEditingSocial(prev => { const n = { ...prev }; delete n[id]; return n })
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not update session.')
     }
@@ -4414,11 +4673,20 @@ const [sessionForm,      setSessionForm]      = useState({
               <div className="space-y-6">
                 {payReport.map(coach => {
                   const weeks = groupByWeek(coach.sessions)
+                  const isExpanded = expandedCoaches[coach.coach_id] === true
                   return (
                     <div key={coach.coach_id} className="card p-0 overflow-hidden">
-                      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 bg-gray-100/20">
+                      <button
+                        onClick={() => setExpandedCoaches(prev => ({ ...prev, [coach.coach_id]: !isExpanded }))}
+                        className="w-full flex items-center justify-between px-5 py-3 border-b border-gray-200 bg-gray-100/20 text-left"
+                      >
                         <div>
-                          <p className="text-gray-900">{coach.coach_name}</p>
+                          <p className="text-gray-900 flex items-center gap-2">
+                            {coach.coach_name}
+                            <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </p>
                           {!coach.has_account && (
                             <p className="text-[10px] text-yellow-500 mt-0.5">
                               No linked account — coach check-in unavailable; sessions will not count
@@ -4429,8 +4697,8 @@ const [sessionForm,      setSessionForm]      = useState({
                           <p className="text-sm text-emerald-400">{coach.counted} counted</p>
                           <p className="text-xs text-gray-800">{coach.total} total sessions</p>
                         </div>
-                      </div>
-                      {weeks.map(week => (
+                      </button>
+                      {isExpanded && weeks.map(week => (
                         <div key={week.weekStart}>
                           <div className="flex items-center justify-between px-5 py-2 bg-gray-100/10 border-b border-gray-200/40">
                             <p className="text-xs text-gray-800">
@@ -4441,27 +4709,36 @@ const [sessionForm,      setSessionForm]      = useState({
                             </p>
                           </div>
                           <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
+                          <table className="w-full text-sm table-fixed">
+                            <colgroup>
+                              <col className="w-[22%]" />
+                              <col className="w-[30%]" />
+                              <col className="w-[24%]" />
+                              <col className="w-[14%]" />
+                              <col className="w-[10%]" />
+                            </colgroup>
                             <tbody>
                               {week.sessions.map(s => (
                                 <tr key={s.session_id} className={`border-b border-gray-200/30 last:border-0 ${s.counted ? '' : 'opacity-50'}`}>
-                                  <td className="px-5 py-2.5 text-gray-800 text-xs whitespace-nowrap">
+                                  <td className="px-5 py-3 text-gray-800 text-xs whitespace-nowrap">
                                     {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
                                   </td>
-                                  <td className="px-5 py-2.5 text-gray-900 text-xs">
-                                    {s.student_name}
-                                    {s.is_group && <span className="ml-1.5 text-[10px] bg-teal-500/15 text-teal-600 px-1.5 py-0.5 rounded-full">Group</span>}
+                                  <td className="px-5 py-3 text-gray-900 text-xs">
+                                    <span className="block truncate">
+                                      {s.student_name}
+                                      {s.is_group && <span className="ml-1.5 text-[10px] bg-teal-500/15 text-teal-600 px-1.5 py-0.5 rounded-full">Group</span>}
+                                    </span>
                                   </td>
-                                  <td className="px-5 py-2.5 text-gray-800 text-xs font-mono whitespace-nowrap">
+                                  <td className="px-5 py-3 text-gray-800 text-xs font-mono whitespace-nowrap">
                                     {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
                                   </td>
-                                  <td className="px-3 py-2.5 text-xs whitespace-nowrap">
+                                  <td className="px-3 py-3 text-xs whitespace-nowrap">
                                     {s.admin_checked_in
                                       ? <span className="text-sky-400">Admin ✓</span>
                                       : <span className="text-gray-800">Not checked in</span>
                                     }
                                   </td>
-                                  <td className="px-3 py-2.5 text-xs">
+                                  <td className="px-3 py-3 text-xs">
                                     {s.counted ? <span className="text-emerald-400">Counted</span> : <span className="text-gray-800">Not counted</span>}
                                   </td>
                                 </tr>
@@ -4659,66 +4936,29 @@ const [sessionForm,      setSessionForm]      = useState({
                     {/* Header row */}
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
-                        {detailEdit ? (
-                          <div className="flex flex-col gap-2">
-                            <input
-                              type="text"
-                              className="input py-1 px-2 text-sm w-full"
-                              value={detailEdit.title}
-                              onChange={e => setEditingDetails(prev => ({ ...prev, [s.id]: { ...prev[s.id], title: e.target.value } }))}
-                              placeholder="Session name"
-                            />
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="date"
-                                className="input py-1 px-2 text-xs"
-                                value={detailEdit.date}
-                                onChange={e => setEditingDetails(prev => ({ ...prev, [s.id]: { ...prev[s.id], date: e.target.value } }))}
-                              />
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-gray-800">Max players</span>
-                              <input
-                                type="number"
-                                min="1"
-                                className="input py-1 px-2 text-xs w-20"
-                                value={detailEdit.max_players}
-                                onChange={e => setEditingDetails(prev => ({ ...prev, [s.id]: { ...prev[s.id], max_players: e.target.value } }))}
-                              />
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => handleSaveDetails(s.id)} className="text-xs text-emerald-400 hover:text-emerald-600 font-medium">Save</button>
-                              <button onClick={() => setEditingDetails(prev => { const n = { ...prev }; delete n[s.id]; return n })} className="text-xs text-gray-800 hover:text-gray-800">✕</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <div className="flex items-center gap-2">
-                              <p className="text-gray-900 text-base">{s.title}</p>
-                              {s.recurrence_id && (
-                                <span className="text-[10px] uppercase tracking-widest text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded-full font-medium">
-                                  Recurring
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <p className="text-xs text-gray-800 font-medium">
-                                {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
-                              </p>
-                              <button
-                                onClick={() => setEditingDetails(prev => ({ ...prev, [s.id]: { title: s.title, max_players: s.max_players, date: s.date } }))}
-                                className="text-xs text-sky-400 hover:text-sky-300 font-medium"
-                              >
-                                Edit
-                              </button>
-                            </div>
-                            {s.description && (
-                              <p className="text-sm text-gray-800 mt-1">{s.description}</p>
-                            )}
-                          </>
-                        )}
+                        <div className="flex items-center gap-2">
+                          <p className="text-gray-900 text-base">{s.title}</p>
+                          {s.recurrence_id && (
+                            <span className="text-[10px] uppercase tracking-widest text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded-full font-medium">
+                              Recurring
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-800 font-medium mt-0.5">
+                          {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
+                        </p>
+                        {s.description && <p className="text-sm text-gray-800 mt-1">{s.description}</p>}
                       </div>
                       <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                        <button
+                          onClick={() => setEditingSocial(prev => ({
+                            ...prev,
+                            [s.id]: { title: s.title, date: s.date, start_time: s.start_time.slice(0,5), end_time: s.end_time.slice(0,5), max_players: s.max_players }
+                          }))}
+                          className="text-xs text-sky-400 hover:text-sky-300 font-medium"
+                        >
+                          Edit
+                        </button>
                         <button
                           onClick={() => handleCancelSocialSession(s.id)}
                           className="text-xs text-red-400 hover:text-red-300 font-medium"
@@ -4727,7 +4967,7 @@ const [sessionForm,      setSessionForm]      = useState({
                         </button>
                         {s.recurrence_id && (
                           <button
-                            onClick={() => handleCancelSocialSeries(s.recurrence_id)}
+                            onClick={() => openCancelSeriesModal(s.recurrence_id)}
                             className="text-xs text-orange-400 hover:text-orange-300 font-medium whitespace-nowrap"
                           >
                             Cancel Series
@@ -4735,6 +4975,37 @@ const [sessionForm,      setSessionForm]      = useState({
                         )}
                       </div>
                     </div>
+
+                    {/* Unified edit form */}
+                    {editingSocial[s.id] && (() => {
+                      const e = editingSocial[s.id]
+                      const set = (field, val) => setEditingSocial(prev => ({ ...prev, [s.id]: { ...prev[s.id], [field]: val } }))
+                      const close = () => setEditingSocial(prev => { const n = { ...prev }; delete n[s.id]; return n })
+                      return (
+                        <div className="bg-gray-50 rounded-xl p-3 space-y-2 text-xs">
+                          <input type="text" className="input py-1 px-2 text-sm w-full" placeholder="Session name"
+                            value={e.title} onChange={ev => set('title', ev.target.value)} />
+                          <div className="flex items-center gap-2">
+                            <input type="date" className="input py-1 px-2 text-xs flex-1"
+                              value={e.date} onChange={ev => set('date', ev.target.value)} />
+                            <span className="text-gray-400">Max</span>
+                            <input type="number" min="1" className="input py-1 px-2 text-xs w-16"
+                              value={e.max_players} onChange={ev => set('max_players', ev.target.value)} />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input type="time" className="input py-1 px-2 text-xs flex-1"
+                              value={e.start_time} onChange={ev => set('start_time', ev.target.value)} />
+                            <span className="text-gray-400">–</span>
+                            <input type="time" className="input py-1 px-2 text-xs flex-1"
+                              value={e.end_time} onChange={ev => set('end_time', ev.target.value)} />
+                          </div>
+                          <div className="flex gap-2 pt-1">
+                            <button onClick={() => handleSaveSocial(s.id)} className="text-xs text-emerald-500 hover:text-emerald-600 font-medium">Save</button>
+                            <button onClick={close} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+                          </div>
+                        </div>
+                      )
+                    })()}
 
                     {/* Courts adjuster */}
                     <div className="flex items-center gap-3">
@@ -4756,53 +5027,12 @@ const [sessionForm,      setSessionForm]      = useState({
                       </button>
                     </div>
 
-                    {/* Time adjuster */}
+                    {/* Time display */}
                     <div className="flex items-center gap-3">
                       <span className="text-xs text-gray-800 font-medium w-20">Time</span>
-                      {timeEdit ? (
-                        <>
-                          <input
-                            type="time"
-                            className="input py-1 px-2 text-xs w-28"
-                            value={timeEdit.start_time}
-                            onChange={e => setEditingTimes(prev => ({ ...prev, [s.id]: { ...prev[s.id], start_time: e.target.value } }))}
-                          />
-                          <span className="text-gray-800 text-xs">–</span>
-                          <input
-                            type="time"
-                            className="input py-1 px-2 text-xs w-28"
-                            value={timeEdit.end_time}
-                            onChange={e => setEditingTimes(prev => ({ ...prev, [s.id]: { ...prev[s.id], end_time: e.target.value } }))}
-                          />
-                          <button
-                            onClick={() => handleSaveTime(s.id)}
-                            className="text-xs text-emerald-400 hover:text-emerald-600 font-medium"
-                          >
-                            Save
-                          </button>
-                          <button
-                            onClick={() => setEditingTimes(prev => { const n = { ...prev }; delete n[s.id]; return n })}
-                            className="text-xs text-gray-800 hover:text-gray-800"
-                          >
-                            ✕
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-gray-900 text-sm font-mono font-medium">
-                            {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
-                          </span>
-                          <button
-                            onClick={() => setEditingTimes(prev => ({
-                              ...prev,
-                              [s.id]: { start_time: s.start_time.substring(0, 5), end_time: s.end_time.substring(0, 5) },
-                            }))}
-                            className="text-xs text-sky-400 hover:text-sky-300 font-medium"
-                          >
-                            Edit
-                          </button>
-                        </>
-                      )}
+                      <span className="text-gray-900 text-sm font-mono font-medium">
+                        {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
+                      </span>
                     </div>
 
                     {/* Participant count + names */}
@@ -5241,6 +5471,69 @@ const [sessionForm,      setSessionForm]      = useState({
       {/* ── Shop Tab ──────────────────────────────────────────────────────── */}
       {activeTab === 'Shop' && <ShopManager />}
 
+      {/* ── Articles Tab ──────────────────────────────────────────────────── */}
+      {activeTab === 'Articles' && <ArticlesManager />}
+
+      {/* ── Cancel Series Selection Modal ─────────────────────────────────── */}
+      {cancelSeriesModal && (
+        <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4"
+             onClick={e => { if (e.target === e.currentTarget) setCancelSeriesModal(null) }}>
+          <div className="bg-white rounded-2xl w-full max-w-sm p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-900">Select sessions to cancel</h3>
+              <button onClick={() => setCancelSeriesModal(null)} className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+
+            {/* Select all toggle */}
+            <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none pb-1 border-b border-gray-100">
+              <input type="checkbox"
+                checked={cancelSeriesModal.selected.size === cancelSeriesModal.sessions.length}
+                onChange={e => setCancelSeriesModal(prev => ({
+                  ...prev,
+                  selected: e.target.checked ? new Set(prev.sessions.map(s => s.id)) : new Set()
+                }))}
+              />
+              Select all ({cancelSeriesModal.sessions.length} sessions)
+            </label>
+
+            {/* Session list */}
+            <div className="space-y-1.5 max-h-64 overflow-y-auto">
+              {cancelSeriesModal.sessions.map(s => (
+                <label key={s.id} className="flex items-center gap-2.5 text-sm cursor-pointer select-none hover:bg-gray-50 rounded-lg px-1 py-1">
+                  <input type="checkbox"
+                    checked={cancelSeriesModal.selected.has(s.id)}
+                    onChange={e => setCancelSeriesModal(prev => {
+                      const sel = new Set(prev.selected)
+                      e.target.checked ? sel.add(s.id) : sel.delete(s.id)
+                      return { ...prev, selected: sel }
+                    })}
+                  />
+                  <span className="text-gray-800">
+                    {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
+                  </span>
+                  <span className="text-gray-400 text-xs">{fmtTime(s.start_time)} – {fmtTime(s.end_time)}</span>
+                </label>
+              ))}
+              {cancelSeriesModal.sessions.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-4">No upcoming sessions found.</p>
+              )}
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setCancelSeriesModal(null)}
+                className="flex-1 py-2 rounded-full border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
+                Back
+              </button>
+              <button
+                disabled={cancelSeriesModal.selected.size === 0}
+                onClick={handleBatchCancel}
+                className="flex-1 py-2 rounded-full bg-red-500 text-white text-sm font-medium hover:bg-red-600 disabled:opacity-40">
+                Cancel {cancelSeriesModal.selected.size > 0 ? `${cancelSeriesModal.selected.size} session${cancelSeriesModal.selected.size > 1 ? 's' : ''}` : ''}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Calendar Reschedule Modal ─────────────────────────────────────── */}
       {calendarReschedule && (() => {

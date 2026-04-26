@@ -121,12 +121,18 @@ router.get('/thread/:userId', requireAuth, async (req, res) => {
                EXISTS(SELECT 1 FROM message_reads mr WHERE mr.message_id = m.id AND mr.user_id = $2)
              ELSE FALSE END AS read_by_recipient,
              slr.status AS leave_request_status,
-             slr.expires_at AS leave_request_expires_at
+             slr.expires_at AS leave_request_expires_at,
+             clr.status AS coach_leave_request_status
       FROM messages m
       JOIN users u ON u.id = m.sender_id
       LEFT JOIN session_leave_requests slr
         ON m.metadata IS NOT NULL
+        AND m.metadata->>'type' IN ('leave_request','slot_options')
         AND (m.metadata->>'request_id')::int = slr.id
+      LEFT JOIN coach_leave_requests clr
+        ON m.metadata IS NOT NULL
+        AND m.metadata->>'type' = 'coach_leave_request'
+        AND (m.metadata->>'request_id')::int = clr.id
       WHERE (m.sender_id = $1 AND m.recipient_id = $2)
          OR (m.sender_id = $2 AND m.recipient_id = $1)
       ORDER BY m.created_at ASC
@@ -153,6 +159,7 @@ router.get('/thread/:userId', requireAuth, async (req, res) => {
       metadata: r.metadata ?? null,
       leave_request_status: r.leave_request_status ?? null,
       leave_request_expires_at: r.leave_request_expires_at ?? null,
+      coach_leave_request_status: r.coach_leave_request_status ?? null,
     }))
 
     res.json({ messages })

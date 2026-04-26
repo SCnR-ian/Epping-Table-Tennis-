@@ -173,7 +173,11 @@ export const coachingAPI = {
   createLeaveRequest:  (data)     => api.post('/coaching/leave-requests', data),
   approveLeaveRequest: (id)       => api.post(`/coaching/leave-requests/${id}/approve`),
   rejectLeaveRequest:  (id)       => api.post(`/coaching/leave-requests/${id}/reject`),
-  selectLeaveSlot:     (id, slot) => api.post(`/coaching/leave-requests/${id}/select-slot`, slot),
+  selectLeaveSlot:          (id, slot) => api.post(`/coaching/leave-requests/${id}/select-slot`, slot),
+  // Coach leave requests (coach-initiated)
+  createCoachLeaveRequest:  (data)     => api.post('/coaching/coach-leave-requests', data),
+  approveCoachLeaveRequest: (id)       => api.post(`/coaching/coach-leave-requests/${id}/approve`),
+  rejectCoachLeaveRequest:  (id)       => api.post(`/coaching/coach-leave-requests/${id}/reject`),
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +195,7 @@ export const socialAPI = {
   adminRemoveMember:      (id, userId)       => api.delete(`/social/${id}/participants/${userId}`),
   adminAddWalkin:         (id)               => api.post(`/social/${id}/walkin`),
   cancelRecurringSessions:(recurrenceId)     => api.delete(`/social/recurrence/${recurrenceId}`),
+  cancelBatch:            (ids)              => api.delete('/social/batch', { data: { ids } }),
 }
 
 // ---------------------------------------------------------------------------
@@ -313,6 +318,17 @@ export const venueAPI = {
 export const clubAPI = {
   getCurrent: ()       => api.get('/clubs/current'),
   update:     (data)   => api.patch('/clubs/current', data),
+}
+
+// ---------------------------------------------------------------------------
+// Articles (Competition / News / Achievement)
+// ---------------------------------------------------------------------------
+export const articlesAPI = {
+  getAll:  (params) => api.get('/articles', { params }),
+  getById: (id)     => api.get(`/articles/${id}`),
+  create:  (data)   => api.post('/articles', data),
+  update:  (id, data) => api.put(`/articles/${id}`, data),
+  delete:  (id)     => api.delete(`/articles/${id}`),
 }
 
 // ---------------------------------------------------------------------------

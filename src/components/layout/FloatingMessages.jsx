@@ -49,13 +49,19 @@ export default function FloatingMessages() {
   const [editingMsg, setEditingMsg]   = useState(null)   // msg id being edited
   const [editBody, setEditBody]       = useState('')
   const [attachPreview, setAttachPreview] = useState(null) // { data, type, name }
-  // Leave request
+  // Student leave request
   const [leaveModal, setLeaveModal] = useState(false)
   const [leaveSessions, setLeaveSessions] = useState([])
   const [leaveSessionId, setLeaveSessionId] = useState('')
   const [leaveReason, setLeaveReason] = useState('')
   const [leaveSubmitting, setLeaveSubmitting] = useState(false)
   const [leaveActioning, setLeaveActioning] = useState(null)
+  // Coach leave request
+  const [coachLeaveModal, setCoachLeaveModal] = useState(false)
+  const [coachLeaveFrom, setCoachLeaveFrom] = useState('')
+  const [coachLeaveTo, setCoachLeaveTo] = useState('')
+  const [coachLeaveReason, setCoachLeaveReason] = useState('')
+  const [coachLeaveSubmitting, setCoachLeaveSubmitting] = useState(false)
   const [declinedSlots, setDeclinedSlots] = useState(new Set()) // request_ids where student chose "none"
   // AI thread — persisted to localStorage
   const [aiMessages, setAiMessages] = useState(() => {
@@ -230,6 +236,8 @@ export default function FloatingMessages() {
     }
   }
 
+  const isCoach = user?.role === 'coach'
+
   const openLeaveModal = async () => {
     try {
       const { data } = await coachingAPI.getMySessions()
@@ -239,6 +247,31 @@ export default function FloatingMessages() {
       setLeaveReason('')
       setLeaveModal(true)
     } catch { alert('Could not load sessions.') }
+  }
+
+  const openCoachLeaveModal = () => {
+    const today = new Date().toLocaleDateString('en-CA')
+    setCoachLeaveFrom(today)
+    setCoachLeaveTo(today)
+    setCoachLeaveReason('')
+    setCoachLeaveModal(true)
+  }
+
+  const submitCoachLeaveRequest = async () => {
+    if (!coachLeaveFrom) return
+    setCoachLeaveSubmitting(true)
+    try {
+      await coachingAPI.createCoachLeaveRequest({
+        date_from: coachLeaveFrom,
+        date_to: coachLeaveTo || coachLeaveFrom,
+        reason: coachLeaveReason || undefined,
+      })
+      setCoachLeaveModal(false)
+      await loadThread(threadUser.id, true)
+      await loadInbox()
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not submit leave request.')
+    } finally { setCoachLeaveSubmitting(false) }
   }
 
   const submitLeaveRequest = async () => {
@@ -606,7 +639,43 @@ export default function FloatingMessages() {
                                     {msg.edited_at && !msg.deleted && (
                                       <span className={`text-[10px] ml-1 ${isMe ? 'text-white/60' : 'text-gray-400'}`}>edited</span>
                                     )}
-                                    {/* Leave request interactive */}
+                                    {/* Coach leave request — admin Approve/Reject */}
+                                    {msg.metadata?.type === 'coach_leave_request' && isAdmin && (() => {
+                                      const rid = msg.metadata.request_id
+                                      const status = msg.coach_leave_request_status
+                                      if (status === 'pending') return (
+                                        <div className="flex gap-1.5 mt-2" onClick={e => e.stopPropagation()}>
+                                          <button disabled={leaveActioning === rid}
+                                            className="text-xs bg-white text-emerald-600 border border-emerald-300 rounded-full px-2.5 py-1 hover:bg-emerald-50 disabled:opacity-50"
+                                            onClick={async () => {
+                                              setLeaveActioning(rid)
+                                              try { await coachingAPI.approveCoachLeaveRequest(rid); await loadThread(threadUser.id, false) }
+                                              catch (err) { alert(err.response?.data?.message ?? 'Could not approve.') }
+                                              finally { setLeaveActioning(null) }
+                                            }}>✓ Approve</button>
+                                          <button disabled={leaveActioning === rid}
+                                            className="text-xs bg-white text-red-500 border border-red-300 rounded-full px-2.5 py-1 hover:bg-red-50 disabled:opacity-50"
+                                            onClick={async () => {
+                                              setLeaveActioning(rid)
+                                              try { await coachingAPI.rejectCoachLeaveRequest(rid); await loadThread(threadUser.id, false) }
+                                              catch (err) { alert(err.response?.data?.message ?? 'Could not reject.') }
+                                              finally { setLeaveActioning(null) }
+                                            }}>✗ Reject</button>
+                                        </div>
+                                      )
+                                      if (status === 'approved') return <p className="text-xs mt-1 text-emerald-300">✅ Approved</p>
+                                      if (status === 'rejected') return <p className="text-xs mt-1 text-red-300">❌ Rejected</p>
+                                      return null
+                                    })()}
+                                    {/* Coach leave request — coach sees status pill */}
+                                    {msg.metadata?.type === 'coach_leave_request' && !isAdmin && (() => {
+                                      const status = msg.coach_leave_request_status
+                                      if (status === 'pending')   return <p className="text-xs mt-1 text-white/70">🕐 Pending review</p>
+                                      if (status === 'approved')  return <p className="text-xs mt-1 text-white/90">✅ Approved</p>
+                                      if (status === 'rejected')  return <p className="text-xs mt-1 text-white/70">❌ Rejected</p>
+                                      return null
+                                    })()}
+                                    {/* Student leave request interactive */}
                                     {msg.metadata?.type === 'leave_request' && isAdmin && (() => {
                                       const rid = msg.metadata.request_id
                                       const status = msg.leave_request_status
@@ -757,7 +826,7 @@ export default function FloatingMessages() {
                 {/* Input bar */}
                 {!minimized && <div className="flex items-center gap-2 px-3 py-2 border-t border-gray-100 bg-white shrink-0">
                   {!isAIThread && !isAdmin && partnerIsAdmin && (
-                    <button onClick={openLeaveModal} className="text-gray-400 hover:text-amber-500 shrink-0 transition-colors" title="Request Leave">
+                    <button onClick={isCoach ? openCoachLeaveModal : openLeaveModal} className="text-gray-400 hover:text-amber-500 shrink-0 transition-colors" title="Request Leave">
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5M12 15h.008v.008H12V15zm0-2.25h.008v.008H12v-.008zm0 4.5h.008v.008H12v-.008zm-2.625-4.5h.008v.008h-.008V13.5zm0 2.25h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V18zm5.25-4.5h.008v.008h-.008V13.5zm0 2.25h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V18z" />
                       </svg>
@@ -786,13 +855,57 @@ export default function FloatingMessages() {
               </>
             )}
 
-            {/* ── Leave Request Modal ── */}
+            {/* ── Coach Leave Request Modal ── */}
+            {coachLeaveModal && (
+              <div className="absolute inset-0 z-20 flex items-end sm:items-center justify-center bg-black/40 rounded-2xl p-3">
+                <div className="bg-white rounded-2xl w-full p-4 space-y-3">
+                  <h3 className="text-sm font-semibold text-gray-900">Request Leave</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">From</label>
+                      <input type="date"
+                        className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-400"
+                        value={coachLeaveFrom}
+                        onChange={e => { setCoachLeaveFrom(e.target.value); if (!coachLeaveTo || coachLeaveTo < e.target.value) setCoachLeaveTo(e.target.value) }}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">To</label>
+                      <input type="date"
+                        className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-400"
+                        value={coachLeaveTo} min={coachLeaveFrom}
+                        onChange={e => setCoachLeaveTo(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <input type="text"
+                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-400"
+                    placeholder="Reason (e.g. Sick leave)"
+                    value={coachLeaveReason} onChange={e => setCoachLeaveReason(e.target.value)}
+                  />
+                  <div className="flex gap-2">
+                    <button className="flex-1 py-1.5 rounded-full border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
+                      onClick={() => setCoachLeaveModal(false)}>Cancel</button>
+                    <button className="flex-1 py-1.5 rounded-full bg-[#07c160] text-white text-xs font-medium hover:bg-green-600 disabled:opacity-50"
+                      disabled={coachLeaveSubmitting || !coachLeaveFrom} onClick={submitCoachLeaveRequest}>
+                      {coachLeaveSubmitting ? 'Sending…' : 'Send Request'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Student Leave Request Modal ── */}
             {leaveModal && (
               <div className="absolute inset-0 z-20 flex items-end sm:items-center justify-center bg-black/40 rounded-2xl p-3">
                 <div className="bg-white rounded-2xl w-full p-4 space-y-3">
                   <h3 className="text-sm font-semibold text-gray-900">Request Leave</h3>
                   {leaveSessions.length === 0 ? (
-                    <p className="text-xs text-gray-500">No upcoming coaching sessions.</p>
+                    <>
+                      <p className="text-xs text-gray-500">No upcoming coaching sessions.</p>
+                      <button className="w-full py-1.5 rounded-full border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
+                        onClick={() => setLeaveModal(false)}>Close</button>
+                    </>
                   ) : (
                     <>
                       <select

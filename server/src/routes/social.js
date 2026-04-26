@@ -308,6 +308,21 @@ router.delete('/recurrence/:recurrenceId', requireAuth, requireAdmin, async (req
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
+// DELETE /api/social/batch  — cancel specific session IDs (admin)
+router.delete('/batch', requireAuth, requireAdmin, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  const { ids } = req.body
+  if (!Array.isArray(ids) || ids.length === 0)
+    return res.status(400).json({ message: 'ids array is required.' })
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM social_play_sessions WHERE id = ANY($1::int[]) AND club_id=$2`,
+      [ids, clubId]
+    )
+    res.json({ count: rowCount })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
 // DELETE /api/social/:id
 router.delete('/:id', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin')

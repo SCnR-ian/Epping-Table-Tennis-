@@ -26,7 +26,7 @@ app.use(cors({
   },
   credentials: true,
 }))
-app.use(express.json())
+app.use(express.json({ limit: '15mb' }))
 
 // Session is only needed during the brief OAuth redirect flow
 app.use(session({
@@ -62,6 +62,7 @@ app.use('/api/announcements', require('./routes/announcements'))
 app.use('/api/homepage',      require('./routes/homepage'))
 app.use('/api/messages',     require('./routes/messages'))
 app.use('/api/pages',        require('./routes/pages'))
+app.use('/api/articles',     require('./routes/articles'))
 app.use('/api/payments',     require('./routes/payments'))
 app.use('/api/clubs',        require('./routes/clubs'))
 app.use('/api/super-admin', require('./routes/superAdmin'))
@@ -330,6 +331,33 @@ async function runMigrations() {
        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
      )`,
     `CREATE INDEX IF NOT EXISTS idx_product_images_product ON product_images(product_id)`,
+    `CREATE TABLE IF NOT EXISTS coach_leave_requests (
+       id             SERIAL PRIMARY KEY,
+       coach_user_id  INTEGER NOT NULL REFERENCES users(id),
+       date_from      DATE NOT NULL,
+       date_to        DATE NOT NULL,
+       reason         TEXT,
+       status         VARCHAR(20) NOT NULL DEFAULT 'pending',
+       resolved_by    INTEGER REFERENCES users(id),
+       resolved_at    TIMESTAMPTZ,
+       club_id        INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id),
+       created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE TABLE IF NOT EXISTS club_articles (
+       id          SERIAL PRIMARY KEY,
+       type        VARCHAR(20) NOT NULL CHECK (type IN ('competition','news','achievement')),
+       title       TEXT NOT NULL,
+       subtitle    TEXT,
+       body        TEXT,
+       image_data  TEXT,
+       image_type  VARCHAR(50),
+       is_pinned   BOOLEAN NOT NULL DEFAULT FALSE,
+       published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       created_by  INTEGER REFERENCES users(id),
+       club_id     INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id),
+       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_club_articles_club_type ON club_articles(club_id, type)`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }

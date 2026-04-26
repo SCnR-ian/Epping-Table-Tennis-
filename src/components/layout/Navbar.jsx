@@ -16,6 +16,25 @@ const DEFAULT_NAV_LINKS = [
   { to: "/news",      label: "News"     },
 ];
 
+// ── Club Logo (ping-pong paddle + ball) ───────────────────────────────────
+function ClubLogo({ solid }) {
+  const color = solid ? "#000" : "#fff"
+  return (
+    <svg width="38" height="38" viewBox="0 0 38 38" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Club logo">
+      {/* Paddle head */}
+      <ellipse cx="16" cy="16" rx="12.5" ry="12.5" fill={color} />
+      {/* Rubber surface accent */}
+      <ellipse cx="16" cy="16" rx="8.5" ry="8.5" fill={solid ? "#fff" : "#000"} opacity="0.15" />
+      {/* Handle */}
+      <rect x="13.5" y="27.5" width="5" height="9" rx="2.5" fill={color} />
+      {/* Ball */}
+      <circle cx="32" cy="7" r="5" stroke={color} strokeWidth="2" />
+      {/* Ball spin arc */}
+      <path d="M28.5 5.5 Q32 3.5 35.5 5.5" stroke={color} strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 // ── Icons ─────────────────────────────────────────────────────────────────
 function IconPerson() {
   return (
@@ -383,18 +402,30 @@ export default function Navbar() {
           {/* Center — Logo: absolutely centered to the full viewport width */}
           <div className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap">
             {isEditing ? (
-              <EditableText
-                as="span"
-                value={brandName}
-                onSave={saveBrandName}
-                className={`font-display text-xl font-normal tracking-[0.25em] uppercase leading-none transition-colors duration-300 ${solid ? "text-black" : "text-white"}`}
-              />
+              <>
+                {/* Mobile: logo only */}
+                <span className="sm:hidden flex items-center justify-center">
+                  <ClubLogo solid={solid} />
+                </span>
+                {/* Desktop: editable text */}
+                <EditableText
+                  as="span"
+                  value={brandName}
+                  onSave={saveBrandName}
+                  className={`hidden sm:inline font-display text-xl font-normal tracking-[0.25em] uppercase leading-none transition-colors duration-300 ${solid ? "text-black" : "text-white"}`}
+                />
+              </>
             ) : (
               <Link
                 to="/"
                 onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
               >
-                <span className={`font-display text-xl font-normal tracking-[0.25em] uppercase leading-none transition-colors duration-300 ${solid ? "text-black" : "text-white"}`}>
+                {/* Mobile: logo only */}
+                <span className="sm:hidden flex items-center justify-center">
+                  <ClubLogo solid={solid} />
+                </span>
+                {/* Desktop: text */}
+                <span className={`hidden sm:inline font-display text-xl font-normal tracking-[0.25em] uppercase leading-none transition-colors duration-300 ${solid ? "text-black" : "text-white"}`}>
                   {brandName}
                 </span>
               </Link>
