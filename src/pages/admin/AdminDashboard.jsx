@@ -128,7 +128,7 @@ function groupByWeek(sessions) {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 
-const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Pay Report', 'Analytics', 'Venue', 'Shop', 'Articles']
+const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Analytics', 'QR-Code', 'Shop', 'Articles']
 
 const BOOKABLE_COURTS = [
   { id: 1, label: 'Court 1' },
@@ -1242,6 +1242,47 @@ function ArticlesManager() {
 export default function AdminDashboard() {
   const [activeTab,    setActiveTab]    = useState('Bookings')
   const [showMoreMenu, setShowMoreMenu] = useState(false)
+  const [tabOrder, setTabOrder] = useState(() => {
+    try {
+      const saved = localStorage.getItem('admin_tab_order')
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        // Validate: length must match current TABS (resets if tabs were added/removed)
+        if (Array.isArray(parsed) && parsed.length === TABS.length &&
+            parsed.every(i => Number.isInteger(i) && i >= 0 && i < TABS.length)) {
+          return parsed
+        }
+        localStorage.removeItem('admin_tab_order')
+      }
+    } catch {}
+    return TABS.map((_, i) => i)
+  })
+  const [dragTabIdx,     setDragTabIdx]     = useState(null)
+  const [dragTabOverIdx, setDragTabOverIdx] = useState(null)
+
+  const handleTabDragStart = (e, idx) => {
+    setDragTabIdx(idx)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  const handleTabDragOver = (e, idx) => {
+    e.preventDefault()
+    setDragTabOverIdx(idx)
+  }
+  const handleTabDrop = (e, idx) => {
+    e.preventDefault()
+    if (dragTabIdx === null || dragTabIdx === idx) return
+    const newOrder = [...tabOrder]
+    const [moved] = newOrder.splice(dragTabIdx, 1)
+    newOrder.splice(idx, 0, moved)
+    setTabOrder(newOrder)
+    localStorage.setItem('admin_tab_order', JSON.stringify(newOrder))
+    setDragTabIdx(null)
+    setDragTabOverIdx(null)
+  }
+  const handleTabDragEnd = () => {
+    setDragTabIdx(null)
+    setDragTabOverIdx(null)
+  }
 const [members,      setMembers]      = useState([])
   const [bookings,                setBookings]                = useState([])
   const [bookingViewSessions,     setBookingViewSessions]     = useState([])
@@ -1714,8 +1755,8 @@ const [sessionForm,      setSessionForm]      = useState({
 
   // Fetch analytics when Analytics tab is active
   useEffect(() => {
-    if (activeTab !== 'Pay Report' || !payReport) return
-    // Auto-refresh when admin returns to Pay Report tab so check-ins are reflected
+    if (activeTab !== 'Analytics' || !payReport) return
+    // Auto-refresh pay report when admin returns to Analytics tab
     coachingAPI.getPaymentReport(payFrom, payTo)
       .then(({ data }) => setPayReport(data.coaches))
       .catch(() => {})
@@ -1732,7 +1773,7 @@ const [sessionForm,      setSessionForm]      = useState({
   }, [activeTab])
 
   useEffect(() => {
-    if (activeTab !== 'Venue') return
+    if (activeTab !== 'QR-Code') return
     // Load QR once
     if (!venueQR) {
       setVenueQRLoading(true)
@@ -2803,19 +2844,31 @@ const [sessionForm,      setSessionForm]      = useState({
 
       {/* Tabs — desktop only */}
       <div className="hidden lg:flex border-b border-gray-200 mb-6 gap-1">
-        {TABS.map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              activeTab === tab
-                ? 'border-black text-black'
-                : 'border-transparent text-gray-500 hover:text-gray-900'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
+        {tabOrder.map((tabIdx, displayIdx) => {
+          const tab = TABS[tabIdx]
+          const isActive   = activeTab === tab
+          const isDragOver = dragTabOverIdx === displayIdx && dragTabIdx !== displayIdx
+          return (
+            <button
+              key={tab}
+              draggable
+              onDragStart={e => handleTabDragStart(e, displayIdx)}
+              onDragOver={e => handleTabDragOver(e, displayIdx)}
+              onDrop={e => handleTabDrop(e, displayIdx)}
+              onDragEnd={handleTabDragEnd}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-all select-none cursor-pointer ${
+                isActive
+                  ? 'border-black text-black'
+                  : isDragOver
+                    ? 'border-gray-400 text-gray-600 opacity-50'
+                    : 'border-transparent text-gray-500 hover:text-gray-900'
+              } ${dragTabIdx === displayIdx ? 'opacity-40' : ''}`}
+            >
+              {tab}
+            </button>
+          )
+        })}
       </div>
 
       {/* Mobile tab label */}
@@ -2832,7 +2885,7 @@ const [sessionForm,      setSessionForm]      = useState({
             <div className="fixed inset-0 z-30" onClick={() => setShowMoreMenu(false)} />
             <div className="absolute bottom-full inset-x-0 bg-white border-t border-gray-200 shadow-2xl z-40">
               <div className="grid grid-cols-4 divide-x divide-gray-100">
-                {['Pay Report', 'Analytics', 'Venue', 'Shop'].map(tab => (
+                {['Analytics', 'QR-Code', 'Shop', 'Articles'].map(tab => (
                   <button
                     key={tab}
                     onClick={() => { setActiveTab(tab); setShowMoreMenu(false) }}
@@ -2840,17 +2893,12 @@ const [sessionForm,      setSessionForm]      = useState({
                       activeTab === tab ? 'text-black font-semibold bg-gray-50' : 'text-gray-500'
                     }`}
                   >
-                    {tab === 'Pay Report' && (
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 14.25l6-6m4.5-3.493V21.75l-3.75-1.5-3.75 1.5-3.75-1.5-3.75 1.5V4.757c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0c1.1.128 1.907 1.077 1.907 2.185z" />
-                      </svg>
-                    )}
                     {tab === 'Analytics' && (
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zm9.75-4.5c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zm-9.75 4.5a1.125 1.125 0 00-1.125 1.125v4.5c0 .621.504 1.125 1.125 1.125h2.25c.621 0 1.125-.504 1.125-1.125v-4.5a1.125 1.125 0 00-1.125-1.125H3z" />
                       </svg>
                     )}
-                    {tab === 'Venue' && (
+                    {tab === 'QR-Code' && (
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75zM6.75 16.5h.75v.75h-.75v-.75zM16.5 6.75h.75v.75h-.75v-.75zM13.5 13.5h.75v.75h-.75v-.75zM13.5 19.5h.75v.75h-.75v-.75zM19.5 13.5h.75v.75h-.75v-.75zM19.5 19.5h.75v.75h-.75v-.75zM16.5 16.5h.75v.75h-.75v-.75z" />
@@ -2859,6 +2907,11 @@ const [sessionForm,      setSessionForm]      = useState({
                     {tab === 'Shop' && (
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                      </svg>
+                    )}
+                    {tab === 'Articles' && (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6v-3z" />
                       </svg>
                     )}
                     {tab}
@@ -2917,7 +2970,7 @@ const [sessionForm,      setSessionForm]      = useState({
           {/* More */}
           <button
             onClick={() => setShowMoreMenu(v => !v)}
-            className={`flex flex-col items-center justify-center gap-1.5 transition-colors ${['Pay Report','Analytics','Venue'].includes(activeTab) ? 'text-black' : showMoreMenu ? 'text-black' : 'text-gray-400'}`}
+            className={`flex flex-col items-center justify-center gap-1.5 transition-colors ${['Analytics','QR-Code','Shop','Articles'].includes(activeTab) ? 'text-black' : showMoreMenu ? 'text-black' : 'text-gray-400'}`}
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM18.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
@@ -4635,9 +4688,10 @@ const [sessionForm,      setSessionForm]      = useState({
         </div>
       )}
 
-      {/* ── Pay Report tab ───────────────────────────────────────────────── */}
-      {activeTab === 'Pay Report' && (
-        <div className="animate-fade-in space-y-6">
+      {/* ── Pay Report section (inside Analytics) ────────────────────────── */}
+      {activeTab === 'Analytics' && (
+        <div className="animate-fade-in space-y-6 mb-10">
+          <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-widest border-b border-gray-100 pb-2">Pay Report</h3>
           <p className="text-xs text-gray-800">
             Sessions count only when <span className="text-gray-900">an admin checks in</span> the student. Self check-ins by students or coaches do not count toward pay.
           </p>
@@ -5142,9 +5196,10 @@ const [sessionForm,      setSessionForm]      = useState({
         </div>
       )}
 
-      {/* ── Analytics tab ────────────────────────────────────────────────── */}
+      {/* ── Analytics section ────────────────────────────────────────────── */}
       {activeTab === 'Analytics' && (
         <div className="animate-fade-in space-y-8">
+          <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-widest border-b border-gray-100 pb-2">Analytics</h3>
           {analyticsLoading ? (
             <p className="text-gray-800 text-sm">Loading analytics…</p>
           ) : !analyticsData ? null : (() => {
@@ -5327,8 +5382,8 @@ const [sessionForm,      setSessionForm]      = useState({
       )}
 
 
-      {/* ── Venue tab ────────────────────────────────────────────────────── */}
-      {activeTab === 'Venue' && (
+      {/* ── QR-Code tab ──────────────────────────────────────────────────── */}
+      {activeTab === 'QR-Code' && (
         <div className="animate-fade-in space-y-6">
 
           {/* QR Code card */}

@@ -109,26 +109,12 @@ export default function NewsPage() {
                 onClick={() => navigate(`/news/${hero.id}`)}
               >
                 {hero.image_data ? (
-                  <div className="relative overflow-hidden aspect-[16/7] bg-gray-100">
+                  <div className="overflow-hidden aspect-[16/7] bg-gray-100">
                     <img
                       src={hero.image_data}
                       alt={hero.title}
                       className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.02]"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent" />
-                    <div className="absolute bottom-0 left-0 right-0 p-8 text-white text-center">
-                      <p className="text-xs font-medium uppercase tracking-[0.2em] mb-3 opacity-75">
-                        {TYPE_LABEL[hero.type]}
-                      </p>
-                      <h2 className="text-2xl sm:text-3xl font-light leading-snug max-w-2xl mx-auto">
-                        {hero.title}
-                      </h2>
-                      {hero.subtitle && (
-                        <p className="mt-2 text-sm opacity-70 max-w-xl mx-auto">
-                          {hero.subtitle}
-                        </p>
-                      )}
-                    </div>
                   </div>
                 ) : (
                   <div className="bg-gray-100 min-h-[320px] flex flex-col items-center justify-center p-12 text-center group-hover:bg-gray-150 transition-colors">

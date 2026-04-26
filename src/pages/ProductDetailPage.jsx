@@ -52,13 +52,13 @@ export default function ProductDetailPage() {
   }, [id])
 
   if (loading) return (
-    <div className="min-h-screen bg-white pt-[84px] flex items-center justify-center">
+    <div className="min-h-screen bg-white flex items-center justify-center">
       <div className="w-8 h-8 border-2 border-gray-200 border-t-black rounded-full animate-spin" />
     </div>
   )
 
   if (!product) return (
-    <div className="min-h-screen bg-white pt-[84px] flex items-center justify-center">
+    <div className="min-h-screen bg-white flex items-center justify-center">
       <div className="text-center">
         <p className="text-gray-500 mb-4">Product not found.</p>
         <button onClick={() => navigate('/shopping')} className="text-sm underline underline-offset-4">
@@ -73,7 +73,7 @@ export default function ProductDetailPage() {
                    product.reaction_property || product.vibration_property || product.product_type
 
   return (
-    <div className="min-h-screen bg-white pt-[84px]">
+    <div className="min-h-screen bg-white">
 
       {/* Mobile sticky header */}
       <div className="lg:hidden sticky top-[84px] z-20 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between">

@@ -46,7 +46,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="bg-white min-h-screen pt-24 pb-16 px-4 max-w-2xl mx-auto">
+    <div className="bg-white min-h-screen pt-6 pb-16 px-4 max-w-2xl mx-auto">
 
       {/* Header */}
       <div className="flex items-center gap-5 mb-10 pb-8 border-b border-gray-300">

@@ -149,30 +149,31 @@ export default function ShoppingPage() {
   }, [activeCategory])
 
   return (
-    <div className="min-h-screen bg-white pt-[84px]">
+    <div className="min-h-screen bg-white">
 
       {/* Category icons row */}
-      <div className="border-b border-gray-100">
+      <div className="border-b border-gray-100 py-6">
         <div className="flex justify-center">
           {CATEGORIES.filter(c => c.key !== 'all').map(cat => (
             <button
               key={cat.key}
               onClick={() => setActiveCategory(activeCategory === cat.key ? 'all' : cat.key)}
-              className={`flex flex-col items-center gap-2 px-6 lg:px-10 py-5 transition-colors border-b-2 ${
-                activeCategory === cat.key
-                  ? 'border-black text-black'
-                  : 'border-transparent text-gray-500 hover:text-black'
+              className={`relative flex flex-col items-center gap-2 px-6 lg:px-10 transition-colors ${
+                activeCategory === cat.key ? 'text-black' : 'text-gray-500 hover:text-black'
               }`}
             >
               <CategoryIcon cat={cat.key} />
               <span className="text-xs text-center whitespace-nowrap">{cat.label}</span>
+              {activeCategory === cat.key && (
+                <span className="absolute -bottom-6 left-0 right-0 h-0.5 bg-black" />
+              )}
             </button>
           ))}
         </div>
       </div>
 
       {/* Product grid */}
-      <div className="px-6 lg:px-10 py-8">
+      <div className="px-6 lg:px-10 pt-6 pb-8">
         {loading ? (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {Array.from({ length: 8 }).map((_, i) => (

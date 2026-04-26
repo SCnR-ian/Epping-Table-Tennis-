@@ -24,7 +24,7 @@ export default function CartPage() {
   const navigate = useNavigate()
 
   return (
-    <div className="min-h-screen bg-white pt-[84px]">
+    <div className="min-h-screen bg-white">
       <div className="max-w-6xl mx-auto px-6 lg:px-10 py-10">
 
         <h1 className="text-2xl font-light text-gray-900 mb-8">

@@ -258,8 +258,34 @@ function AccountPanel({ open, onClose }) {
 }
 
 // ── Menu slide panel ───────────────────────────────────────────────────────
-function MenuPanel({ open, onClose, isAdmin, navLabels, onSaveLabel }) {
+function MenuPanel({ open, onClose, isAdmin, navLabels, navOrder, onSaveLabel, onReorder }) {
   const { isEditing } = useEditMode()
+  const [dragIdx, setDragIdx] = useState(null)
+  const [dragOverIdx, setDragOverIdx] = useState(null)
+
+  const handleDragStart = (e, idx) => {
+    setDragIdx(idx)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  const handleDragOver = (e, idx) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOverIdx(idx)
+  }
+  const handleDrop = (e, idx) => {
+    e.preventDefault()
+    if (dragIdx === null || dragIdx === idx) return
+    const newOrder = [...navOrder]
+    const [moved] = newOrder.splice(dragIdx, 1)
+    newOrder.splice(idx, 0, moved)
+    onReorder(newOrder)
+    setDragIdx(null)
+    setDragOverIdx(null)
+  }
+  const handleDragEnd = () => {
+    setDragIdx(null)
+    setDragOverIdx(null)
+  }
 
   return (
     <>
@@ -282,14 +308,31 @@ function MenuPanel({ open, onClose, isAdmin, navLabels, onSaveLabel }) {
 
         {/* Nav links */}
         <nav className="flex-1 overflow-y-auto px-7 py-6 space-y-0">
-          {DEFAULT_NAV_LINKS.map(({ to }, idx) => {
-            const label = navLabels[idx] ?? DEFAULT_NAV_LINKS[idx].label
+          {navOrder.map((linkIdx, displayIdx) => {
+            const { to } = DEFAULT_NAV_LINKS[linkIdx]
+            const label = navLabels[linkIdx] ?? DEFAULT_NAV_LINKS[linkIdx].label
             return isEditing ? (
-              <div key={to} className="py-3">
+              <div
+                key={to}
+                draggable
+                onDragStart={e => handleDragStart(e, displayIdx)}
+                onDragOver={e => handleDragOver(e, displayIdx)}
+                onDrop={e => handleDrop(e, displayIdx)}
+                onDragEnd={handleDragEnd}
+                className={`flex items-center gap-3 py-3 cursor-grab active:cursor-grabbing transition-opacity ${
+                  dragOverIdx === displayIdx && dragIdx !== displayIdx ? 'opacity-40' : 'opacity-100'
+                }`}
+              >
+                {/* Drag handle */}
+                <svg className="w-4 h-4 text-gray-300 flex-shrink-0" fill="currentColor" viewBox="0 0 16 16">
+                  <circle cx="5" cy="4" r="1.2"/><circle cx="11" cy="4" r="1.2"/>
+                  <circle cx="5" cy="8" r="1.2"/><circle cx="11" cy="8" r="1.2"/>
+                  <circle cx="5" cy="12" r="1.2"/><circle cx="11" cy="12" r="1.2"/>
+                </svg>
                 <EditableText
                   as="span"
                   value={label}
-                  onSave={v => onSaveLabel(idx, v)}
+                  onSave={v => onSaveLabel(linkIdx, v)}
                   className="text-[17px] text-black font-normal"
                 />
               </div>
@@ -341,6 +384,7 @@ export default function Navbar() {
   const [hovered, setHovered] = useState(false);
   const [brandName, setBrandName] = useState("Epping Table Tennis");
   const [navLabels, setNavLabels] = useState(DEFAULT_NAV_LINKS.map(l => l.label));
+  const [navOrder, setNavOrder] = useState(DEFAULT_NAV_LINKS.map((_, i) => i));
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
@@ -353,12 +397,12 @@ export default function Navbar() {
       const c = r.data.content
       if (c.home_hero?.headline) setBrandName(c.home_hero.headline)
       if (Array.isArray(c.nav_links?.labels)) setNavLabels(c.nav_links.labels)
+      if (Array.isArray(c.nav_links?.order)) setNavOrder(c.nav_links.order)
     }).catch(() => {})
   }, []);
 
   const saveBrandName = (v) => {
     setBrandName(v)
-    // keep in sync with home_hero — load existing first to avoid overwriting other fields
     pagesAPI.getContent().then(r => {
       const existing = r.data.content.home_hero ?? {}
       pagesAPI.updateContent('home_hero', { ...existing, headline: v }).catch(() => {})
@@ -369,7 +413,12 @@ export default function Navbar() {
     const updated = [...navLabels]
     updated[idx] = v
     setNavLabels(updated)
-    pagesAPI.updateContent('nav_links', { labels: updated }).catch(() => {})
+    pagesAPI.updateContent('nav_links', { labels: updated, order: navOrder }).catch(() => {})
+  }
+
+  const saveNavOrder = (newOrder) => {
+    setNavOrder(newOrder)
+    pagesAPI.updateContent('nav_links', { labels: navLabels, order: newOrder }).catch(() => {})
   }
 
   const isHome = location.pathname === "/";
@@ -468,7 +517,7 @@ export default function Navbar() {
         </div>
       </header>
 
-      <MenuPanel    open={menuOpen}    onClose={() => setMenuOpen(false)}    isAdmin={isAdmin} navLabels={navLabels} onSaveLabel={saveNavLabel} />
+      <MenuPanel    open={menuOpen}    onClose={() => setMenuOpen(false)}    isAdmin={isAdmin} navLabels={navLabels} navOrder={navOrder} onSaveLabel={saveNavLabel} onReorder={saveNavOrder} />
       <AccountPanel open={accountOpen} onClose={() => setAccountOpen(false)} />
       <ShoppingBag  open={bagOpen}     onClose={() => setBagOpen(false)} />
     </>

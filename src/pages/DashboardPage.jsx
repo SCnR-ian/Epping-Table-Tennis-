@@ -223,7 +223,7 @@ export default function DashboardPage() {
 
   return (
     <>
-    <div className="bg-white min-h-screen pt-24 pb-16 px-4 max-w-3xl mx-auto">
+    <div className="bg-white min-h-screen pt-6 pb-16 px-4 max-w-3xl mx-auto">
 
       {/* Greeting */}
       {user?.name && (
