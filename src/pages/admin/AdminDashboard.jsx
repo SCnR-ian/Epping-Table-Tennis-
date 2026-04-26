@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Camera, Plus, Trash2 } from 'lucide-react'
-import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, homepageAPI, pagesAPI, clubAPI, venueAPI, articlesAPI } from '@/api/api'
+import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, homepageAPI, pagesAPI, clubAPI, venueAPI, articlesAPI, paymentsAPI } from '@/api/api'
 import ShopManager from './ShopManager'
 import QRCode from 'react-qr-code'
 import { useClub } from '@/context/ClubContext'
@@ -1421,7 +1421,7 @@ const [sessionForm,      setSessionForm]      = useState({
   const [socialPage,        setSocialPage]        = useState(0)
   const [socialDateFilter,  setSocialDateFilter]  = useState('')
   const [socialForm,      setSocialForm]      = useState({
-    title: '', description: '', num_courts: 1, date: '', start_time: '', end_time: '', max_players: 12, weeks: 1,
+    title: '', description: '', num_courts: 1, date: '', start_time: '', end_time: '', max_players: 12, weeks: 1, price_cents: 0,
   })
   // { [sessionId]: { title, date, start_time, end_time, max_players } } — unified edit state
   const [editingTimes,   setEditingTimes]   = useState({})   // kept for legacy refs, unused after refactor
@@ -1627,6 +1627,26 @@ const [sessionForm,      setSessionForm]      = useState({
     }
   }
 
+  const handleBookingNoShow = async (intentId) => {
+    if (!window.confirm('Charge no-show fee? This will capture the card hold and cannot be undone.')) return
+    try {
+      await paymentsAPI.capture(intentId)
+      alert('No-show fee charged.')
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not charge no-show fee.')
+    }
+  }
+
+  const handleSocialNoShow = async (intentId, participantName) => {
+    if (!window.confirm(`Charge no-show fee for ${participantName}? This will capture the card hold and cannot be undone.`)) return
+    try {
+      await paymentsAPI.capture(intentId)
+      alert('No-show fee charged.')
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not charge no-show fee.')
+    }
+  }
+
   const handleAdminCheckIn = async (type, refId, userId) => {
     try {
       if (type === 'booking')  await checkinAPI.adminCheckInBooking(refId, userId)
@@ -1791,7 +1811,7 @@ const [sessionForm,      setSessionForm]      = useState({
   }, [activeTab, venueDate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreateSocialSession = async () => {
-    const { title, description, num_courts, date, start_time, end_time, max_players, weeks } = socialForm
+    const { title, description, num_courts, date, start_time, end_time, max_players, weeks, price_cents } = socialForm
     if (!date || !start_time || !end_time) {
       alert('Date, start time and end time are required.')
       return
@@ -1804,10 +1824,11 @@ const [sessionForm,      setSessionForm]      = useState({
         date, start_time, end_time,
         max_players: Number(max_players) || 12,
         weeks: Number(weeks) || 1,
+        price_cents: Math.round(Number(price_cents) * 100) || 0,
       })
       setSocialSessions(prev => [...prev, ...data.sessions])
       setShowSocialForm(false)
-      setSocialForm({ title: '', description: '', num_courts: 1, date: '', start_time: '', end_time: '', max_players: 12, weeks: 1 })
+      setSocialForm({ title: '', description: '', num_courts: 1, date: '', start_time: '', end_time: '', max_players: 12, weeks: 1, price_cents: 0 })
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not create session.')
     }
@@ -3657,12 +3678,21 @@ const [sessionForm,      setSessionForm]      = useState({
                                   ✓ In
                                 </button>
                               )}
-                              <button
-                                onClick={() => handleCancelBooking(ev.booking_group_id)}
-                                className="text-xs text-red-600 hover:text-red-800 leading-none"
-                              >
-                                Cancel
-                              </button>
+                              <div className="flex items-center gap-1">
+                                {!checkedIn && ev.payment_intent_id && (
+                                  <button
+                                    onClick={() => handleBookingNoShow(ev.payment_intent_id)}
+                                    className="text-[10px] text-amber-600 hover:text-amber-800 leading-none"
+                                    title="Charge no-show fee"
+                                  >NS</button>
+                                )}
+                                <button
+                                  onClick={() => handleCancelBooking(ev.booking_group_id)}
+                                  className="text-xs text-red-600 hover:text-red-800 leading-none"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
                             </div>
                           </div>
                         )
@@ -4899,7 +4929,7 @@ const [sessionForm,      setSessionForm]      = useState({
                   )
                 })()}
 
-                <div className="flex gap-4 items-end">
+                <div className="flex gap-4 items-end flex-wrap">
                   <div>
                     <label className="block text-xs text-gray-800 mb-1">Max Players</label>
                     <input
@@ -4914,6 +4944,15 @@ const [sessionForm,      setSessionForm]      = useState({
                       type="number" min={1} max={52} className="input w-24"
                       value={socialForm.weeks}
                       onChange={e => setSocialForm(f => ({ ...f, weeks: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-800 mb-1">No-Show Fee (AUD $, 0 = free)</label>
+                    <input
+                      type="number" min={0} step={0.50} className="input w-32"
+                      placeholder="0.00"
+                      value={socialForm.price_cents}
+                      onChange={e => setSocialForm(f => ({ ...f, price_cents: e.target.value }))}
                     />
                   </div>
                 </div>
@@ -5151,6 +5190,13 @@ const [sessionForm,      setSessionForm]      = useState({
                           {s.participants.map(p => (
                             <span key={p.id} className={`text-xs rounded-full px-2.5 py-0.5 flex items-center gap-1 ${p.is_walkin ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-gray-100 text-gray-800'}`}>
                               {p.name}
+                              {p.payment_intent_id && (
+                                <button
+                                  onClick={() => handleSocialNoShow(p.payment_intent_id, p.name)}
+                                  className="text-amber-600 hover:text-amber-800 leading-none text-[10px] font-medium"
+                                  title="Charge no-show fee"
+                                >$</button>
+                              )}
                               <button
                                 onClick={() => handleSocialRemoveMember(s.id, p.id)}
                                 className="text-gray-800 hover:text-red-400 transition-colors leading-none"

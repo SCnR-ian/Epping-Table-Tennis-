@@ -21,6 +21,7 @@ function softAuth(req) {
 const SESSION_COLS = `
   s.id, s.title, s.description, s.date, s.start_time, s.end_time,
   s.max_players, s.num_courts, s.status, s.recurrence_id, s.created_at,
+  s.price_cents,
   COUNT(p.user_id)::int AS participant_count,
   (SELECT COUNT(*)::int FROM social_play_participants pp JOIN users uu ON uu.id = pp.user_id WHERE pp.session_id = s.id AND NOT uu.is_walkin) AS online_count,
   (SELECT COUNT(*)::int FROM social_play_participants pp JOIN users uu ON uu.id = pp.user_id WHERE pp.session_id = s.id AND uu.is_walkin) AS walkin_count
@@ -97,7 +98,7 @@ router.get('/admin', requireAuth, async (req, res) => {
     let participantRows = []
     if (ids.length) {
       const { rows } = await pool.query(
-        `SELECT p.session_id, u.id AS user_id, u.name, u.is_walkin
+        `SELECT p.session_id, u.id AS user_id, u.name, u.is_walkin, p.payment_intent_id
          FROM social_play_participants p
          JOIN users u ON u.id = p.user_id
          WHERE p.session_id = ANY($1)
@@ -111,7 +112,7 @@ router.get('/admin', requireAuth, async (req, res) => {
       ...s,
       participants: participantRows
         .filter(p => p.session_id === s.id)
-        .map(p => ({ id: p.user_id, name: p.name, is_walkin: p.is_walkin })),
+        .map(p => ({ id: p.user_id, name: p.name, is_walkin: p.is_walkin, payment_intent_id: p.payment_intent_id })),
     }))
 
     res.json({ sessions: result })
@@ -162,9 +163,10 @@ router.post('/', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin')
     return res.status(403).json({ message: 'Admin only.' })
 
-  const { title, description, num_courts, date, start_time, end_time, max_players, weeks } = req.body
-  const courts   = Math.min(Math.max(Number(num_courts) || 1, 1), 6)
-  const numWeeks = Math.min(Math.max(Number(weeks) || 1, 1), 52)
+  const { title, description, num_courts, date, start_time, end_time, max_players, weeks, price_cents } = req.body
+  const courts      = Math.min(Math.max(Number(num_courts) || 1, 1), 6)
+  const numWeeks    = Math.min(Math.max(Number(weeks) || 1, 1), 52)
+  const priceCents  = Math.max(Math.round(Number(price_cents) || 0), 0)
   if (!date || !start_time || !end_time)
     return res.status(400).json({ message: 'date, start_time, end_time are required.' })
 
@@ -199,13 +201,13 @@ router.post('/', requireAuth, async (req, res) => {
     for (const d of dates) {
       const { rows } = await client.query(
         `INSERT INTO social_play_sessions
-           (title, description, num_courts, date, start_time, end_time, max_players, created_by, recurrence_id, club_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           (title, description, num_courts, date, start_time, end_time, max_players, created_by, recurrence_id, club_id, price_cents)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          RETURNING id`,
         [
           title || 'Social Play', description || null,
           courts, d, start_time, end_time,
-          max_players || 12, req.user.id, recurrenceId, clubId,
+          max_players || 12, req.user.id, recurrenceId, clubId, priceCents,
         ]
       )
       insertedIds.push(rows[0].id)

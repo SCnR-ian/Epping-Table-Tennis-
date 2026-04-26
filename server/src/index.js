@@ -366,6 +366,8 @@ async function runMigrations() {
        used_at    TIMESTAMPTZ,
        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
      )`,
+    `ALTER TABLE social_play_sessions ADD COLUMN IF NOT EXISTS price_cents INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE social_play_participants ADD COLUMN IF NOT EXISTS payment_intent_id TEXT`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }

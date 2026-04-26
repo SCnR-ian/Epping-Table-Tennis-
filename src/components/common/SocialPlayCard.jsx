@@ -23,6 +23,7 @@ export default function SocialPlayCard({ session, isAuthenticated, isPast = fals
     online_count      = null,
     participants      = [],
     joined            = false,
+    price_cents       = 0,
   } = session
 
   const onlineCount = online_count ?? participant_count
@@ -108,6 +109,13 @@ export default function SocialPlayCard({ session, isAuthenticated, isPast = fals
         )
       ) : (
         <p className="text-xs text-gray-600 italic">Log in to see who's joining.</p>
+      )}
+
+      {/* Fee badge */}
+      {price_cents > 0 && !joined && !isPast && (
+        <p className="text-[10px] tracking-widest uppercase text-amber-600 border border-amber-200 rounded-full px-3 py-1 self-start">
+          ${(price_cents / 100).toFixed(2)} no-show hold
+        </p>
       )}
 
       {/* Join / Leave */}

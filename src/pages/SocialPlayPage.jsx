@@ -1,9 +1,145 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { socialAPI } from "@/api/api";
+import { socialAPI, paymentsAPI } from "@/api/api";
 import SocialPlayCard from "@/components/common/SocialPlayCard";
 
 const PAGE_SIZE = 6;
+
+// ── Card Auth Modal (for paid social play sessions) ──────────────────────────
+function CardAuthModal({ session, onSuccess, onClose }) {
+  const [clientSecret,   setClientSecret]   = useState(null);
+  const [amountCents,    setAmountCents]     = useState(0);
+  const [stripeInstance, setStripeInstance] = useState(null);
+  const [cardElement,    setCardElement]    = useState(null);
+  const [paymentError,   setPaymentError]   = useState(null);
+  const [loading,        setLoading]        = useState(true);
+  const [processing,     setProcessing]     = useState(false);
+  const cardRef = useRef(null);
+
+  // Create authorization intent on mount
+  useEffect(() => {
+    paymentsAPI.authorize({ type: 'social', session_id: session.id })
+      .then(({ data }) => {
+        setClientSecret(data.clientSecret);
+        setAmountCents(data.amount);
+      })
+      .catch(err => {
+        setPaymentError(err.response?.data?.message || "Could not start authorization.");
+      })
+      .finally(() => setLoading(false));
+  }, [session.id]);
+
+  // Mount Stripe card element once we have the clientSecret
+  useEffect(() => {
+    if (!clientSecret || cardElement) return;
+    const stripe = window.Stripe?.(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
+    if (!stripe) { setPaymentError("Payment system failed to load."); return; }
+    setStripeInstance(stripe);
+    const elements = stripe.elements();
+    const card = elements.create("card", {
+      style: {
+        base: {
+          color: "#111827",
+          fontFamily: "DM Sans, sans-serif",
+          fontSize: "16px",
+          "::placeholder": { color: "#9ca3af" },
+        },
+        invalid: { color: "#ef4444" },
+      },
+    });
+    setTimeout(() => {
+      if (cardRef.current) { card.mount(cardRef.current); setCardElement(card); }
+    }, 50);
+    return () => { card.destroy(); setCardElement(null); };
+  }, [clientSecret]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleAuthorize = async () => {
+    if (!stripeInstance || !cardElement || !clientSecret) return;
+    setProcessing(true);
+    setPaymentError(null);
+    try {
+      const { paymentIntent, error } = await stripeInstance.confirmCardPayment(clientSecret, {
+        payment_method: { card: cardElement },
+      });
+      if (error) { setPaymentError(error.message); return; }
+      if (paymentIntent.status === "requires_capture") {
+        await paymentsAPI.confirmAuthorize(paymentIntent.id);
+        onSuccess();
+      } else {
+        setPaymentError("Unexpected status. Please try again.");
+      }
+    } catch (err) {
+      setPaymentError(err.response?.data?.message || "Authorization failed. Please try again.");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-5">
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="text-black text-base font-normal">Join Session</h3>
+            <p className="text-gray-500 text-xs mt-0.5">{session.title || "Social Play"}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-black transition-colors text-xl leading-none">×</button>
+        </div>
+
+        {/* No-charge notice */}
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700 leading-relaxed">
+          Your card will be held but <strong>not charged</strong>. The hold is released when you attend. It is only captured as a no-show fee if you miss the session.
+        </div>
+
+        {loading ? (
+          <p className="text-gray-400 text-sm text-center py-4">Loading…</p>
+        ) : paymentError && !clientSecret ? (
+          <p className="text-red-500 text-sm text-center">{paymentError}</p>
+        ) : (
+          <>
+            {/* Amount summary */}
+            <div className="flex justify-between items-center text-sm border-t border-gray-100 pt-4">
+              <span className="text-gray-500">Hold amount</span>
+              <span className="text-black font-medium">AUD ${(amountCents / 100).toFixed(2)}</span>
+            </div>
+
+            {/* Stripe card element */}
+            <div>
+              <label className="block text-xs text-gray-500 uppercase tracking-wider mb-2">Card Details</label>
+              <div
+                ref={cardRef}
+                className="border border-gray-300 rounded-xl px-4 py-3.5 min-h-[46px]"
+              />
+              {paymentError && (
+                <p className="text-red-500 text-xs mt-2">{paymentError}</p>
+              )}
+            </div>
+
+            <p className="text-[11px] text-gray-400 flex items-center gap-1.5">
+              <svg className="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+              </svg>
+              Secured by Stripe. Card details never stored on our servers.
+            </p>
+
+            <div className="flex gap-3 pt-1">
+              <button onClick={onClose} className="flex-1 border border-gray-300 text-gray-700 text-sm tracking-widest uppercase py-3 rounded-full hover:border-black hover:text-black transition-colors">
+                Cancel
+              </button>
+              <button
+                onClick={handleAuthorize}
+                disabled={processing || !cardElement}
+                className="flex-1 bg-black text-white text-sm tracking-widest uppercase py-3 rounded-full hover:bg-gray-800 disabled:opacity-50 transition-colors"
+              >
+                {processing ? "Processing…" : "Authorize Card"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function SocialPlayPage({ embedded = false }) {
   const { isAuthenticated, user } = useAuth();
@@ -11,6 +147,7 @@ export default function SocialPlayPage({ embedded = false }) {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const [selectedDate, setSelectedDate] = useState("");
+  const [authSession, setAuthSession] = useState(null); // session requiring card auth
 
   const fetchSessions = () =>
     socialAPI
@@ -23,13 +160,18 @@ export default function SocialPlayPage({ embedded = false }) {
     fetchSessions();
   }, []);
 
-  const handleJoin = async (id) => {
+  const handleJoin = async (session) => {
     if (!isAuthenticated) {
       window.location.href = "/login";
       return;
     }
+    // If the session has a fee, open card auth modal
+    if (session.price_cents > 0) {
+      setAuthSession(session);
+      return;
+    }
     try {
-      await socialAPI.join(id);
+      await socialAPI.join(session.id);
       await fetchSessions();
     } catch (err) {
       alert(err.response?.data?.message ?? "Could not join session.");
@@ -43,6 +185,11 @@ export default function SocialPlayPage({ embedded = false }) {
     } catch {
       alert("Could not leave session.");
     }
+  };
+
+  const handleAuthSuccess = async () => {
+    setAuthSession(null);
+    await fetchSessions();
   };
 
   const sorted = useMemo(() => {
@@ -70,6 +217,14 @@ export default function SocialPlayPage({ embedded = false }) {
 
   return (
     <div className={embedded ? "" : "bg-white"}>
+      {authSession && (
+        <CardAuthModal
+          session={authSession}
+          onSuccess={handleAuthSuccess}
+          onClose={() => setAuthSession(null)}
+        />
+      )}
+
       <div id="sessions" className="max-w-6xl mx-auto px-6 py-12">
         {/* Login notice */}
         {!isAuthenticated && (
@@ -140,7 +295,7 @@ export default function SocialPlayPage({ embedded = false }) {
                     session={{ ...s, joined_user_id: user?.id }}
                     isAuthenticated={isAuthenticated}
                     isPast={isPast}
-                    onJoin={() => handleJoin(s.id)}
+                    onJoin={() => handleJoin(s)}
                     onLeave={() => handleLeave(s.id)}
                   />
                 );

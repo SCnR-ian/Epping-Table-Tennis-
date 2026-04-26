@@ -303,12 +303,13 @@ router.get('/bookings', async (req, res) => {
          b.court_id,
          b.date,
          b.user_id,
-         MIN(b.start_time) AS start_time,
-         MAX(b.end_time)   AS end_time,
+         MIN(b.start_time)        AS start_time,
+         MAX(b.end_time)          AS end_time,
          b.status,
-         u.name  AS user_name,
-         u.email AS user_email,
-         c.name  AS court_name
+         u.name                   AS user_name,
+         u.email                  AS user_email,
+         c.name                   AS court_name,
+         MIN(b.payment_intent_id) AS payment_intent_id
        FROM bookings b
        JOIN users u ON u.id  = b.user_id
        LEFT JOIN courts c ON c.id = b.court_id

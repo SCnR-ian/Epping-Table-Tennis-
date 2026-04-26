@@ -268,10 +268,14 @@ export const pagesAPI = {
 // Payments
 // ---------------------------------------------------------------------------
 export const paymentsAPI = {
-  getConfig:      ()     => api.get('/payments/config'),
-  createIntent:   (data) => api.post('/payments/create-intent', data),
-  confirm:        (paymentIntentId) => api.post('/payments/confirm', { paymentIntentId }),
-  shopIntent:     (items) => api.post('/payments/shop-intent', { items }),
+  getConfig:       ()          => api.get('/payments/config'),
+  createIntent:    (data)      => api.post('/payments/create-intent', data),
+  confirm:         (paymentIntentId) => api.post('/payments/confirm', { paymentIntentId }),
+  shopIntent:      (items)     => api.post('/payments/shop-intent', { items }),
+  authorize:       (data)      => api.post('/payments/authorize', data),
+  confirmAuthorize:(intentId)  => api.post('/payments/confirm-authorize', { intentId }),
+  capture:         (intentId)  => api.post(`/payments/capture/${intentId}`),
+  void:            (intentId)  => api.post(`/payments/void/${intentId}`),
 }
 
 export const messagesAPI = {

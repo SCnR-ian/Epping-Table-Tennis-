@@ -127,7 +127,7 @@ export default function BookingPage({ embedded = false }) {
   // Available court count for the currently selected slot
   const availableCount = selectedTime ? getAvailableCount(selectedTime, duration, slotUsage) : 6;
 
-  // ── Move to payment step: create PaymentIntent ───────────────────────────
+  // ── Move to payment step: create PaymentIntent (authorize, not charge) ──
   const handleProceedToPayment = async () => {
     if (getAvailableCount(selectedTime, duration, slotUsage) === 0) {
       alert("Sorry, this slot is no longer available. Please choose another time.");
@@ -137,7 +137,8 @@ export default function BookingPage({ embedded = false }) {
     setIntentLoading(true);
     setPaymentError(null);
     try {
-      const { data } = await paymentsAPI.createIntent({
+      const { data } = await paymentsAPI.authorize({
+        type:       'booking',
         date:       selectedDate,
         start_time: selectedTime,
         end_time:   addMins(selectedTime, duration),
@@ -180,7 +181,7 @@ export default function BookingPage({ embedded = false }) {
     return () => { card.destroy(); setCardElement(null); };
   }, [step, clientSecret]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Process payment ───────────────────────────────────────────────────────
+  // ── Authorize card (hold, no charge) ─────────────────────────────────────
   const handlePay = async () => {
     if (!stripeInstance || !cardElement || !clientSecret) return;
     setPayingNow(true);
@@ -194,13 +195,15 @@ export default function BookingPage({ embedded = false }) {
         setPayingNow(false);
         return;
       }
-      if (paymentIntent.status === "succeeded") {
-        // Tell backend to create the booking
-        await paymentsAPI.confirm(paymentIntent.id);
+      if (paymentIntent.status === "requires_capture") {
+        // Tell backend to create the booking (card authorized, not charged)
+        await paymentsAPI.confirmAuthorize(paymentIntent.id);
         setConfirmed(true);
+      } else {
+        setPaymentError("Unexpected payment status. Please try again.");
       }
     } catch (err) {
-      setPaymentError(err.response?.data?.message || "Payment failed. Please try again.");
+      setPaymentError(err.response?.data?.message || "Authorization failed. Please try again.");
     } finally {
       setPayingNow(false);
     }
@@ -208,7 +211,7 @@ export default function BookingPage({ embedded = false }) {
 
   const reset = () => {
     setStep(1); setSelectedDate(""); setSelectedTime(""); setDuration(60);
-    setBookedSlots([]); setUserBookedSlots([]); setConfirmed(false);
+    setUserBookedSlots([]); setConfirmed(false);
     setClientSecret(null); setAmountCents(0); setStripeInstance(null);
     setCardElement(null); setPaymentError(null);
   };
@@ -230,7 +233,7 @@ export default function BookingPage({ embedded = false }) {
             <strong className="text-white">{duration} min</strong> is confirmed.
           </p>
           <p className="text-slate-500 text-xs">
-            A table will be assigned for you on arrival.
+            A table will be assigned for you on arrival. Your card hold is released automatically when you check in.
           </p>
           <button onClick={() => navigate("/dashboard")} className="btn-primary w-full">
             View My Bookings
@@ -244,7 +247,7 @@ export default function BookingPage({ embedded = false }) {
   }
 
   // ── Step indicator ────────────────────────────────────────────────────────
-  const STEPS = ["Date & Time", "Review", "Payment"];
+  const STEPS = ["Date & Time", "Review", "Card Hold"];
 
   return (
     <div className={`${embedded ? "" : "page-wrapper"} py-10 px-4 max-w-2xl mx-auto`}>
@@ -477,10 +480,10 @@ export default function BookingPage({ embedded = false }) {
         </div>
       )}
 
-      {/* ── Step 3: Payment ──────────────────────────────────────────────────── */}
+      {/* ── Step 3: Card Hold ────────────────────────────────────────────────── */}
       {step === 3 && (
         <div className="card max-w-lg mx-auto space-y-6 animate-fade-in">
-          <h2 className="font-normal text-white">Payment</h2>
+          <h2 className="font-normal text-white">Card Authorization</h2>
 
           {/* Booking summary */}
           <div className="bg-court-light/50 rounded-lg px-4 py-3 text-sm space-y-1">
@@ -493,11 +496,16 @@ export default function BookingPage({ embedded = false }) {
               <span className="text-white">{fmtTime(selectedTime)} · {duration} min</span>
             </div>
             <div className="flex justify-between border-t border-court-light pt-2 mt-2">
-              <span className="text-slate-300 font-medium">Total</span>
+              <span className="text-slate-300 font-medium">Hold amount</span>
               <span className="text-white font-semibold text-base">
                 AUD ${(amountCents / 100).toFixed(2)}
               </span>
             </div>
+          </div>
+
+          {/* No charge notice */}
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3 text-xs text-amber-300 leading-relaxed">
+            Your card will be held but <strong>not charged</strong>. The hold is automatically released when you check in. It is only captured as a no-show fee if you miss your session.
           </div>
 
           {/* Stripe card element */}
@@ -530,9 +538,7 @@ export default function BookingPage({ embedded = false }) {
               disabled={payingNow || !cardElement}
               className="btn-primary flex-1"
             >
-              {payingNow
-                ? "Processing…"
-                : `Pay AUD $${(amountCents / 100).toFixed(2)}`}
+              {payingNow ? "Processing…" : "Authorize Card"}
             </button>
           </div>
         </div>
