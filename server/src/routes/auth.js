@@ -1,8 +1,14 @@
 const router   = require('express').Router()
 const bcrypt   = require('bcryptjs')
 const jwt      = require('jsonwebtoken')
+const crypto   = require('crypto')
 const passport = require('../config/passport')
 const pool     = require('../db')
+const { Resend } = require('resend')
+
+const resend = new Resend(process.env.RESEND_API_KEY)
+const EMAIL_FROM = process.env.EMAIL_FROM || 'noreply@flinther.com'
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
 
 const sign = (user) =>
   jwt.sign(
@@ -89,6 +95,81 @@ router.get('/me', require('../middleware/auth').requireAuth, async (req, res) =>
     res.json({ user: safeUser(rows[0]) })
   } catch (err) {
     res.status(500).json({ message: 'Server error.' })
+  }
+})
+
+// ── Forgot Password ───────────────────────────────────────────────────────────
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body
+  if (!email) return res.status(400).json({ message: 'Email is required.' })
+
+  try {
+    const { rows } = await pool.query('SELECT id, name FROM users WHERE email = $1', [email.toLowerCase().trim()])
+    // Always return 200 to prevent email enumeration
+    if (rows.length === 0) return res.json({ message: 'If that email exists, a reset link has been sent.' })
+
+    const user = rows[0]
+    const token = crypto.randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
+
+    // Invalidate any existing tokens for this user
+    await pool.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [user.id])
+    await pool.query(
+      'INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
+      [user.id, token, expiresAt]
+    )
+
+    const resetUrl = `${FRONTEND_URL}/reset-password?token=${token}`
+
+    await resend.emails.send({
+      from: EMAIL_FROM,
+      to: email,
+      subject: 'Reset your password',
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;">
+          <h2 style="font-size:20px;font-weight:600;margin-bottom:8px;">Reset your password</h2>
+          <p style="color:#555;margin-bottom:24px;">Hi ${user.name}, click the button below to reset your password. This link expires in 1 hour.</p>
+          <a href="${resetUrl}" style="display:inline-block;background:#000;color:#fff;padding:12px 28px;border-radius:999px;text-decoration:none;font-size:14px;letter-spacing:0.05em;">Reset Password</a>
+          <p style="color:#aaa;font-size:12px;margin-top:24px;">If you didn't request this, you can safely ignore this email.</p>
+        </div>
+      `,
+    })
+
+    res.json({ message: 'If that email exists, a reset link has been sent.' })
+  } catch (err) {
+    console.error('[auth] forgot-password error:', err.message)
+    res.status(500).json({ message: 'Server error. Please try again.' })
+  }
+})
+
+// ── Reset Password ────────────────────────────────────────────────────────────
+router.post('/reset-password', async (req, res) => {
+  const { token, password } = req.body
+  if (!token || !password) return res.status(400).json({ message: 'Token and new password are required.' })
+  if (password.length < 8) return res.status(400).json({ message: 'Password must be at least 8 characters.' })
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT prt.id, prt.user_id, prt.expires_at, prt.used_at
+       FROM password_reset_tokens prt
+       WHERE prt.token = $1`,
+      [token]
+    )
+
+    if (rows.length === 0) return res.status(400).json({ message: 'Invalid or expired reset link.' })
+    const row = rows[0]
+
+    if (row.used_at) return res.status(400).json({ message: 'This reset link has already been used.' })
+    if (new Date(row.expires_at) < new Date()) return res.status(400).json({ message: 'This reset link has expired. Please request a new one.' })
+
+    const hash = await bcrypt.hash(password, 12)
+    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, row.user_id])
+    await pool.query('UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1', [row.id])
+
+    res.json({ message: 'Password updated successfully.' })
+  } catch (err) {
+    console.error('[auth] reset-password error:', err.message)
+    res.status(500).json({ message: 'Server error. Please try again.' })
   }
 })
 

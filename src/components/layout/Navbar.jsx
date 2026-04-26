@@ -208,9 +208,9 @@ function AccountPanel({ open, onClose }) {
                       )}
                     </button>
                   </div>
-                  <a href="#" className="block text-xs text-black underline mt-2 hover:text-gray-500">
+                  <Link to="/forgot-password" onClick={onClose} className="block text-xs text-black underline mt-2 hover:text-gray-500">
                     Forgot your password?
-                  </a>
+                  </Link>
                 </div>
 
                 <button

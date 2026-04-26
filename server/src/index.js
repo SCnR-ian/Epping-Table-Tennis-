@@ -358,6 +358,14 @@ async function runMigrations() {
        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
      )`,
     `CREATE INDEX IF NOT EXISTS idx_club_articles_club_type ON club_articles(club_id, type)`,
+    `CREATE TABLE IF NOT EXISTS password_reset_tokens (
+       id         SERIAL PRIMARY KEY,
+       user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       token      VARCHAR(64) NOT NULL UNIQUE,
+       expires_at TIMESTAMPTZ NOT NULL,
+       used_at    TIMESTAMPTZ,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }

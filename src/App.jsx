@@ -26,7 +26,9 @@ import NewsDetailPage      from '@/pages/NewsDetailPage'
 import ShoppingPage        from '@/pages/ShoppingPage'
 import ProductDetailPage   from '@/pages/ProductDetailPage'
 import CartPage            from '@/pages/CartPage'
-import CheckoutPage        from '@/pages/CheckoutPage'
+import CheckoutPage           from '@/pages/CheckoutPage'
+import ForgotPasswordPage    from '@/pages/ForgotPasswordPage'
+import ResetPasswordPage     from '@/pages/ResetPasswordPage'
 const router = createBrowserRouter([
   {
     element: <RootLayout />,
@@ -47,7 +49,9 @@ const router = createBrowserRouter([
       { path: '/shopping',      element: <ShoppingPage /> },
       { path: '/shopping/:id',  element: <ProductDetailPage /> },
       { path: '/bag',           element: <CartPage /> },
-      { path: '/checkout',      element: <CheckoutPage /> },
+      { path: '/checkout',         element: <CheckoutPage /> },
+      { path: '/forgot-password',  element: <ForgotPasswordPage /> },
+      { path: '/reset-password',   element: <ResetPasswordPage /> },
       {
         path: '/scan',
         element: <ProtectedRoute><ScanPage /></ProtectedRoute>,
