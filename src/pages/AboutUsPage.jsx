@@ -368,46 +368,50 @@ export default function AboutUsPage() {
       </section>
 
       {/* ── Coaches ──────────────────────────────────────────────────────── */}
-      <section className="border-t border-gray-100">
-        <div className="text-center py-14">
+      <section className="border-t border-gray-100 py-24 px-6">
+        <div className="text-center mb-16">
           <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-4">The Team</p>
           <h2 className="font-display text-4xl md:text-5xl font-normal text-black leading-tight">Meet Our Coaches</h2>
         </div>
 
-        {coaches.map((coach, idx) => (
-          <div key={idx} className="flex flex-col md:flex-row border-t border-gray-100">
-            <div className={`w-full md:w-1/2 self-start ${idx % 2 === 1 ? "md:order-2" : ""}`}>
-              <EditableImage
-                src={`${pagesAPI.getImageUrl(`about_coach_${idx}`)}?t=${imgTs[`about_coach_${idx}`] ?? 0}`}
-                alt={coach.name}
-                className="w-full"
-                fallback={coach.fallbackImage || '/images/coach-4.jpg'}
-                onUpload={file => replaceImage(`about_coach_${idx}`, file)}
-              />
-            </div>
-            <div className={`w-full md:w-1/2 flex flex-col justify-center items-center text-center px-12 py-16 ${idx % 2 === 1 ? "md:order-1" : ""}`}>
+        <div className="max-w-5xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-10">
+          {coaches.map((coach, idx) => (
+            <div key={idx} className="flex flex-col">
+              {/* Portrait photo */}
+              <div className="aspect-[3/4] overflow-hidden mb-6">
+                <EditableImage
+                  src={`${pagesAPI.getImageUrl(`about_coach_${idx}`)}?t=${imgTs[`about_coach_${idx}`] ?? 0}`}
+                  alt={coach.name}
+                  className="w-full h-full object-cover object-top transition-transform duration-500 hover:scale-105"
+                  fallback={coach.fallbackImage || '/images/coach-4.jpg'}
+                  onUpload={file => replaceImage(`about_coach_${idx}`, file)}
+                />
+              </div>
+
+              {/* Info */}
               <EditableText
                 as="p"
                 value={coach.title}
                 onSave={v => saveCoach(idx, 'title', v)}
-                className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-3"
+                className="text-[10px] tracking-[0.3em] uppercase text-gray-400 mb-2"
               />
               <EditableText
                 as="h3"
                 value={coach.name}
                 onSave={v => saveCoach(idx, 'name', v)}
-                className="font-display text-3xl md:text-4xl font-normal text-black mb-5"
+                className="font-display text-2xl font-normal text-black mb-3"
               />
+              <div className="w-6 h-px bg-gray-300 mb-3" />
               <EditableText
                 as="p"
                 value={coach.bio}
                 onSave={v => saveCoach(idx, 'bio', v)}
                 multiline
-                className="text-gray-500 leading-relaxed text-sm max-w-xs"
+                className="text-gray-500 leading-relaxed text-sm"
               />
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </section>
 
       {/* ── CTA ──────────────────────────────────────────────────────────── */}

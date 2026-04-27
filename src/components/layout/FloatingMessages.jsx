@@ -58,10 +58,18 @@ export default function FloatingMessages() {
   const [leaveActioning, setLeaveActioning] = useState(null)
   // Coach leave request
   const [coachLeaveModal, setCoachLeaveModal] = useState(false)
-  const [coachLeaveFrom, setCoachLeaveFrom] = useState('')
-  const [coachLeaveTo, setCoachLeaveTo] = useState('')
+  const [coachLeaveDate, setCoachLeaveDate] = useState('')
   const [coachLeaveReason, setCoachLeaveReason] = useState('')
   const [coachLeaveSubmitting, setCoachLeaveSubmitting] = useState(false)
+  const [coachLeaveDateSessions, setCoachLeaveDateSessions] = useState([])
+  const [coachLeaveDateLoading, setCoachLeaveDateLoading] = useState(false)
+  const [coachLeaveSelectedIds, setCoachLeaveSelectedIds] = useState([])
+  // Assign cover modal (admin)
+  const [assignCoverModal, setAssignCoverModal] = useState(null)
+  const [coverageAssignments, setCoverageAssignments] = useState({})
+  const [assignCoverCoaches, setAssignCoverCoaches] = useState([])
+  const [assignCoverSubmitting, setAssignCoverSubmitting] = useState(false)
+  const [coverageActioning, setCoverageActioning] = useState(null)
   const [declinedSlots, setDeclinedSlots] = useState(new Set()) // request_ids where student chose "none"
   // AI thread — persisted to localStorage
   const [aiMessages, setAiMessages] = useState(() => {
@@ -251,20 +259,33 @@ export default function FloatingMessages() {
 
   const openCoachLeaveModal = () => {
     const today = new Date().toLocaleDateString('en-CA')
-    setCoachLeaveFrom(today)
-    setCoachLeaveTo(today)
+    setCoachLeaveDate(today)
     setCoachLeaveReason('')
+    setCoachLeaveDateSessions([])
+    setCoachLeaveSelectedIds([])
     setCoachLeaveModal(true)
+    loadCoachLeaveSessions(today)
+  }
+
+  const loadCoachLeaveSessions = async (date) => {
+    if (!date) return
+    setCoachLeaveDateLoading(true)
+    try {
+      const { data } = await coachingAPI.getCoachSessions(date)
+      setCoachLeaveDateSessions(data.sessions || [])
+      setCoachLeaveSelectedIds((data.sessions || []).map(s => s.id))
+    } catch { setCoachLeaveDateSessions([]) }
+    finally { setCoachLeaveDateLoading(false) }
   }
 
   const submitCoachLeaveRequest = async () => {
-    if (!coachLeaveFrom) return
+    if (!coachLeaveDate) return
     setCoachLeaveSubmitting(true)
     try {
       await coachingAPI.createCoachLeaveRequest({
-        date_from: coachLeaveFrom,
-        date_to: coachLeaveTo || coachLeaveFrom,
+        date_from: coachLeaveDate,
         reason: coachLeaveReason || undefined,
+        session_ids: coachLeaveSelectedIds,
       })
       setCoachLeaveModal(false)
       await loadThread(threadUser.id, true)
@@ -272,6 +293,34 @@ export default function FloatingMessages() {
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not submit leave request.')
     } finally { setCoachLeaveSubmitting(false) }
+  }
+
+  const openAssignCoverModal = async (leaveReqId, sessions) => {
+    setAssignCoverModal({ leaveReqId, sessions })
+    setCoverageAssignments({})
+    setAssignCoverSubmitting(false)
+    if (!assignCoverCoaches.length) {
+      try {
+        const { data } = await coachingAPI.getCoaches()
+        setAssignCoverCoaches(data.coaches || [])
+      } catch { setAssignCoverCoaches([]) }
+    }
+  }
+
+  const submitAssignCover = async () => {
+    if (!assignCoverModal) return
+    const coverages = Object.entries(coverageAssignments)
+      .filter(([, coachId]) => coachId)
+      .map(([sessionId, coachId]) => ({ session_id: parseInt(sessionId), sub_coach_id: parseInt(coachId) }))
+    if (!coverages.length) return
+    setAssignCoverSubmitting(true)
+    try {
+      await coachingAPI.assignCover(assignCoverModal.leaveReqId, { coverages })
+      setAssignCoverModal(null)
+      await loadThread(threadUser.id, false)
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not assign cover.')
+    } finally { setAssignCoverSubmitting(false) }
   }
 
   const submitLeaveRequest = async () => {
@@ -639,10 +688,11 @@ export default function FloatingMessages() {
                                     {msg.edited_at && !msg.deleted && (
                                       <span className={`text-[10px] ml-1 ${isMe ? 'text-white/60' : 'text-gray-400'}`}>edited</span>
                                     )}
-                                    {/* Coach leave request — admin Approve/Reject */}
+                                    {/* Coach leave request — admin Approve/Reject/Assign Cover */}
                                     {msg.metadata?.type === 'coach_leave_request' && isAdmin && (() => {
                                       const rid = msg.metadata.request_id
                                       const status = msg.coach_leave_request_status
+                                      const sessions = msg.metadata.sessions || []
                                       if (status === 'pending') return (
                                         <div className="flex gap-1.5 mt-2" onClick={e => e.stopPropagation()}>
                                           <button disabled={leaveActioning === rid}
@@ -663,7 +713,25 @@ export default function FloatingMessages() {
                                             }}>✗ Reject</button>
                                         </div>
                                       )
-                                      if (status === 'approved') return <p className="text-xs mt-1 text-emerald-300">✅ Approved</p>
+                                      if (status === 'approved') return (
+                                        <div className="mt-2 space-y-1" onClick={e => e.stopPropagation()}>
+                                          <p className="text-xs text-emerald-300">✅ Approved</p>
+                                          {sessions.length > 0 && (
+                                            <button className="text-xs bg-white/20 hover:bg-white/30 border border-white/40 rounded-full px-2.5 py-1 transition-colors"
+                                              onClick={() => openAssignCoverModal(rid, sessions)}>
+                                              👥 Assign Cover
+                                            </button>
+                                          )}
+                                          <button disabled={leaveActioning === rid}
+                                            className="text-xs bg-white/20 hover:bg-white/30 border border-white/40 rounded-full px-2.5 py-1 transition-colors disabled:opacity-50"
+                                            onClick={async () => {
+                                              setLeaveActioning(rid)
+                                              try { await coachingAPI.offerStudentSlots(rid); await loadThread(threadUser.id, false) }
+                                              catch (err) { alert(err.response?.data?.message ?? 'Error.') }
+                                              finally { setLeaveActioning(null) }
+                                            }}>📩 Offer Makeup Slots</button>
+                                        </div>
+                                      )
                                       if (status === 'rejected') return <p className="text-xs mt-1 text-red-300">❌ Rejected</p>
                                       return null
                                     })()}
@@ -671,9 +739,84 @@ export default function FloatingMessages() {
                                     {msg.metadata?.type === 'coach_leave_request' && !isAdmin && (() => {
                                       const status = msg.coach_leave_request_status
                                       if (status === 'pending')   return <p className="text-xs mt-1 text-white/70">🕐 Pending review</p>
-                                      if (status === 'approved')  return <p className="text-xs mt-1 text-white/90">✅ Approved</p>
+                                      if (status === 'approved')  return <p className="text-xs mt-1 text-white/90">✅ Approved — arranging coverage</p>
                                       if (status === 'rejected')  return <p className="text-xs mt-1 text-white/70">❌ Rejected</p>
                                       return null
+                                    })()}
+                                    {/* Coverage request — substitute coach sees Accept/Decline */}
+                                    {msg.metadata?.type === 'coverage_request' && !isAdmin && (() => {
+                                      const coverages = msg.metadata.coverages || []
+                                      const liveStatuses = msg.coverage_statuses || []
+                                      const fmtD = d => new Date(String(d).slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'})
+                                      const fmtT = t => { const [h,m] = t.slice(0,5).split(':').map(Number); return `${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}` }
+                                      return (
+                                        <div className="mt-2 space-y-2" onClick={e => e.stopPropagation()}>
+                                          {coverages.map(cv => {
+                                            const live = liveStatuses.find(s => s.id === cv.id)
+                                            const st = live?.status ?? 'pending'
+                                            return (
+                                              <div key={cv.id} className="bg-white/10 rounded-xl p-2 space-y-1">
+                                                <p className="text-xs font-medium">{fmtD(cv.date)} · {fmtT(cv.start_time)}–{fmtT(cv.end_time)}</p>
+                                                <p className="text-xs text-white/70">{cv.student_name}</p>
+                                                {st === 'pending' ? (
+                                                  <div className="flex gap-1.5">
+                                                    <button disabled={coverageActioning === cv.id}
+                                                      className="text-xs bg-emerald-500 text-white rounded-full px-2.5 py-1 hover:bg-emerald-600 disabled:opacity-50"
+                                                      onClick={async () => {
+                                                        setCoverageActioning(cv.id)
+                                                        try {
+                                                          await coachingAPI.respondCoverage(cv.id, { accept: true })
+                                                          window.dispatchEvent(new CustomEvent('coaching-sessions-updated'))
+                                                          await loadThread(threadUser.id, false)
+                                                        }
+                                                        catch (err) { alert(err.response?.data?.message ?? 'Error.') }
+                                                        finally { setCoverageActioning(null) }
+                                                      }}>✓ Accept</button>
+                                                    <button disabled={coverageActioning === cv.id}
+                                                      className="text-xs bg-white/20 border border-white/40 rounded-full px-2.5 py-1 hover:bg-white/30 disabled:opacity-50"
+                                                      onClick={async () => {
+                                                        setCoverageActioning(cv.id)
+                                                        try { await coachingAPI.respondCoverage(cv.id, { accept: false }); await loadThread(threadUser.id, false) }
+                                                        catch (err) { alert(err.response?.data?.message ?? 'Error.') }
+                                                        finally { setCoverageActioning(null) }
+                                                      }}>✗ Decline</button>
+                                                  </div>
+                                                ) : st === 'accepted' ? (
+                                                  <p className="text-xs text-emerald-300">✅ Accepted</p>
+                                                ) : (
+                                                  <p className="text-xs text-white/50">❌ Declined</p>
+                                                )}
+                                              </div>
+                                            )
+                                          })}
+                                        </div>
+                                      )
+                                    })()}
+                                    {/* Coverage declined — admin sees re-assign / offer student buttons */}
+                                    {msg.metadata?.type === 'coverage_declined' && isAdmin && (() => {
+                                      const { session_id, leave_req_id, session } = msg.metadata
+                                      return (
+                                        <div className="flex flex-wrap gap-1.5 mt-2" onClick={e => e.stopPropagation()}>
+                                          {session && (
+                                            <button className="text-xs bg-white text-gray-700 border border-gray-300 rounded-full px-2.5 py-1 hover:bg-gray-50"
+                                              onClick={() => {
+                                                coachingAPI.getCoaches().then(({ data }) => {
+                                                  setAssignCoverCoaches(data.coaches || [])
+                                                  setAssignCoverModal({ leaveReqId: leave_req_id, sessions: [session] })
+                                                  setCoverageAssignments({})
+                                                }).catch(() => {})
+                                              }}>👥 Try Another Coach</button>
+                                          )}
+                                          <button disabled={leaveActioning === session_id}
+                                            className="text-xs bg-white text-amber-600 border border-amber-300 rounded-full px-2.5 py-1 hover:bg-amber-50 disabled:opacity-50"
+                                            onClick={async () => {
+                                              setLeaveActioning(session_id)
+                                              try { await coachingAPI.offerStudentSlot(session_id); await loadThread(threadUser.id, false) }
+                                              catch (err) { alert(err.response?.data?.message ?? 'Error.') }
+                                              finally { setLeaveActioning(null) }
+                                            }}>📩 讓學生自選時間</button>
+                                        </div>
+                                      )
                                     })()}
                                     {/* Student leave request interactive */}
                                     {msg.metadata?.type === 'leave_request' && isAdmin && (() => {
@@ -857,26 +1000,42 @@ export default function FloatingMessages() {
 
             {/* ── Coach Leave Request Modal ── */}
             {coachLeaveModal && (
-              <div className="absolute inset-0 z-20 flex items-end sm:items-center justify-center bg-black/40 rounded-2xl p-3">
-                <div className="bg-white rounded-2xl w-full p-4 space-y-3">
+              <div className="absolute inset-0 z-20 flex items-end justify-center bg-black/40 rounded-2xl p-3">
+                <div className="bg-white rounded-2xl w-full p-4 space-y-3 max-h-[85%] overflow-y-auto">
                   <h3 className="text-sm font-semibold text-gray-900">Request Leave</h3>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">From</label>
-                      <input type="date"
-                        className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-400"
-                        value={coachLeaveFrom}
-                        onChange={e => { setCoachLeaveFrom(e.target.value); if (!coachLeaveTo || coachLeaveTo < e.target.value) setCoachLeaveTo(e.target.value) }}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">To</label>
-                      <input type="date"
-                        className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-400"
-                        value={coachLeaveTo} min={coachLeaveFrom}
-                        onChange={e => setCoachLeaveTo(e.target.value)}
-                      />
-                    </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Date</label>
+                    <input type="date"
+                      className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-400"
+                      value={coachLeaveDate}
+                      onChange={e => { setCoachLeaveDate(e.target.value); loadCoachLeaveSessions(e.target.value) }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1.5">Sessions to request leave for</label>
+                    {coachLeaveDateLoading ? (
+                      <p className="text-xs text-gray-400">Loading…</p>
+                    ) : coachLeaveDateSessions.length === 0 ? (
+                      <p className="text-xs text-gray-400">No sessions on this date.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {coachLeaveDateSessions.map(s => {
+                          const [sh, sm] = s.start_time.slice(0,5).split(':').map(Number)
+                          const [eh, em] = s.end_time.slice(0,5).split(':').map(Number)
+                          const p = h => h >= 12 ? 'PM' : 'AM'
+                          const f = (h,m) => `${h%12||12}:${String(m).padStart(2,'0')} ${p(h)}`
+                          const checked = coachLeaveSelectedIds.includes(s.id)
+                          return (
+                            <label key={s.id} className="flex items-start gap-2 cursor-pointer">
+                              <input type="checkbox" checked={checked}
+                                onChange={() => setCoachLeaveSelectedIds(prev => checked ? prev.filter(id => id !== s.id) : [...prev, s.id])}
+                                className="mt-0.5 accent-green-500" />
+                              <span className="text-xs text-gray-800">{f(sh,sm)}–{f(eh,em)} <span className="text-gray-400">{s.student_name}</span></span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                   <input type="text"
                     className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-400"
@@ -887,8 +1046,47 @@ export default function FloatingMessages() {
                     <button className="flex-1 py-1.5 rounded-full border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
                       onClick={() => setCoachLeaveModal(false)}>Cancel</button>
                     <button className="flex-1 py-1.5 rounded-full bg-[#07c160] text-white text-xs font-medium hover:bg-green-600 disabled:opacity-50"
-                      disabled={coachLeaveSubmitting || !coachLeaveFrom} onClick={submitCoachLeaveRequest}>
-                      {coachLeaveSubmitting ? 'Sending…' : 'Send Request'}
+                      disabled={coachLeaveSubmitting || !coachLeaveDate || coachLeaveSelectedIds.length === 0}
+                      onClick={submitCoachLeaveRequest}>
+                      {coachLeaveSubmitting ? 'Sending…' : `Request (${coachLeaveSelectedIds.length})`}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Assign Cover Modal (admin) ── */}
+            {assignCoverModal && (
+              <div className="absolute inset-0 z-20 flex items-end justify-center bg-black/40 rounded-2xl p-3">
+                <div className="bg-white rounded-2xl w-full p-4 space-y-3 max-h-[85%] overflow-y-auto">
+                  <h3 className="text-sm font-semibold text-gray-900">Assign Cover Coaches</h3>
+                  {assignCoverModal.sessions.map(s => {
+                    const [sh, sm] = s.start_time.slice(0,5).split(':').map(Number)
+                    const [eh, em] = s.end_time.slice(0,5).split(':').map(Number)
+                    const p = h => h >= 12 ? 'PM' : 'AM'
+                    const f = (h,m) => `${h%12||12}:${String(m).padStart(2,'0')} ${p(h)}`
+                    const d = new Date(String(s.date).slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'})
+                    return (
+                      <div key={s.id} className="border border-gray-100 rounded-xl p-2.5 space-y-1.5">
+                        <p className="text-xs font-medium text-gray-800">{d} · {f(sh,sm)}–{f(eh,em)}</p>
+                        <p className="text-xs text-gray-400">{s.student_name}</p>
+                        <select
+                          className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-400"
+                          value={coverageAssignments[s.id] || ''}
+                          onChange={e => setCoverageAssignments(prev => ({ ...prev, [s.id]: e.target.value }))}>
+                          <option value="">— No cover —</option>
+                          {assignCoverCoaches.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      </div>
+                    )
+                  })}
+                  <div className="flex gap-2">
+                    <button className="flex-1 py-1.5 rounded-full border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
+                      onClick={() => setAssignCoverModal(null)}>Cancel</button>
+                    <button className="flex-1 py-1.5 rounded-full bg-black text-white text-xs font-medium hover:bg-gray-800 disabled:opacity-50"
+                      disabled={assignCoverSubmitting || !Object.values(coverageAssignments).some(Boolean)}
+                      onClick={submitAssignCover}>
+                      {assignCoverSubmitting ? 'Sending…' : 'Send Requests'}
                     </button>
                   </div>
                 </div>

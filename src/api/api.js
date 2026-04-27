@@ -177,9 +177,14 @@ export const coachingAPI = {
   rejectLeaveRequest:  (id)       => api.post(`/coaching/leave-requests/${id}/reject`),
   selectLeaveSlot:          (id, slot) => api.post(`/coaching/leave-requests/${id}/select-slot`, slot),
   // Coach leave requests (coach-initiated)
+  getCoachSessions:         (date)     => api.get('/coaching/coach-sessions', { params: { date } }),
   createCoachLeaveRequest:  (data)     => api.post('/coaching/coach-leave-requests', data),
   approveCoachLeaveRequest: (id)       => api.post(`/coaching/coach-leave-requests/${id}/approve`),
   rejectCoachLeaveRequest:  (id)       => api.post(`/coaching/coach-leave-requests/${id}/reject`),
+  assignCover:              (id, data) => api.post(`/coaching/coach-leave-requests/${id}/assign-cover`, data),
+  respondCoverage:          (id, data) => api.post(`/coaching/coverage-requests/${id}/respond`, data),
+  offerStudentSlots:        (id)       => api.post(`/coaching/coach-leave-requests/${id}/offer-student-slots`),
+  offerStudentSlot:         (sessionId) => api.post(`/coaching/sessions/${sessionId}/offer-student-slot`),
 }
 
 // ---------------------------------------------------------------------------

@@ -179,7 +179,12 @@ router.post("/confirm", requireAuth, async (req, res) => {
       end_time,
       club_id: metaClubId,
     } = paymentIntent.metadata;
-    const clubId = Number(metaClubId) || (req.club?.id ?? 1);
+    // Strict club validation: payment must have been created for the current club
+    const metaClubIdNum = Number(metaClubId)
+    const currentClubId = req.club?.id ?? 1
+    if (!metaClubIdNum || metaClubIdNum !== currentClubId)
+      return res.status(403).json({ message: 'Payment is not valid for this club.' })
+    const clubId = metaClubIdNum
     const amountPaid = paymentIntent.amount / 100; // convert cents → dollars
 
     await client.query("BEGIN");
@@ -194,9 +199,10 @@ router.post("/confirm", requireAuth, async (req, res) => {
     );
     if (confirmMax >= 6) {
       await client.query("ROLLBACK");
-      await stripe.refunds
+      const refund = await stripe.refunds
         .create({ payment_intent: paymentIntentId, reason: "duplicate" })
-        .catch(() => {});
+        .catch(err => { console.error('[payments] REFUND FAILED for intent', paymentIntentId, err.message); return null; });
+      if (!refund) console.error('[payments] ACTION REQUIRED: manual refund needed for intent', paymentIntentId);
       return res.status(409).json({
         message:
           "Sorry, all courts were just taken. Your payment will be fully refunded within 5–10 business days.",
@@ -391,7 +397,15 @@ router.post("/confirm-authorize", requireAuth, async (req, res) => {
       club_id: metaClub,
       session_id,
     } = intent.metadata;
-    const clubId = Number(metaClub) || (req.club?.id ?? 1);
+    // Strict club validation
+    const metaClubNum = Number(metaClub)
+    const currentClubId = req.club?.id ?? 1
+    if (!metaClubNum || metaClubNum !== currentClubId) {
+      await client.query("ROLLBACK")
+      await stripe.paymentIntents.cancel(intentId).catch(() => {})
+      return res.status(403).json({ message: 'Authorization is not valid for this club.' })
+    }
+    const clubId = metaClubNum;
 
     await client.query("BEGIN");
 
@@ -438,6 +452,17 @@ router.post("/confirm-authorize", requireAuth, async (req, res) => {
       }
 
       await client.query("COMMIT");
+
+      // Notify admin (fire-and-forget)
+      pool.query(`SELECT id FROM users WHERE role='admin' AND club_id=$1 LIMIT 1`, [clubId])
+        .then(({ rows: [admin] }) => {
+          if (!admin) return;
+          const fmtTime = t => { const [h, m] = t.substring(0,5).split(':').map(Number); return `${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`; };
+          const body = `🏓 ${req.user.name} booked a table on ${date} · ${fmtTime(start_time)}–${fmtTime(end_time)}`;
+          pool.query(`INSERT INTO messages (sender_id, recipient_id, body, club_id) VALUES ($1,$2,$3,$4)`,
+            [req.user.id, admin.id, body, clubId]).catch(() => {});
+        }).catch(() => {});
+
       res
         .status(201)
         .json({ message: "Booking authorized.", booking_group_id: groupId });
@@ -524,6 +549,8 @@ router.post("/capture/:intentId", requireAuth, async (req, res) => {
 // ─── POST /api/payments/void/:intentId ───────────────────────────────────────
 // Cancel an authorized PaymentIntent (user showed up — release the hold).
 router.post("/void/:intentId", requireAuth, async (req, res) => {
+  if (req.user.role !== "admin")
+    return res.status(403).json({ message: "Admins only." });
   try {
     const stripe = getStripe();
     await stripe.paymentIntents.cancel(req.params.intentId);

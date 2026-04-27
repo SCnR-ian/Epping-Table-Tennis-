@@ -87,6 +87,7 @@ app.use((req, res) => res.status(404).json({ message: 'Not found.' }))
 
 // ── Jobs ──────────────────────────────────────────────────────────────────────
 require('./jobs/reminders')
+require('./jobs/leaveExpiry')
 
 // ── Migrations ────────────────────────────────────────────────────────────────
 // Idempotent schema patches applied at startup so new columns are never missing.
@@ -368,6 +369,18 @@ async function runMigrations() {
      )`,
     `ALTER TABLE social_play_sessions ADD COLUMN IF NOT EXISTS price_cents INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE social_play_participants ADD COLUMN IF NOT EXISTS payment_intent_id TEXT`,
+    // ── Coach leave: per-session selection + coverage requests ────────────────
+    `ALTER TABLE coach_leave_requests ADD COLUMN IF NOT EXISTS session_ids JSONB DEFAULT '[]'`,
+    `CREATE TABLE IF NOT EXISTS coach_coverage_requests (
+       id            SERIAL PRIMARY KEY,
+       leave_req_id  INTEGER NOT NULL REFERENCES coach_leave_requests(id) ON DELETE CASCADE,
+       session_id    INTEGER NOT NULL REFERENCES coaching_sessions(id),
+       sub_coach_id  INTEGER NOT NULL REFERENCES coaches(id),
+       status        VARCHAR(20) NOT NULL DEFAULT 'pending',
+       club_id       INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id),
+       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `ALTER TABLE session_leave_requests ADD COLUMN IF NOT EXISTS available_slots JSONB`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }

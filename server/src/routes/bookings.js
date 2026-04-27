@@ -319,11 +319,29 @@ router.delete('/group/:groupId', requireAuth, async (req, res) => {
     if (rows[0].user_id !== req.user.id && req.user.role !== 'admin')
       return res.status(403).json({ message: 'Forbidden.' })
 
+    const { rows: bRows } = await pool.query(
+      `SELECT date, MIN(start_time) AS start_time, MAX(end_time) AS end_time
+       FROM bookings WHERE booking_group_id=$1 AND club_id=$2 GROUP BY date`,
+      [req.params.groupId, clubId]
+    )
     await pool.query(
       "UPDATE bookings SET status='cancelled' WHERE booking_group_id=$1 AND club_id=$2",
       [req.params.groupId, clubId]
     )
     await voidIntent(rows[0].payment_intent_id)
+
+    // Notify admin (fire-and-forget)
+    if (bRows[0] && rows[0].user_id === req.user.id) {
+      pool.query(`SELECT id FROM users WHERE role='admin' AND club_id=$1 LIMIT 1`, [clubId])
+        .then(({ rows: [admin] }) => {
+          if (!admin) return
+          const fmtT = t => { const [h,m] = t.substring(0,5).split(':').map(Number); return `${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}` }
+          const b = bRows[0]
+          pool.query(`INSERT INTO messages (sender_id, recipient_id, body, club_id) VALUES ($1,$2,$3,$4)`,
+            [req.user.id, admin.id, `❌ ${req.user.name} cancelled their table booking on ${b.date} · ${fmtT(b.start_time)}–${fmtT(b.end_time)}`, clubId]).catch(() => {})
+        }).catch(() => {})
+    }
+
     res.json({ message: 'Booking cancelled.' })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })

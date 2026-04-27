@@ -122,7 +122,8 @@ router.get('/thread/:userId', requireAuth, async (req, res) => {
              ELSE FALSE END AS read_by_recipient,
              slr.status AS leave_request_status,
              slr.expires_at AS leave_request_expires_at,
-             clr.status AS coach_leave_request_status
+             clr.status AS coach_leave_request_status,
+             ccr_agg.coverage_statuses AS coverage_statuses
       FROM messages m
       JOIN users u ON u.id = m.sender_id
       LEFT JOIN session_leave_requests slr
@@ -133,6 +134,15 @@ router.get('/thread/:userId', requireAuth, async (req, res) => {
         ON m.metadata IS NOT NULL
         AND m.metadata->>'type' = 'coach_leave_request'
         AND (m.metadata->>'request_id')::int = clr.id
+      LEFT JOIN (
+        SELECT leave_req_id,
+          JSON_AGG(JSON_BUILD_OBJECT('id', id, 'session_id', session_id, 'status', status, 'sub_coach_id', sub_coach_id) ORDER BY id) AS coverage_statuses
+        FROM coach_coverage_requests
+        GROUP BY leave_req_id
+      ) ccr_agg
+        ON m.metadata IS NOT NULL
+        AND m.metadata->>'type' = 'coverage_request'
+        AND (m.metadata->>'leave_req_id')::int = ccr_agg.leave_req_id
       WHERE (m.sender_id = $1 AND m.recipient_id = $2)
          OR (m.sender_id = $2 AND m.recipient_id = $1)
       ORDER BY m.created_at ASC
@@ -160,6 +170,7 @@ router.get('/thread/:userId', requireAuth, async (req, res) => {
       leave_request_status: r.leave_request_status ?? null,
       leave_request_expires_at: r.leave_request_expires_at ?? null,
       coach_leave_request_status: r.coach_leave_request_status ?? null,
+      coverage_statuses: r.coverage_statuses ?? null,
     }))
 
     res.json({ messages })
@@ -179,7 +190,8 @@ router.post('/', requireAuth, async (req, res) => {
     return res.status(403).json({ message: 'Only admins can send announcements.' })
 
   if (recipient_id && req.user.role !== 'admin') {
-    const { rows } = await pool.query('SELECT role FROM users WHERE id=$1', [recipient_id])
+    const clubId = req.club?.id ?? 1
+    const { rows } = await pool.query('SELECT role FROM users WHERE id=$1 AND club_id=$2', [recipient_id, clubId])
     if (!rows[0] || rows[0].role !== 'admin')
       return res.status(403).json({ message: 'Members can only message admins.' })
   }

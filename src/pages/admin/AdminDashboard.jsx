@@ -1721,6 +1721,13 @@ const [sessionForm,      setSessionForm]      = useState({
     return () => { cancelled = true }
   }, [activeTab, coachingDate])
 
+  // Auto-refresh coaching sessions when a substitute coach accepts coverage
+  useEffect(() => {
+    const handler = () => { if (activeTab === 'Coaching') refreshAfterReschedule() }
+    window.addEventListener('coaching-sessions-updated', handler)
+    return () => window.removeEventListener('coaching-sessions-updated', handler)
+  }, [activeTab, coachingDate])
+
   // When coaching sessions change, bulk-fetch hours balances for all students shown
   useEffect(() => {
     const ids = [...new Set([

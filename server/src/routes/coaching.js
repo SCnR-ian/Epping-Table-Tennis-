@@ -95,6 +95,14 @@ router.post('/coaches', requireAuth, requireAdmin, async (req, res) => {
       [name.trim(), bio ?? null, user_id ?? null, clubId]
     )
     if (user_id) {
+      // Verify the user belongs to the same club before promoting their role
+      const { rows: userCheck } = await client.query(
+        'SELECT id FROM users WHERE id=$1 AND club_id=$2', [user_id, clubId]
+      )
+      if (!userCheck[0]) {
+        await client.query('ROLLBACK')
+        return res.status(404).json({ message: 'User not found in this club.' })
+      }
       await client.query("UPDATE users SET role='coach' WHERE id=$1", [user_id])
     }
     await client.query('COMMIT')
@@ -1555,6 +1563,8 @@ router.post('/hours/:userId', requireAuth, requireAdmin, async (req, res) => {
   const { delta, note } = req.body
   if (delta === undefined || delta === null || delta === 0)
     return res.status(400).json({ message: 'delta is required and must be non-zero.' })
+  if (!Number.isFinite(Number(delta)) || Math.abs(Number(delta)) > 10000)
+    return res.status(400).json({ message: 'delta must be a finite number between -10000 and 10000.' })
   try {
     await pool.query(
       `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_type, created_by, club_id)
@@ -1924,6 +1934,7 @@ async function getAvailableSlots(clubId, coachId, durationMins, excludeSessionId
 // POST /api/coaching/leave-requests  (student)
 // body: { session_id, reason? }
 router.post('/leave-requests', requireAuth, async (req, res) => {
+  if (req.user.role !== 'member') return res.status(403).json({ message: 'Only members can submit leave requests.' })
   const clubId = req.club?.id ?? 1
   const { session_id, reason } = req.body
   if (!session_id) return res.status(400).json({ message: 'session_id is required.' })
@@ -2009,12 +2020,12 @@ router.post('/leave-requests/:id/approve', requireAuth, requireAdmin, async (req
     // Find available slots
     const slots = await getAvailableSlots(clubId, lr.coach_id, durationMins, lr.session_id)
 
-    // Update leave request
+    // Update leave request — store available slots so select-slot can validate later
     await pool.query(
       `UPDATE session_leave_requests
-       SET status='approved', expires_at=NOW() + INTERVAL '48 hours', resolved_by=$1
+       SET status='approved', expires_at=NOW() + INTERVAL '48 hours', resolved_by=$1, available_slots=$3
        WHERE id=$2`,
-      [req.user.id, lr.id]
+      [req.user.id, lr.id, JSON.stringify(slots)]
     )
 
     // Build slot options message to student
@@ -2073,7 +2084,8 @@ router.post('/leave-requests/:id/select-slot', requireAuth, async (req, res) => 
       `SELECT slr.*, u.name AS student_name
        FROM session_leave_requests slr
        JOIN users u ON u.id = slr.student_id
-       WHERE slr.id=$1 AND slr.student_id=$2 AND slr.status='approved' AND slr.club_id=$3`,
+       WHERE slr.id=$1 AND slr.student_id=$2 AND slr.status='approved' AND slr.club_id=$3
+       FOR UPDATE`,
       [req.params.id, req.user.id, clubId]
     )
     if (!lr) {
@@ -2083,6 +2095,24 @@ router.post('/leave-requests/:id/select-slot', requireAuth, async (req, res) => 
     if (lr.expires_at && new Date(lr.expires_at) < new Date()) {
       await client.query('ROLLBACK')
       return res.status(409).json({ message: 'Selection window has expired.' })
+    }
+
+    // Validate that the chosen slot was one of the offered options
+    if (lr.available_slots && lr.available_slots.length > 0) {
+      const norm = s => ({
+        d: (typeof s.date === 'string' ? s.date : new Date(s.date).toISOString()).slice(0, 10),
+        s: (s.start_time || '').slice(0, 5),
+        e: (s.end_time   || '').slice(0, 5),
+      })
+      const req_slot = norm({ date, start_time, end_time })
+      const valid = lr.available_slots.some(s => {
+        const n = norm(s)
+        return n.d === req_slot.d && n.s === req_slot.s && n.e === req_slot.e
+      })
+      if (!valid) {
+        await client.query('ROLLBACK')
+        return res.status(400).json({ message: 'The selected slot is not one of the offered options.' })
+      }
     }
 
     // Fetch session + reschedule it
@@ -2127,9 +2157,9 @@ router.post('/leave-requests/:id/select-slot', requireAuth, async (req, res) => 
 
     // Student confirmation — from the approving admin so it lands in the same thread as slot options
     await sendSystemMessage(approvingAdminId, req.user.id, studentMsg)
-    // All admins get the confirmation
+    // All admins get the confirmation — sent from the student so it lands in their conversation thread
     for (const admin of adminRows) {
-      await sendSystemMessage(admin.id, admin.id, adminMsg)
+      await sendSystemMessage(req.user.id, admin.id, adminMsg)
     }
     // Coach confirmation
     if (coachRow?.user_id) await sendSystemMessage(approvingAdminId ?? firstAdmin?.id, coachRow.user_id, coachMsg)
@@ -2241,15 +2271,36 @@ router.post('/coach-leave', requireAuth, requireAdmin, async (req, res) => {
 
 // ── Coach Leave Requests (coach-initiated) ────────────────────────────────────
 
+// GET /api/coaching/coach-sessions?date=YYYY-MM-DD  (coach)
+// Returns the coach's confirmed sessions on a given date for session selection.
+router.get('/coach-sessions', requireAuth, async (req, res) => {
+  if (req.user.role !== 'coach') return res.status(403).json({ message: 'Coaches only.' })
+  const clubId = req.club?.id ?? 1
+  const { date } = req.query
+  if (!date) return res.status(400).json({ message: 'date is required.' })
+  try {
+    const { rows } = await pool.query(
+      `SELECT cs.id, cs.date, cs.start_time, cs.end_time,
+              u.name AS student_name
+       FROM coaching_sessions cs
+       JOIN coaches co ON co.id = cs.coach_id
+       JOIN users u ON u.id = cs.student_id
+       WHERE co.user_id = $1 AND cs.date = $2 AND cs.status = 'confirmed' AND cs.club_id = $3
+       ORDER BY cs.start_time`,
+      [req.user.id, date, clubId]
+    )
+    res.json({ sessions: rows })
+  } catch (e) { console.error(e); res.status(500).json({ message: 'Server error.' }) }
+})
+
 // POST /api/coaching/coach-leave-requests  (coach)
-// Coach submits a leave request to admin. Admin sees Approve/Reject in chat.
+// Coach submits a leave request with selected session IDs. Admin sees full list.
 router.post('/coach-leave-requests', requireAuth, async (req, res) => {
   const clubId = req.club?.id ?? 1
   if (req.user.role !== 'coach') return res.status(403).json({ message: 'Only coaches can submit leave requests.' })
 
-  const { date_from, date_to, reason } = req.body
+  const { date_from, reason, session_ids } = req.body
   if (!date_from) return res.status(400).json({ message: 'date_from is required.' })
-  const dateTo = date_to || date_from
 
   try {
     // Find admin for this club
@@ -2258,28 +2309,40 @@ router.post('/coach-leave-requests', requireAuth, async (req, res) => {
     )
     if (!admin) return res.status(500).json({ message: 'No admin found for this club.' })
 
+    // Fetch session details to include in message metadata
+    let sessions = []
+    if (Array.isArray(session_ids) && session_ids.length > 0) {
+      const { rows } = await pool.query(
+        `SELECT cs.id, cs.date, cs.start_time, cs.end_time, u.name AS student_name
+         FROM coaching_sessions cs
+         JOIN users u ON u.id = cs.student_id
+         WHERE cs.id = ANY($1::int[]) AND cs.club_id = $2`,
+        [session_ids, clubId]
+      )
+      sessions = rows
+    }
+
     // Insert leave request
     const { rows: [lr] } = await pool.query(
-      `INSERT INTO coach_leave_requests (coach_user_id, date_from, date_to, reason, club_id)
-       VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-      [req.user.id, date_from, dateTo, reason || null, clubId]
+      `INSERT INTO coach_leave_requests (coach_user_id, date_from, date_to, reason, club_id, session_ids)
+       VALUES ($1,$2,$2,$3,$4,$5) RETURNING id`,
+      [req.user.id, date_from, reason || null, clubId, JSON.stringify(session_ids || [])]
     )
 
-    // Format dates for message
-    const fromStr = new Date(date_from + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
-    const toStr   = dateTo !== date_from
-      ? new Date(dateTo + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
-      : null
+    const dateLabel = new Date(date_from + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
 
-    const dateLabel = toStr ? `${fromStr} – ${toStr}` : fromStr
-    const msgBody = `📋 Coach Leave Request\nDate: ${dateLabel}\nReason: ${reason || 'No reason given.'}`
+    // Build message body with session list
+    let sessionLines = sessions.map(s =>
+      `  • ${fmtDate(s.date)} · ${fmtTime(s.start_time)}–${fmtTime(s.end_time)} (${s.student_name})`
+    ).join('\n')
+    const msgBody = `📋 Coach Leave Request\nDate: ${dateLabel}\nReason: ${reason || 'No reason given.'}${sessionLines ? '\n\nAffected sessions:\n' + sessionLines : ''}`
 
     // Send message to admin
     const { rows: [msg] } = await pool.query(
       `INSERT INTO messages (sender_id, recipient_id, body, metadata)
        VALUES ($1,$2,$3,$4) RETURNING id`,
       [req.user.id, admin.id, msgBody,
-       JSON.stringify({ type: 'coach_leave_request', request_id: lr.id })]
+       JSON.stringify({ type: 'coach_leave_request', request_id: lr.id, sessions })]
     )
     await pool.query(
       'INSERT INTO message_reads (message_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
@@ -2299,6 +2362,7 @@ router.post('/coach-leave-requests', requireAuth, async (req, res) => {
 })
 
 // POST /api/coaching/coach-leave-requests/:id/approve  (admin)
+// Just approves the leave. Admin then assigns substitute coaches separately.
 router.post('/coach-leave-requests/:id/approve', requireAuth, requireAdmin, async (req, res) => {
   const clubId = req.club?.id ?? 1
   try {
@@ -2317,79 +2381,314 @@ router.post('/coach-leave-requests/:id/approve', requireAuth, requireAdmin, asyn
       [req.user.id, lr.id]
     )
 
-    // Process coach leave: cancel sessions + notify students with makeup options
-    const { rows: [coach] } = await pool.query(
-      `SELECT id FROM coaches WHERE user_id=$1 AND club_id=$2`, [lr.coach_user_id, clubId]
-    )
-    let processedCount = 0
-    if (coach) {
-      const { rows: sessions } = await pool.query(
-        `SELECT cs.*, u.name AS student_name
-         FROM coaching_sessions cs JOIN users u ON u.id = cs.student_id
-         WHERE cs.coach_id=$1 AND cs.status='confirmed' AND cs.club_id=$2
-           AND cs.date >= $3 AND cs.date <= $4
-         ORDER BY cs.date, cs.start_time`,
-        [coach.id, clubId, lr.date_from, lr.date_to]
-      )
-      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
-      for (const session of sessions) {
-        try {
-          const { rows: existing } = await pool.query(
-            `SELECT 1 FROM session_leave_requests WHERE session_id=$1 AND status IN ('pending','approved','rescheduled') LIMIT 1`,
-            [session.id]
-          )
-          if (existing.length) continue
-
-          const [sh, sm] = session.start_time.slice(0,5).split(':').map(Number)
-          const [eh, em] = session.end_time.slice(0,5).split(':').map(Number)
-          const durationMins = (eh * 60 + em) - (sh * 60 + sm)
-          const slots = await getAvailableSlots(clubId, coach.id, durationMins, session.id)
-
-          // Mark session as needing rescheduling
-          await pool.query(
-            `UPDATE coaching_sessions SET status='leave_cancelled' WHERE id=$1`,
-            [session.id]
-          )
-
-          const { rows: [slr] } = await pool.query(
-            `INSERT INTO session_leave_requests
-               (session_id, student_id, club_id, reason, status, expires_at, resolved_by)
-             VALUES ($1,$2,$3,$4,'approved',$5,$6) RETURNING id`,
-            [session.id, session.student_id, clubId, lr.reason || `${lr.coach_name} leave`, expiresAt, req.user.id]
-          )
-          const timeRange = `${fmtTime(session.start_time)} – ${fmtTime(session.end_time)}`
-          const msgBody = `📅 Your session with ${lr.coach_name} on ${fmtDate(session.date)} (${timeRange}) has been cancelled due to coach leave.\n\nPlease choose a makeup time within 48 hours:${slots.length === 0 ? '\n\n(No available slots found. Please contact us.)' : ''}`
-          const { rows: [msg] } = await pool.query(
-            `INSERT INTO messages (sender_id, recipient_id, body, metadata)
-             VALUES ($1,$2,$3,$4) RETURNING id`,
-            [req.user.id, session.student_id, msgBody,
-             JSON.stringify({ type: 'slot_options', request_id: slr.id, slots, expires_at: expiresAt })]
-          )
-          await pool.query('INSERT INTO message_reads (message_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [msg.id, req.user.id])
-          await pool.query(`DELETE FROM message_thread_hidden WHERE (user_id=$1 AND other_user_id=$2) OR (user_id=$2 AND other_user_id=$1)`, [req.user.id, session.student_id])
-          processedCount++
-        } catch (sessionErr) {
-          console.error(`[coach-leave approve] failed to process session ${session.id}:`, sessionErr)
-        }
-      }
-    }
-
-    // Notify coach
-    const fromStr = new Date(String(lr.date_from).slice(0,10) + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
-    const toStr   = String(lr.date_to).slice(0,10) !== String(lr.date_from).slice(0,10)
-      ? new Date(String(lr.date_to).slice(0,10) + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
-      : null
-    const dateLabel = toStr ? `${fromStr} – ${toStr}` : fromStr
-    const coachMsg = `✅ Your leave request for ${dateLabel} has been approved. ${processedCount > 0 ? `${processedCount} student${processedCount > 1 ? 's have' : ' has'} been notified with makeup options.` : 'No sessions were affected.'}`
+    // Notify coach that leave is approved
+    const dateLabel = fmtDate(String(lr.date_from).slice(0,10))
+    const coachMsg = `✅ Your leave request for ${dateLabel} has been approved. The admin will arrange coverage for your sessions.`
     const { rows: [notif] } = await pool.query(
       `INSERT INTO messages (sender_id, recipient_id, body) VALUES ($1,$2,$3) RETURNING id`,
       [req.user.id, lr.coach_user_id, coachMsg]
     )
     await pool.query('INSERT INTO message_reads (message_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [notif.id, req.user.id])
 
-    res.json({ message: 'Approved.', sessions_processed: processedCount })
+    res.json({ message: 'Approved.' })
   } catch (e) {
     console.error('[coach-leave-requests/approve]', e)
+    res.status(500).json({ message: 'Server error.' })
+  }
+})
+
+// POST /api/coaching/coach-leave-requests/:id/assign-cover  (admin)
+// Admin assigns substitute coaches for specific sessions.
+// body: { coverages: [{ session_id, sub_coach_id }] }
+router.post('/coach-leave-requests/:id/assign-cover', requireAuth, requireAdmin, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  const { coverages } = req.body
+  if (!Array.isArray(coverages) || coverages.length === 0)
+    return res.status(400).json({ message: 'coverages array is required.' })
+
+  try {
+    const { rows: [lr] } = await pool.query(
+      `SELECT clr.*, u.name AS coach_name
+       FROM coach_leave_requests clr
+       JOIN users u ON u.id = clr.coach_user_id
+       WHERE clr.id=$1 AND clr.status='approved' AND clr.club_id=$2`,
+      [req.params.id, clubId]
+    )
+    if (!lr) return res.status(404).json({ message: 'Approved leave request not found.' })
+
+    // Insert coverage requests
+    const inserted = []
+    for (const cv of coverages) {
+      const { rows: [ccr] } = await pool.query(
+        `INSERT INTO coach_coverage_requests (leave_req_id, session_id, sub_coach_id, club_id)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT DO NOTHING RETURNING *`,
+        [lr.id, cv.session_id, cv.sub_coach_id, clubId]
+      )
+      if (ccr) inserted.push(ccr)
+    }
+
+    // Group by substitute coach to send one message per coach
+    const byCoach = {}
+    for (const ccr of inserted) {
+      if (!byCoach[ccr.sub_coach_id]) byCoach[ccr.sub_coach_id] = []
+      byCoach[ccr.sub_coach_id].push(ccr)
+    }
+
+    for (const [subCoachId, items] of Object.entries(byCoach)) {
+      // Get sub coach user_id
+      const { rows: [subCoach] } = await pool.query(
+        `SELECT co.id, co.name, u.id AS user_id
+         FROM coaches co JOIN users u ON u.id = co.user_id
+         WHERE co.id=$1`, [subCoachId]
+      )
+      if (!subCoach?.user_id) continue
+
+      // Fetch session details for this coach's assignments
+      const sessionIds = items.map(i => i.session_id)
+      const { rows: sessions } = await pool.query(
+        `SELECT cs.id, cs.date, cs.start_time, cs.end_time, u.name AS student_name
+         FROM coaching_sessions cs JOIN users u ON u.id = cs.student_id
+         WHERE cs.id = ANY($1::int[])
+         ORDER BY cs.date, cs.start_time`,
+        [sessionIds]
+      )
+
+      // Build message
+      const sessionLines = sessions.map(s =>
+        `  • ${fmtDate(s.date)} · ${fmtTime(s.start_time)}–${fmtTime(s.end_time)} (${s.student_name})`
+      ).join('\n')
+      const msgBody = `📅 Coverage Request\nCan you cover sessions for ${lr.coach_name}?\n\n${sessionLines}\n\nPlease accept or decline below.`
+
+      const coveragesForMsg = items.map(ccr => {
+        const s = sessions.find(x => x.id === ccr.session_id) || {}
+        return { id: ccr.id, session_id: ccr.session_id, date: s.date, start_time: s.start_time, end_time: s.end_time, student_name: s.student_name }
+      })
+
+      const { rows: [msg] } = await pool.query(
+        `INSERT INTO messages (sender_id, recipient_id, body, metadata)
+         VALUES ($1,$2,$3,$4) RETURNING id`,
+        [req.user.id, subCoach.user_id, msgBody,
+         JSON.stringify({ type: 'coverage_request', leave_req_id: lr.id, coverages: coveragesForMsg })]
+      )
+      await pool.query('INSERT INTO message_reads (message_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [msg.id, req.user.id])
+      await pool.query(`DELETE FROM message_thread_hidden WHERE (user_id=$1 AND other_user_id=$2) OR (user_id=$2 AND other_user_id=$1)`, [req.user.id, subCoach.user_id])
+    }
+
+    res.json({ message: 'Coverage requests sent.', count: inserted.length })
+  } catch (e) {
+    console.error('[assign-cover]', e)
+    res.status(500).json({ message: 'Server error.' })
+  }
+})
+
+// POST /api/coaching/coverage-requests/:id/respond  (coach)
+// body: { accept: true|false }
+router.post('/coverage-requests/:id/respond', requireAuth, async (req, res) => {
+  if (req.user.role !== 'coach') return res.status(403).json({ message: 'Coaches only.' })
+  const clubId = req.club?.id ?? 1
+  const { accept } = req.body
+
+  try {
+    // Get coverage request + sub coach
+    const { rows: [ccr] } = await pool.query(
+      `SELECT ccr.*, co.user_id AS sub_user_id, co.name AS sub_coach_name,
+              cs.date, cs.start_time, cs.end_time, cs.student_id,
+              u.name AS student_name,
+              clr.coach_user_id AS orig_coach_user_id
+       FROM coach_coverage_requests ccr
+       JOIN coaches co ON co.id = ccr.sub_coach_id
+       JOIN coaching_sessions cs ON cs.id = ccr.session_id
+       JOIN users u ON u.id = cs.student_id
+       JOIN coach_leave_requests clr ON clr.id = ccr.leave_req_id
+       WHERE ccr.id=$1 AND co.user_id=$2 AND ccr.status='pending' AND ccr.club_id=$3`,
+      [req.params.id, req.user.id, clubId]
+    )
+    if (!ccr) return res.status(404).json({ message: 'Coverage request not found or already responded.' })
+
+    const newStatus = accept ? 'accepted' : 'declined'
+    await pool.query(`UPDATE coach_coverage_requests SET status=$1 WHERE id=$2`, [newStatus, ccr.id])
+
+    // Find admin
+    const { rows: [admin] } = await pool.query(
+      `SELECT id FROM users WHERE role='admin' AND club_id=$1 LIMIT 1`, [clubId]
+    )
+
+    const sessionLabel = `${fmtDate(ccr.date)} · ${fmtTime(ccr.start_time)}–${fmtTime(ccr.end_time)}`
+
+    if (accept) {
+      // Reassign session to substitute coach
+      const { rowCount } = await pool.query(
+        `UPDATE coaching_sessions SET coach_id=$1, status='confirmed' WHERE id=$2`,
+        [ccr.sub_coach_id, ccr.session_id]
+      )
+      console.log(`[coverage-respond] accept: session_id=${ccr.session_id}, new coach_id=${ccr.sub_coach_id}, rows_updated=${rowCount}`)
+      // Notify admin
+      if (admin) await sendSystemMessage(req.user.id, admin.id,
+        `✅ ${ccr.sub_coach_name} accepted coverage for ${sessionLabel} (${ccr.student_name}).`)
+    } else {
+      // Notify admin with actionable message — includes metadata so frontend can show "Offer Slot" button
+      if (admin) {
+        const declineBody = `❌ ${ccr.sub_coach_name} 無法代課\n課程：${sessionLabel}\n學生：${ccr.student_name}\n\n請安排其他代課教練，或讓學生自行選擇補課時間。`
+        const { rows: [dm] } = await pool.query(
+          `INSERT INTO messages (sender_id, recipient_id, body, metadata)
+           VALUES ($1,$2,$3,$4) RETURNING id`,
+          [req.user.id, admin.id, declineBody,
+           JSON.stringify({
+             type: 'coverage_declined',
+             session_id: ccr.session_id,
+             leave_req_id: ccr.leave_req_id,
+             coverage_id: ccr.id,
+             // embed session details so frontend doesn't need an extra fetch
+             session: { id: ccr.session_id, date: ccr.date, start_time: ccr.start_time, end_time: ccr.end_time, student_name: ccr.student_name },
+           })]
+        )
+        await pool.query('INSERT INTO message_reads (message_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [dm.id, req.user.id])
+      }
+    }
+
+    res.json({ message: accept ? 'Coverage accepted.' : 'Coverage declined.' })
+  } catch (e) {
+    console.error('[coverage-respond]', e)
+    res.status(500).json({ message: 'Server error.' })
+  }
+})
+
+// POST /api/coaching/coach-leave-requests/:id/offer-student-slots  (admin)
+// For uncovered sessions: cancel sessions and offer students makeup slots.
+router.post('/coach-leave-requests/:id/offer-student-slots', requireAuth, requireAdmin, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  try {
+    const { rows: [lr] } = await pool.query(
+      `SELECT clr.*, u.name AS coach_name
+       FROM coach_leave_requests clr JOIN users u ON u.id = clr.coach_user_id
+       WHERE clr.id=$1 AND clr.club_id=$2`,
+      [req.params.id, clubId]
+    )
+    if (!lr) return res.status(404).json({ message: 'Leave request not found.' })
+
+    // Find uncovered sessions (no accepted coverage)
+    const sessionIds = lr.session_ids || []
+    if (!sessionIds.length) return res.json({ message: 'No sessions to process.', count: 0 })
+
+    const { rows: sessions } = await pool.query(
+      `SELECT cs.*, u.name AS student_name
+       FROM coaching_sessions cs JOIN users u ON u.id = cs.student_id
+       WHERE cs.id = ANY($1::int[]) AND cs.status IN ('confirmed','leave_cancelled')
+         AND NOT EXISTS (
+           SELECT 1 FROM coach_coverage_requests ccr
+           WHERE ccr.session_id = cs.id AND ccr.status = 'accepted'
+         )`,
+      [sessionIds]
+    )
+
+    const { rows: [coach] } = await pool.query(
+      `SELECT id FROM coaches WHERE user_id=$1 AND club_id=$2`, [lr.coach_user_id, clubId]
+    )
+
+    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
+    let count = 0
+    for (const session of sessions) {
+      try {
+        const { rows: existing } = await pool.query(
+          `SELECT 1 FROM session_leave_requests WHERE session_id=$1 AND status IN ('pending','approved','rescheduled') LIMIT 1`,
+          [session.id]
+        )
+        if (existing.length) continue
+
+        const [sh, sm] = session.start_time.slice(0,5).split(':').map(Number)
+        const [eh, em] = session.end_time.slice(0,5).split(':').map(Number)
+        const durationMins = (eh * 60 + em) - (sh * 60 + sm)
+        const slots = coach ? await getAvailableSlots(clubId, coach.id, durationMins, session.id) : []
+
+        await pool.query(`UPDATE coaching_sessions SET status='leave_cancelled' WHERE id=$1`, [session.id])
+
+        const { rows: [slr] } = await pool.query(
+          `INSERT INTO session_leave_requests
+             (session_id, student_id, club_id, reason, status, expires_at, resolved_by)
+           VALUES ($1,$2,$3,$4,'approved',$5,$6) RETURNING id`,
+          [session.id, session.student_id, clubId, lr.reason || `${lr.coach_name} leave`, expiresAt, req.user.id]
+        )
+        const timeRange = `${fmtTime(session.start_time)} – ${fmtTime(session.end_time)}`
+        const msgBody = `📅 Your session with ${lr.coach_name} on ${fmtDate(session.date)} (${timeRange}) has been cancelled due to coach leave.\n\nPlease choose a makeup time within 48 hours:${slots.length === 0 ? '\n\n(No available slots found. Please contact us.)' : ''}`
+        const { rows: [msg] } = await pool.query(
+          `INSERT INTO messages (sender_id, recipient_id, body, metadata)
+           VALUES ($1,$2,$3,$4) RETURNING id`,
+          [req.user.id, session.student_id, msgBody,
+           JSON.stringify({ type: 'slot_options', request_id: slr.id, slots, expires_at: expiresAt })]
+        )
+        await pool.query('INSERT INTO message_reads (message_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [msg.id, req.user.id])
+        await pool.query(`DELETE FROM message_thread_hidden WHERE (user_id=$1 AND other_user_id=$2) OR (user_id=$2 AND other_user_id=$1)`, [req.user.id, session.student_id])
+        count++
+      } catch (err) {
+        console.error(`[offer-student-slots] session ${session.id}:`, err)
+      }
+    }
+
+    res.json({ message: 'Student slot options sent.', count })
+  } catch (e) {
+    console.error('[offer-student-slots]', e)
+    res.status(500).json({ message: 'Server error.' })
+  }
+})
+
+// POST /api/coaching/sessions/:sessionId/offer-student-slot  (admin)
+// Offer makeup slot options to the student of a single uncovered session.
+router.post('/sessions/:sessionId/offer-student-slot', requireAuth, requireAdmin, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  const { sessionId } = req.params
+  try {
+    const { rows: [session] } = await pool.query(
+      `SELECT cs.*, u.name AS student_name, co.id AS coach_rec_id, clru.name AS coach_name
+       FROM coaching_sessions cs
+       JOIN users u ON u.id = cs.student_id
+       JOIN coaches co ON co.id = cs.coach_id
+       LEFT JOIN users clru ON clru.id = co.user_id
+       WHERE cs.id=$1 AND cs.club_id=$2`,
+      [sessionId, clubId]
+    )
+    if (!session) return res.status(404).json({ message: 'Session not found.' })
+
+    // Block if a cover coach has already accepted this session
+    const { rows: coveredRows } = await pool.query(
+      `SELECT 1 FROM coach_coverage_requests WHERE session_id=$1 AND status='accepted' LIMIT 1`,
+      [sessionId]
+    )
+    if (coveredRows.length) return res.status(409).json({ message: 'This session already has an accepted cover coach.' })
+
+    // Check no active student leave request already
+    const { rows: existing } = await pool.query(
+      `SELECT 1 FROM session_leave_requests WHERE session_id=$1 AND status IN ('pending','approved','rescheduled') LIMIT 1`,
+      [sessionId]
+    )
+    if (existing.length) return res.status(409).json({ message: 'Student already has an active leave/slot request for this session.' })
+
+    const [sh, sm] = session.start_time.slice(0,5).split(':').map(Number)
+    const [eh, em] = session.end_time.slice(0,5).split(':').map(Number)
+    const durationMins = (eh * 60 + em) - (sh * 60 + sm)
+    const slots = await getAvailableSlots(clubId, session.coach_rec_id, durationMins, Number(sessionId))
+
+    await pool.query(`UPDATE coaching_sessions SET status='leave_cancelled' WHERE id=$1`, [sessionId])
+
+    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
+    const { rows: [slr] } = await pool.query(
+      `INSERT INTO session_leave_requests (session_id, student_id, club_id, reason, status, expires_at, resolved_by)
+       VALUES ($1,$2,$3,$4,'approved',$5,$6) RETURNING id`,
+      [sessionId, session.student_id, clubId, 'Coach unavailable', expiresAt, req.user.id]
+    )
+    const timeRange = `${fmtTime(session.start_time)} – ${fmtTime(session.end_time)}`
+    const msgBody = `📅 Your session on ${fmtDate(session.date)} (${timeRange}) has been cancelled as the coach is unavailable.\n\nPlease choose a makeup time within 48 hours:${slots.length === 0 ? '\n\n(No available slots found. Please contact us.)' : ''}`
+    const { rows: [msg] } = await pool.query(
+      `INSERT INTO messages (sender_id, recipient_id, body, metadata) VALUES ($1,$2,$3,$4) RETURNING id`,
+      [req.user.id, session.student_id, msgBody,
+       JSON.stringify({ type: 'slot_options', request_id: slr.id, slots, expires_at: expiresAt })]
+    )
+    await pool.query('INSERT INTO message_reads (message_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [msg.id, req.user.id])
+    await pool.query(`DELETE FROM message_thread_hidden WHERE (user_id=$1 AND other_user_id=$2) OR (user_id=$2 AND other_user_id=$1)`, [req.user.id, session.student_id])
+
+    res.json({ message: 'Slot options sent to student.' })
+  } catch (e) {
+    console.error('[offer-student-slot]', e)
     res.status(500).json({ message: 'Server error.' })
   }
 })

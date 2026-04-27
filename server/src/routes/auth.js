@@ -102,9 +102,13 @@ router.get('/me', require('../middleware/auth').requireAuth, async (req, res) =>
 router.post('/forgot-password', async (req, res) => {
   const { email } = req.body
   if (!email) return res.status(400).json({ message: 'Email is required.' })
+  if (!req.club) return res.status(400).json({ message: 'Club not found.' })
 
   try {
-    const { rows } = await pool.query('SELECT id, name FROM users WHERE email = $1', [email.toLowerCase().trim()])
+    const { rows } = await pool.query(
+      'SELECT id, name FROM users WHERE email = $1 AND club_id = $2',
+      [email.toLowerCase().trim(), req.club.id]
+    )
     // Always return 200 to prevent email enumeration
     if (rows.length === 0) return res.json({ message: 'If that email exists, a reset link has been sent.' })
 
