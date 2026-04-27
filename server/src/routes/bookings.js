@@ -5,6 +5,16 @@ const { randomUUID } = require('crypto')
 const jwt    = require('jsonwebtoken')
 const { checkOpenHours, maxConcurrentCourts } = require('../utils/scheduleCheck')
 
+function getStripe() {
+  if (!process.env.STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY not set')
+  return require('stripe')(process.env.STRIPE_SECRET_KEY)
+}
+
+async function voidIntent(intentId) {
+  if (!intentId) return
+  try { await getStripe().paymentIntents.cancel(intentId) } catch {}
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 // Reads JWT if present but never rejects — used for optional auth
@@ -113,7 +123,8 @@ router.get('/my', requireAuth, async (req, res) => {
            WHEN bool_or(b.status  = 'cancelled') THEN 'partial'
            ELSE 'confirmed'
          END               AS status,
-         MIN(b.created_at) AS created_at
+         MIN(b.created_at)         AS created_at,
+         MIN(b.payment_intent_id)  AS payment_intent_id
        FROM bookings b
        LEFT JOIN courts c ON c.id = b.court_id
        WHERE b.user_id = $1 AND b.club_id = $2
@@ -301,7 +312,7 @@ router.delete('/group/:groupId', requireAuth, async (req, res) => {
   try {
     const clubId = req.club?.id ?? 1
     const { rows } = await pool.query(
-      'SELECT user_id FROM bookings WHERE booking_group_id=$1 AND status=$2 AND club_id=$3 LIMIT 1',
+      'SELECT user_id, payment_intent_id FROM bookings WHERE booking_group_id=$1 AND status=$2 AND club_id=$3 LIMIT 1',
       [req.params.groupId, 'confirmed', clubId]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Booking not found.' })
@@ -312,6 +323,7 @@ router.delete('/group/:groupId', requireAuth, async (req, res) => {
       "UPDATE bookings SET status='cancelled' WHERE booking_group_id=$1 AND club_id=$2",
       [req.params.groupId, clubId]
     )
+    await voidIntent(rows[0].payment_intent_id)
     res.json({ message: 'Booking cancelled.' })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })

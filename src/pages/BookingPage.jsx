@@ -5,7 +5,6 @@ import { useAuth } from "@/context/AuthContext";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-
 const WEEKDAY_SLOTS  = ["15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30","20:00"];
 const SATURDAY_SLOTS = ["12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30"];
 const DURATIONS      = [60, 90, 120];
@@ -26,8 +25,8 @@ function getOpenDates() {
 
 function toISO(date) {
   const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
 
@@ -46,61 +45,272 @@ function addMins(t, mins) {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
-// Returns true if the current user already has a booking overlapping this slot
 function isUserBooked(slotTime, duration, userBookedSlots) {
   const slotStart = toMins(slotTime);
   const slotEnd   = slotStart + duration;
   return userBookedSlots.some(b => slotStart < b.endMins && slotEnd > b.startMins);
 }
 
-// Returns number of courts available for the given slot + duration.
-// slotUsage is a map of { "HH:MM": courtsUsed } from the API.
 function getAvailableCount(slotTime, duration, slotUsage) {
   const start = toMins(slotTime);
   const end   = start + duration;
   let minAvail = 6;
   for (let t = start; t < end; t += 30) {
-    const key = `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+    const key = `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
     minAvail = Math.min(minAvail, 6 - (slotUsage[key] ?? 0));
   }
   return Math.max(0, minAvail);
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+// ─── Mini Calendar ───────────────────────────────────────────────────────────
 
-export default function BookingPage({ embedded = false }) {
-  const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const DOW_LABELS  = ["Su","Mo","Tu","We","Th","Fr","Sa"];
 
-  const [step,         setStep]         = useState(1);
-  const [selectedDate, setSelectedDate] = useState("");
-  const [selectedTime, setSelectedTime] = useState("");
-  const [duration,     setDuration]     = useState(60);
-  const [slotUsage,        setSlotUsage]        = useState({});
-  const [userBookedSlots, setUserBookedSlots] = useState([]);
-  const [slotsLoading, setSlotsLoading] = useState(false);
-  const [submitting,   setSubmitting]   = useState(false);
-  const [confirmed,    setConfirmed]    = useState(false);
+function CalendarPicker({ selectedDate, onSelect }) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
-  // ── Payment state ─────────────────────────────────────────────────────────
+  const [viewYear,  setViewYear]  = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+
+  const firstDay  = new Date(viewYear, viewMonth, 1);
+  const lastDay   = new Date(viewYear, viewMonth + 1, 0);
+  const startDow  = firstDay.getDay();
+
+  const cells = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let i = 1; i <= lastDay.getDate(); i++) cells.push(i);
+
+  const isCurrentMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
+
+  const prevMonth = () => {
+    if (isCurrentMonth) return;
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
+    else setViewMonth(m => m - 1);
+  };
+  const nextMonth = () => {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
+    else setViewMonth(m => m + 1);
+  };
+
+  return (
+    <div className="border border-gray-200 rounded-2xl p-4 max-w-xs mx-auto">
+      {/* Month nav */}
+      <div className="flex items-center justify-between mb-3">
+        <button
+          onClick={prevMonth}
+          disabled={isCurrentMonth}
+          className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-black disabled:opacity-20 transition-colors text-lg leading-none"
+        >
+          ‹
+        </button>
+        <span className="text-xs tracking-widest uppercase text-black">
+          {MONTH_NAMES[viewMonth]} {viewYear}
+        </span>
+        <button
+          onClick={nextMonth}
+          className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-black transition-colors text-lg leading-none"
+        >
+          ›
+        </button>
+      </div>
+
+      {/* Day-of-week headers */}
+      <div className="grid grid-cols-7 mb-1">
+        {DOW_LABELS.map(l => (
+          <div key={l} className="text-center text-[10px] tracking-widest uppercase text-gray-300 py-1">{l}</div>
+        ))}
+      </div>
+
+      {/* Day cells */}
+      <div className="grid grid-cols-7 gap-y-0.5">
+        {cells.map((day, idx) => {
+          if (!day) return <div key={`p${idx}`} />;
+          const date     = new Date(viewYear, viewMonth, day);
+          const dow      = date.getDay();
+          const isPast   = date < today;
+          const isOpen   = OPEN_DOW.has(dow);
+          const disabled = isPast || !isOpen;
+          const iso      = toISO(date);
+          const active   = selectedDate === iso;
+          return (
+            <button
+              key={day}
+              onClick={() => { if (!disabled) onSelect(iso); }}
+              disabled={disabled}
+              className={`w-full aspect-square flex items-center justify-center text-xs rounded-lg transition-all ${
+                disabled
+                  ? "text-gray-200 cursor-not-allowed"
+                  : active
+                    ? "bg-black text-white"
+                    : "text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              {day}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Payment Sheet ────────────────────────────────────────────────────────────
+
+function PaymentSheet({ selectedDate, selectedTime, duration, onSuccess, onClose }) {
   const [clientSecret,   setClientSecret]   = useState(null);
   const [amountCents,    setAmountCents]     = useState(0);
   const [stripeInstance, setStripeInstance] = useState(null);
   const [cardElement,    setCardElement]    = useState(null);
   const [paymentError,   setPaymentError]   = useState(null);
-  const [payingNow,      setPayingNow]      = useState(false);
-  const [intentLoading,  setIntentLoading]  = useState(false);
+  const [loading,        setLoading]        = useState(true);
+  const [processing,     setProcessing]     = useState(false);
   const cardRef = useRef(null);
 
-  // Split open dates into this week / next week
-  const openDates = getOpenDates();
-  const cutoff = new Date();
-  cutoff.setHours(0, 0, 0, 0);
-  cutoff.setDate(cutoff.getDate() + 7);
-  const thisWeekDates = openDates.filter(d => d < cutoff);
-  const nextWeekDates = openDates.filter(d => d >= cutoff);
+  useEffect(() => {
+    paymentsAPI.authorize({
+      type:       "booking",
+      date:       selectedDate,
+      start_time: selectedTime,
+      end_time:   addMins(selectedTime, duration),
+    })
+      .then(({ data }) => { setClientSecret(data.clientSecret); setAmountCents(data.amount); })
+      .catch(err  => { setPaymentError(err.response?.data?.message || "Could not start payment."); })
+      .finally(() => setLoading(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch bookings for the selected date
+  useEffect(() => {
+    if (!clientSecret || cardElement) return;
+    const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+    if (!stripeKey) { setPaymentError("Stripe is not configured."); return; }
+    const stripe = window.Stripe?.(stripeKey);
+    if (!stripe)  { setPaymentError("Payment system failed to load."); return; }
+    setStripeInstance(stripe);
+    const elements = stripe.elements();
+    const card = elements.create("card", {
+      style: {
+        base:    { color: "#111827", fontFamily: "DM Sans, sans-serif", fontSize: "16px", "::placeholder": { color: "#9ca3af" } },
+        invalid: { color: "#ef4444" },
+      },
+    });
+    setTimeout(() => {
+      if (cardRef.current) { card.mount(cardRef.current); setCardElement(card); }
+    }, 50);
+    return () => { card.destroy(); setCardElement(null); };
+  }, [clientSecret]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handlePay = async () => {
+    if (!stripeInstance || !cardElement || !clientSecret) return;
+    setProcessing(true);
+    setPaymentError(null);
+    try {
+      const { paymentIntent, error } = await stripeInstance.confirmCardPayment(clientSecret, {
+        payment_method: { card: cardElement },
+      });
+      if (error) { setPaymentError(error.message); return; }
+      if (paymentIntent.status === "requires_capture") {
+        await paymentsAPI.confirmAuthorize(paymentIntent.id);
+        onSuccess();
+      } else {
+        setPaymentError("Unexpected status. Please try again.");
+      }
+    } catch (err) {
+      setPaymentError(err.response?.data?.message || "Authorization failed.");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+
+        {/* Header */}
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="text-black text-base font-normal">Confirm Booking</h3>
+            <p className="text-gray-500 text-xs mt-0.5">
+              {selectedDate} · {fmtTime(selectedTime)} · {duration} min
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-black transition-colors text-xl leading-none">×</button>
+        </div>
+
+        {loading ? (
+          <p className="text-gray-400 text-sm text-center py-6">Loading…</p>
+        ) : paymentError && !clientSecret ? (
+          <p className="text-red-500 text-sm text-center">{paymentError}</p>
+        ) : (
+          <>
+            {/* No-charge notice */}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700 leading-relaxed">
+              Your card will be held but <strong>not charged</strong>. The hold is released when you check in. It is only captured as a no-show fee if you miss your session.
+            </div>
+
+            {/* Amount */}
+            <div className="flex justify-between items-center text-sm border-t border-gray-100 pt-4">
+              <span className="text-gray-500">Hold amount</span>
+              <span className="text-black font-medium">AUD ${(amountCents / 100).toFixed(2)}</span>
+            </div>
+
+            {/* Stripe card element */}
+            <div>
+              <label className="block text-xs text-gray-500 uppercase tracking-wider mb-2">Card Details</label>
+              <div ref={cardRef} className="border border-gray-300 rounded-xl px-4 py-3.5 min-h-[46px]" />
+              {paymentError && <p className="text-red-500 text-xs mt-2">{paymentError}</p>}
+            </div>
+
+            <p className="text-[11px] text-gray-400 flex items-center gap-1.5">
+              <svg className="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+              </svg>
+              Secured by Stripe. Card details never stored on our servers.
+            </p>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={onClose}
+                className="flex-1 border border-gray-300 text-gray-700 text-xs tracking-widest uppercase py-3 rounded-full hover:border-black hover:text-black transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePay}
+                disabled={processing || !cardElement}
+                className="flex-1 bg-black text-white text-xs tracking-widest uppercase py-3 rounded-full hover:bg-gray-800 disabled:opacity-50 transition-colors"
+              >
+                {processing ? "Processing…" : "Authorize Card"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+export default function BookingPage({ embedded = false }) {
+  const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+
+  const [selectedDate,    setSelectedDate]   = useState("");
+  const [selectedTime,    setSelectedTime]   = useState("");
+  const [duration,        setDuration]       = useState(60);
+  const [slotUsage,       setSlotUsage]      = useState({});
+  const [userBookedSlots, setUserBookedSlots] = useState([]);
+  const [slotsLoading,    setSlotsLoading]   = useState(false);
+  const [showPayment,     setShowPayment]    = useState(false);
+  const [confirmed,       setConfirmed]      = useState(false);
+  const [showCalendar,    setShowCalendar]   = useState(false);
+
+  const openDates = getOpenDates();
+
   useEffect(() => {
     if (!selectedDate) return;
     let cancelled = false;
@@ -121,124 +331,51 @@ export default function BookingPage({ embedded = false }) {
     return () => { cancelled = true; };
   }, [selectedDate]);
 
-  const selectedDow = selectedDate ? new Date(selectedDate + "T12:00:00").getDay() : null;
-  const timeSlots   = selectedDow === 6 ? SATURDAY_SLOTS : WEEKDAY_SLOTS;
-
-  // Available court count for the currently selected slot
+  const selectedDow    = selectedDate ? new Date(selectedDate + "T12:00:00").getDay() : null;
+  const timeSlots      = selectedDow === 6 ? SATURDAY_SLOTS : WEEKDAY_SLOTS;
   const availableCount = selectedTime ? getAvailableCount(selectedTime, duration, slotUsage) : 6;
+  const canBook        = !!(selectedDate && selectedTime && availableCount > 0);
 
-  // ── Move to payment step: create PaymentIntent (authorize, not charge) ──
-  const handleProceedToPayment = async () => {
-    if (getAvailableCount(selectedTime, duration, slotUsage) === 0) {
-      alert("Sorry, this slot is no longer available. Please choose another time.");
-      setStep(1);
+  const handleBook = () => {
+    if (!isAuthenticated) {
+      navigate("/login", { state: { from: { pathname: "/play" } } });
       return;
     }
-    setIntentLoading(true);
-    setPaymentError(null);
-    try {
-      const { data } = await paymentsAPI.authorize({
-        type:       'booking',
-        date:       selectedDate,
-        start_time: selectedTime,
-        end_time:   addMins(selectedTime, duration),
-      });
-      setClientSecret(data.clientSecret);
-      setAmountCents(data.amount);
-      setStep(3);
-    } catch (err) {
-      alert(err.response?.data?.message || "Could not start payment. Please try again.");
-    } finally {
-      setIntentLoading(false);
-    }
-  };
-
-  // ── Mount Stripe card element when Step 3 renders ────────────────────────
-  useEffect(() => {
-    if (step !== 3 || !clientSecret || cardElement) return;
-    const stripe = window.Stripe?.(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
-    if (!stripe) { setPaymentError("Payment system failed to load. Please refresh the page."); return; }
-    setStripeInstance(stripe);
-    const elements = stripe.elements();
-    const card = elements.create("card", {
-      style: {
-        base: {
-          color: "#f1f5f9",
-          fontFamily: "DM Sans, sans-serif",
-          fontSize: "16px",
-          "::placeholder": { color: "#64748b" },
-        },
-        invalid: { color: "#f87171" },
-      },
-    });
-    // Mount after the DOM node is available
-    setTimeout(() => {
-      if (cardRef.current) {
-        card.mount(cardRef.current);
-        setCardElement(card);
-      }
-    }, 50);
-    return () => { card.destroy(); setCardElement(null); };
-  }, [step, clientSecret]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Authorize card (hold, no charge) ─────────────────────────────────────
-  const handlePay = async () => {
-    if (!stripeInstance || !cardElement || !clientSecret) return;
-    setPayingNow(true);
-    setPaymentError(null);
-    try {
-      const { paymentIntent, error } = await stripeInstance.confirmCardPayment(clientSecret, {
-        payment_method: { card: cardElement },
-      });
-      if (error) {
-        setPaymentError(error.message);
-        setPayingNow(false);
-        return;
-      }
-      if (paymentIntent.status === "requires_capture") {
-        // Tell backend to create the booking (card authorized, not charged)
-        await paymentsAPI.confirmAuthorize(paymentIntent.id);
-        setConfirmed(true);
-      } else {
-        setPaymentError("Unexpected payment status. Please try again.");
-      }
-    } catch (err) {
-      setPaymentError(err.response?.data?.message || "Authorization failed. Please try again.");
-    } finally {
-      setPayingNow(false);
-    }
+    setShowPayment(true);
   };
 
   const reset = () => {
-    setStep(1); setSelectedDate(""); setSelectedTime(""); setDuration(60);
-    setUserBookedSlots([]); setConfirmed(false);
-    setClientSecret(null); setAmountCents(0); setStripeInstance(null);
-    setCardElement(null); setPaymentError(null);
+    setSelectedDate(""); setSelectedTime(""); setDuration(60);
+    setUserBookedSlots([]); setConfirmed(false); setShowPayment(false);
   };
 
-  // ── Confirmed screen ──────────────────────────────────────────────────────
+  // ── Confirmed ────────────────────────────────────────────────────────────────
   if (confirmed) {
     return (
-      <div className={`${embedded ? "flex items-center justify-center px-4 py-10" : "page-wrapper flex items-center justify-center px-4"}`}>
-        <div className="card max-w-md w-full text-center space-y-4 animate-slide-up">
-          <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto">
-            <svg className="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <h2 className="font-display text-3xl text-white tracking-wider">Booked!</h2>
-          <p className="text-slate-400 text-sm">
-            Your slot on <strong className="text-white">{selectedDate}</strong> at{" "}
-            <strong className="text-white">{fmtTime(selectedTime)}</strong> for{" "}
-            <strong className="text-white">{duration} min</strong> is confirmed.
-          </p>
-          <p className="text-slate-500 text-xs">
-            A table will be assigned for you on arrival. Your card hold is released automatically when you check in.
-          </p>
-          <button onClick={() => navigate("/dashboard")} className="btn-primary w-full">
+      <div className="max-w-md mx-auto px-6 py-20 text-center">
+        <div className="w-14 h-14 rounded-full border border-black flex items-center justify-center mx-auto mb-6">
+          <svg className="w-6 h-6 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <h2 className="text-2xl font-normal text-black mb-3">Booking Confirmed</h2>
+        <p className="text-gray-500 text-sm leading-relaxed mb-2">
+          {selectedDate} &nbsp;·&nbsp; {fmtTime(selectedTime)} &nbsp;·&nbsp; {duration} min
+        </p>
+        <p className="text-gray-400 text-xs mb-8">
+          A table will be assigned on arrival. Your card hold is released when you check in.
+        </p>
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={() => navigate("/dashboard")}
+            className="w-full bg-black text-white text-xs tracking-widest uppercase py-4 rounded-full hover:bg-gray-800 transition-colors"
+          >
             View My Bookings
           </button>
-          <button onClick={reset} className="btn-outline w-full">
+          <button
+            onClick={reset}
+            className="w-full border border-gray-300 text-gray-700 text-xs tracking-widest uppercase py-4 rounded-full hover:border-black hover:text-black transition-colors"
+          >
             Book Another
           </button>
         </div>
@@ -246,301 +383,138 @@ export default function BookingPage({ embedded = false }) {
     );
   }
 
-  // ── Step indicator ────────────────────────────────────────────────────────
-  const STEPS = ["Date & Time", "Review", "Card Hold"];
-
   return (
-    <div className={`${embedded ? "" : "page-wrapper"} py-10 px-4 max-w-2xl mx-auto`}>
-      <h1 className="font-display text-5xl text-white tracking-wider mb-2 text-center">Book a Slot</h1>
-      <p className="text-slate-500 mb-8 text-center">Choose a date and time — we'll handle the rest.</p>
+    <div className="max-w-2xl mx-auto px-6 py-10">
 
-      {/* Step indicator */}
-      <div className="flex items-center justify-center gap-3 mb-10">
-        {STEPS.map((label, i) => (
-          <div key={i} className="flex items-center gap-3">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-normal transition-colors ${
-              step > i + 1
-                ? "bg-brand-500 text-white"
-                : step === i + 1
-                  ? "bg-brand-500/20 text-brand-400 border border-brand-500"
-                  : "bg-court-light text-slate-500"
-            }`}>
-              {step > i + 1 ? "✓" : i + 1}
-            </div>
-            <span className={`text-sm hidden sm:block ${step === i + 1 ? "text-white font-medium" : "text-slate-500"}`}>
-              {label}
-            </span>
-            {i < STEPS.length - 1 && <div className="h-px w-8 bg-court-light" />}
-          </div>
-        ))}
+      {showPayment && (
+        <PaymentSheet
+          selectedDate={selectedDate}
+          selectedTime={selectedTime}
+          duration={duration}
+          onSuccess={() => { setShowPayment(false); setConfirmed(true); }}
+          onClose={() => setShowPayment(false)}
+        />
+      )}
+
+      {/* ── Duration ─────────────────────────────────────────────────────────── */}
+      <div className="mb-10">
+        <p className="text-xs tracking-widest uppercase text-gray-400 mb-4 text-center">Duration</p>
+        <div className="flex gap-2 justify-center">
+          {DURATIONS.map(d => (
+            <button
+              key={d}
+              onClick={() => { setDuration(d); setSelectedTime(""); }}
+              className={`px-7 py-2.5 rounded-full text-xs tracking-widest uppercase border transition-all ${
+                duration === d
+                  ? "bg-black border-black text-white"
+                  : "border-gray-300 text-gray-600 hover:border-black hover:text-black"
+              }`}
+            >
+              {d} min
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* ── Step 1: Date & Time ──────────────────────────────────────────────── */}
-      {step === 1 && (
-        <div className="space-y-5 animate-fade-in">
-
-          {/* Date picker */}
-          <div className="card">
-            <h2 className="text-sm font-normal text-slate-300 uppercase tracking-wider mb-4 text-center">Select a Date</h2>
-
-            {thisWeekDates.length > 0 && (
-              <div className="mb-5">
-                <p className="text-[11px] text-slate-600 uppercase tracking-widest font-normal mb-2 text-center">This Week</p>
-                <div className="flex gap-2 flex-wrap justify-center">
-                  {thisWeekDates.map(d => {
-                    const iso    = toISO(d);
-                    const active = selectedDate === iso;
-                    return (
-                      <button
-                        key={iso}
-                        onClick={() => { setSelectedDate(iso); setSelectedTime(""); }}
-                        className={`min-w-[72px] px-3 py-2.5 rounded-lg text-xs font-medium border transition-all text-center ${
-                          active
-                            ? "bg-brand-500 border-brand-500 text-white"
-                            : "border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white"
-                        }`}
-                      >
-                        <div className="font-normal">{d.toLocaleDateString("en-AU", { weekday: "short" })}</div>
-                        <div className="opacity-80">{d.toLocaleDateString("en-AU", { day: "numeric", month: "short" })}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {nextWeekDates.length > 0 && (
-              <div>
-                <p className="text-[11px] text-slate-600 uppercase tracking-widest font-normal mb-2 text-center">Next Week</p>
-                <div className="flex gap-2 flex-wrap justify-center">
-                  {nextWeekDates.map(d => {
-                    const iso    = toISO(d);
-                    const active = selectedDate === iso;
-                    return (
-                      <button
-                        key={iso}
-                        onClick={() => { setSelectedDate(iso); setSelectedTime(""); }}
-                        className={`min-w-[72px] px-3 py-2.5 rounded-lg text-xs font-medium border transition-all text-center ${
-                          active
-                            ? "bg-brand-500 border-brand-500 text-white"
-                            : "border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white"
-                        }`}
-                      >
-                        <div className="font-normal">{d.toLocaleDateString("en-AU", { weekday: "short" })}</div>
-                        <div className="opacity-80">{d.toLocaleDateString("en-AU", { day: "numeric", month: "short" })}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Duration + Time (after date is picked) */}
-          {selectedDate && (
-            <div className="card space-y-5">
-
-              {/* Duration */}
-              <div>
-                <h2 className="text-sm font-normal text-slate-300 uppercase tracking-wider mb-3 text-center">Duration</h2>
-                <div className="flex gap-2">
-                  {DURATIONS.map(d => (
-                    <button
-                      key={d}
-                      onClick={() => { setDuration(d); setSelectedTime(""); }}
-                      className={`py-2 px-4 rounded-lg text-sm font-medium border transition-all flex-1 ${
-                        duration === d
-                          ? "bg-brand-500 border-brand-500 text-white"
-                          : "border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white"
-                      }`}
-                    >
-                      {d}min
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Time slots */}
-              <div>
-                <h2 className="text-sm font-normal text-slate-300 uppercase tracking-wider mb-3 text-center">Start Time</h2>
-                {slotsLoading ? (
-                  <p className="text-slate-500 text-sm">Loading availability…</p>
-                ) : (
-                  <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
-                    {timeSlots.map(t => {
-                      const free     = getAvailableCount(t, duration, slotUsage);
-                      const full     = free === 0;
-                      const mine     = isUserBooked(t, duration, userBookedSlots);
-                      const disabled = full || mine;
-                      const active   = selectedTime === t;
-                      return (
-                        <button
-                          key={t}
-                          onClick={() => { if (!disabled) setSelectedTime(t); }}
-                          disabled={disabled}
-                          className={`py-3 rounded-lg border transition-all flex flex-col items-center gap-1 ${
-                            disabled
-                              ? "border-court-light text-slate-600 opacity-40 cursor-not-allowed"
-                              : active
-                                ? "bg-brand-500 border-brand-500 text-white"
-                                : "border-court-light text-slate-400 hover:border-brand-500/50 hover:text-white"
-                          }`}
-                        >
-                          <span className="font-normal text-xs">{fmtTime(t)}</span>
-                          <span className={`text-[10px] ${active ? "text-white/70" : disabled ? "" : "text-emerald-500"}`}>
-                            {mine ? "Yours" : full ? "Full" : "Available"}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Availability banner + continue */}
-          {selectedTime && (
-            <div className={`rounded-xl border px-5 py-4 flex items-center gap-4 ${
-              availableCount > 0
-                ? "bg-emerald-500/5 border-emerald-500/20"
-                : "bg-red-500/5 border-red-500/20"
-            }`}>
-              <div className={`font-display text-4xl font-normal ${availableCount > 0 ? "text-emerald-400" : "text-red-400"}`}>
-                {availableCount}
-              </div>
-              <div>
-                <p className="text-white font-medium text-sm">
-                  {availableCount === 1 ? "table available" : availableCount > 1 ? `of 6 tables available` : "No tables available"}
-                </p>
-                <p className="text-slate-500 text-xs mt-0.5">
-                  {selectedDate} · {fmtTime(selectedTime)} · {duration} min
-                </p>
-              </div>
-              {availableCount > 0 && (
-                <button onClick={() => setStep(2)} className="btn-primary ml-auto shrink-0">
-                  Continue →
-                </button>
-              )}
-            </div>
-          )}
+      {/* ── Date row ─────────────────────────────────────────────────────────── */}
+      <div className="mb-10">
+        <div className="flex items-center justify-center gap-3 mb-4">
+          <p className="text-xs tracking-widest uppercase text-gray-400">Date</p>
+          <button
+            onClick={() => setShowCalendar(v => !v)}
+            className={`text-[10px] tracking-widest uppercase border rounded-full px-3 py-1 transition-colors ${
+              showCalendar
+                ? "border-black text-black"
+                : "border-gray-200 text-gray-400 hover:border-black hover:text-black"
+            }`}
+          >
+            {showCalendar ? "Hide Calendar" : "More Dates"}
+          </button>
         </div>
-      )}
 
-      {/* ── Step 2: Confirm ──────────────────────────────────────────────────── */}
-      {step === 2 && (
-        <div className="card max-w-lg mx-auto space-y-6 animate-fade-in">
-          <h2 className="font-normal text-white">Confirm Your Booking</h2>
-
-          <div className="space-y-0 text-sm">
-            {[
-              ["Date",             selectedDate],
-              ["Time",             fmtTime(selectedTime)],
-              ["Duration",         `${duration} minutes`],
-              ["Tables available", `${availableCount} of 6`],
-            ].map(([label, val]) => (
-              <div key={label} className="flex justify-between py-3 border-b border-court-light last:border-0">
-                <span className="text-slate-500">{label}</span>
-                <span className={`font-medium ${label === "Tables available" ? "text-emerald-400" : "text-white"}`}>{val}</span>
-              </div>
-            ))}
-          </div>
-
-          <p className="text-xs text-slate-600">
-            A table will be assigned for you on arrival.
-          </p>
-
-          {!isAuthenticated ? (
-            <div className="space-y-3">
-              <p className="text-sm text-slate-400 text-center">
-                You need to be signed in to complete your booking.
-              </p>
-              <div className="flex gap-3">
-                <button onClick={() => setStep(1)} className="btn-secondary flex-1">← Back</button>
+        {/* Quick-pick chips (next 14 days) */}
+        {!showCalendar && (
+          <div className="flex gap-2 flex-wrap justify-center">
+            {openDates.map(d => {
+              const iso    = toISO(d);
+              const active = selectedDate === iso;
+              return (
                 <button
-                  onClick={() => navigate("/login", { state: { from: { pathname: "/booking" } } })}
-                  className="btn-primary flex-1"
+                  key={iso}
+                  onClick={() => { setSelectedDate(iso); setSelectedTime(""); }}
+                  className={`shrink-0 min-w-[64px] px-3 py-3 rounded-xl text-xs border transition-all text-center ${
+                    active
+                      ? "bg-black border-black text-white"
+                      : "border-gray-200 text-gray-700 hover:border-black hover:text-black"
+                  }`}
                 >
-                  Sign In to Book
+                  <div>{d.toLocaleDateString("en-AU", { weekday: "short" })}</div>
+                  <div className="opacity-70 mt-0.5">{d.toLocaleDateString("en-AU", { day: "numeric", month: "short" })}</div>
                 </button>
-              </div>
-            </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Full calendar */}
+        {showCalendar && (
+          <CalendarPicker
+            selectedDate={selectedDate}
+            onSelect={iso => { setSelectedDate(iso); setSelectedTime(""); }}
+          />
+        )}
+      </div>
+
+      {/* ── Time slots ───────────────────────────────────────────────────────── */}
+      {selectedDate && (
+        <div className="mb-10">
+          <p className="text-xs tracking-widest uppercase text-gray-400 mb-4 text-center">Start Time</p>
+          {slotsLoading ? (
+            <p className="text-gray-400 text-sm text-center py-6">Loading availability…</p>
           ) : (
-            <div className="flex gap-3">
-              <button onClick={() => setStep(1)} className="btn-secondary flex-1">← Back</button>
-              <button
-                onClick={handleProceedToPayment}
-                disabled={intentLoading}
-                className="btn-primary flex-1"
-              >
-                {intentLoading ? "Loading…" : "Proceed to Payment →"}
-              </button>
+            <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+              {timeSlots.map(t => {
+                const free     = getAvailableCount(t, duration, slotUsage);
+                const full     = free === 0;
+                const mine     = isUserBooked(t, duration, userBookedSlots);
+                const disabled = full || mine;
+                const active   = selectedTime === t;
+                return (
+                  <button
+                    key={t}
+                    onClick={() => { if (!disabled) setSelectedTime(t); }}
+                    disabled={disabled}
+                    className={`py-3 rounded-xl border transition-all flex flex-col items-center gap-0.5 ${
+                      disabled
+                        ? "border-gray-100 text-gray-300 cursor-not-allowed"
+                        : active
+                          ? "bg-black border-black text-white"
+                          : "border-gray-200 text-gray-700 hover:border-black hover:text-black"
+                    }`}
+                  >
+                    <span className="text-xs">{fmtTime(t)}</span>
+                    <span className={`text-[10px] ${
+                      active ? "text-white/60" : disabled ? "text-gray-300" : "text-emerald-500"
+                    }`}>
+                      {mine ? "Yours" : full ? "Full" : `${free} free`}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
       )}
 
-      {/* ── Step 3: Card Hold ────────────────────────────────────────────────── */}
-      {step === 3 && (
-        <div className="card max-w-lg mx-auto space-y-6 animate-fade-in">
-          <h2 className="font-normal text-white">Card Authorization</h2>
-
-          {/* Booking summary */}
-          <div className="bg-court-light/50 rounded-lg px-4 py-3 text-sm space-y-1">
-            <div className="flex justify-between">
-              <span className="text-slate-400">Date</span>
-              <span className="text-white">{selectedDate}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Time</span>
-              <span className="text-white">{fmtTime(selectedTime)} · {duration} min</span>
-            </div>
-            <div className="flex justify-between border-t border-court-light pt-2 mt-2">
-              <span className="text-slate-300 font-medium">Hold amount</span>
-              <span className="text-white font-semibold text-base">
-                AUD ${(amountCents / 100).toFixed(2)}
-              </span>
-            </div>
-          </div>
-
-          {/* No charge notice */}
-          <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3 text-xs text-amber-300 leading-relaxed">
-            Your card will be held but <strong>not charged</strong>. The hold is automatically released when you check in. It is only captured as a no-show fee if you miss your session.
-          </div>
-
-          {/* Stripe card element */}
-          <div>
-            <label className="block text-xs text-slate-400 uppercase tracking-wider mb-2">
-              Card Details
-            </label>
-            <div
-              ref={cardRef}
-              className="bg-court-dark border border-court-light rounded-lg px-4 py-3.5 min-h-[46px]"
-            />
-            {paymentError && (
-              <p className="text-red-400 text-xs mt-2">{paymentError}</p>
-            )}
-          </div>
-
-          <p className="text-[11px] text-slate-600 flex items-center gap-1.5">
-            <svg className="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-            </svg>
-            Secured by Stripe. Your card details are never stored on our servers.
-          </p>
-
-          <div className="flex gap-3">
-            <button onClick={() => setStep(2)} className="btn-secondary flex-1" disabled={payingNow}>
-              ← Back
-            </button>
-            <button
-              onClick={handlePay}
-              disabled={payingNow || !cardElement}
-              className="btn-primary flex-1"
-            >
-              {payingNow ? "Processing…" : "Authorize Card"}
-            </button>
-          </div>
+      {/* ── Book Button ──────────────────────────────────────────────────────── */}
+      {canBook && (
+        <div className="mt-2">
+          <button
+            onClick={handleBook}
+            className="w-full bg-black text-white text-xs tracking-widest uppercase py-4 rounded-full hover:bg-gray-800 transition-colors"
+          >
+            Book &nbsp;·&nbsp; {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" })} &nbsp;·&nbsp; {fmtTime(selectedTime)} &nbsp;·&nbsp; {duration} min
+          </button>
         </div>
       )}
     </div>

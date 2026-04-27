@@ -16,22 +16,16 @@ const DEFAULT_NAV_LINKS = [
   { to: "/news",      label: "News"     },
 ];
 
-// ── Club Logo (ping-pong paddle + ball) ───────────────────────────────────
-function ClubLogo({ solid }) {
-  const color = solid ? "#000" : "#fff"
+// ── Club Logo ─────────────────────────────────────────────────────────────
+function ClubLogo() {
   return (
-    <svg width="38" height="38" viewBox="0 0 38 38" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Club logo">
-      {/* Paddle head */}
-      <ellipse cx="16" cy="16" rx="12.5" ry="12.5" fill={color} />
-      {/* Rubber surface accent */}
-      <ellipse cx="16" cy="16" rx="8.5" ry="8.5" fill={solid ? "#fff" : "#000"} opacity="0.15" />
-      {/* Handle */}
-      <rect x="13.5" y="27.5" width="5" height="9" rx="2.5" fill={color} />
-      {/* Ball */}
-      <circle cx="32" cy="7" r="5" stroke={color} strokeWidth="2" />
-      {/* Ball spin arc */}
-      <path d="M28.5 5.5 Q32 3.5 35.5 5.5" stroke={color} strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
+    <div className="w-12 h-12 rounded-full overflow-hidden shrink-0">
+      <img
+        src="/images/logo.jpg"
+        alt="Epping Table Tennis Club"
+        className="w-full h-full object-cover"
+      />
+    </div>
   )
 }
 
@@ -452,9 +446,9 @@ export default function Navbar() {
           <div className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap">
             {isEditing ? (
               <>
-                {/* Mobile: logo only */}
+                {/* Mobile: circular logo */}
                 <span className="sm:hidden flex items-center justify-center">
-                  <ClubLogo solid={solid} />
+                  <ClubLogo />
                 </span>
                 {/* Desktop: editable text */}
                 <EditableText
@@ -465,13 +459,10 @@ export default function Navbar() {
                 />
               </>
             ) : (
-              <Link
-                to="/"
-                onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-              >
-                {/* Mobile: logo only */}
+              <Link to="/" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+                {/* Mobile: circular logo */}
                 <span className="sm:hidden flex items-center justify-center">
-                  <ClubLogo solid={solid} />
+                  <ClubLogo />
                 </span>
                 {/* Desktop: text */}
                 <span className={`hidden sm:inline font-display text-xl font-normal tracking-[0.25em] uppercase leading-none transition-colors duration-300 ${solid ? "text-black" : "text-white"}`}>

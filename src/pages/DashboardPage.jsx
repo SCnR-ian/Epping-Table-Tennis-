@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { coachingAPI, socialAPI, checkinAPI } from '@/api/api'
+import { coachingAPI, socialAPI, checkinAPI, bookingsAPI } from '@/api/api'
 import QrScanModal from '@/components/QrScanModal'
 
 const REVIEW_SKILLS = [
@@ -92,6 +92,7 @@ const EVENT_STYLES = {
   student: { bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700' },
   coach:   { bg: 'bg-sky-50 border-sky-200',         text: 'text-sky-700'     },
   social:  { bg: 'bg-violet-50 border-violet-200',   text: 'text-violet-700'  },
+  booking: { bg: 'bg-orange-50 border-orange-200',   text: 'text-orange-700'  },
 }
 
 export default function DashboardPage() {
@@ -99,7 +100,10 @@ export default function DashboardPage() {
   const [coachingSessions, setCoachingSessions] = useState([])
   const [coachSessions,    setCoachSessions]    = useState([])
   const [socialSessions,   setSocialSessions]   = useState([])
+  const [tableBookings,    setTableBookings]    = useState([])
   const [checkedIn,        setCheckedIn]        = useState(new Set())
+  const [selectedEvent,    setSelectedEvent]    = useState(null) // { type, data }
+  const [cancelling,       setCancelling]       = useState(false)
   const [hoursBalance,     setHoursBalance]     = useState(null)
   const [loadingData,      setLoadingData]      = useState(false)
   const [myReviews,       setMyReviews]       = useState([])
@@ -141,8 +145,9 @@ export default function DashboardPage() {
       user?.id ? coachingAPI.getHoursBalance(user.id) : Promise.resolve(null),
       coachingAPI.getMyReviews(),
       coachingAPI.getMyHistory(),
+      bookingsAPI.getMyBookings(),
     ])
-      .then(([coachingRes, coachRes, socialRes, checkinRes, hoursRes, myReviewsRes, myHistoryRes]) => {
+      .then(([coachingRes, coachRes, socialRes, checkinRes, hoursRes, myReviewsRes, myHistoryRes, bookingsRes]) => {
         if (cancelled) return
         if (coachingRes.status === 'fulfilled')
           setCoachingSessions(coachingRes.value.data.sessions)
@@ -150,6 +155,8 @@ export default function DashboardPage() {
           setCoachSessions(coachRes.value.data.sessions)
         if (socialRes.status === 'fulfilled')
           setSocialSessions(socialRes.value.data.sessions.filter(s => s.joined))
+        if (bookingsRes.status === 'fulfilled')
+          setTableBookings(bookingsRes.value.data.bookings.filter(b => b.status !== 'cancelled'))
         if (checkinRes.status === 'fulfilled')
           setCheckedIn(new Set(
             checkinRes.value.data.checkIns.map(ci => `${ci.type}:${ci.reference_id}`)
@@ -172,6 +179,7 @@ export default function DashboardPage() {
       ...coachingSessions.map(s => s.date?.slice(0, 10)),
       ...coachSessions.map(s => s.date?.slice(0, 10)),
       ...socialSessions.map(s => s.date?.slice(0, 10)),
+      ...tableBookings.map(b => b.date?.slice(0, 10)),
     ].filter(d => d && d >= today).sort()
     if (!dates.length) return
     const nearest = dates[0]
@@ -180,7 +188,7 @@ export default function DashboardPage() {
       setSelectedWeek(idx)
       autoJumped.current = true
     }
-  }, [coachingSessions, coachSessions, socialSessions, weeks])
+  }, [coachingSessions, coachSessions, socialSessions, tableBookings, weeks])
 
   const currentWeekDates = weeks[selectedWeek] ?? weeks[0]
   const todayISO         = toISO(new Date())
@@ -218,7 +226,32 @@ export default function DashboardPage() {
     socialSessions
       .filter(s => s.date?.slice(0, 10) === dateISO)
       .forEach(s => events.push({ id: `sp-${s.id}`, type: 'social', data: s }))
+    tableBookings
+      .filter(b => b.date?.slice(0, 10) === dateISO)
+      .forEach(b => events.push({ id: `tb-${b.booking_group_id}`, type: 'booking', data: b }))
     return events
+  }
+
+  async function handleCancelBooking(groupId) {
+    setCancelling(true)
+    try {
+      await bookingsAPI.cancelGroup(groupId)
+      setTableBookings(prev => prev.filter(b => b.booking_group_id !== groupId))
+      setSelectedEvent(null)
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not cancel booking.')
+    } finally { setCancelling(false) }
+  }
+
+  async function handleLeaveSession(sessionId) {
+    setCancelling(true)
+    try {
+      await socialAPI.leave(sessionId)
+      setSocialSessions(prev => prev.filter(s => s.id !== sessionId))
+      setSelectedEvent(null)
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not cancel spot.')
+    } finally { setCancelling(false) }
   }
 
   return (
@@ -281,33 +314,102 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Upcoming Sessions (student view) */}
-          {coachingSessions.length > 0 && (
-            <div className="border border-gray-300 rounded-xl p-6">
-              <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 mb-4">Upcoming Sessions</p>
-              <div className="divide-y divide-gray-200">
-                {(showAllUpcoming ? coachingSessions : coachingSessions.slice(0, 3)).map(s => {
-                  const dateStr = s.date ? new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{ weekday:'short', day:'numeric', month:'short' }) : ''
-                  const timeStr = `${fmtTime(s.start_time)}–${fmtTime(s.end_time)}`
-                  return (
-                    <div key={s.id} className="py-2.5 first:pt-0 last:pb-0">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm text-gray-900">{dateStr} · w/ {s.coach_name}</p>
-                          <p className="text-xs text-gray-500">{timeStr}</p>
+          {/* Today */}
+          {(() => {
+            const todayEvents = [
+              ...coachingSessions.filter(s => s.date?.slice(0,10) === todayISO)
+                .map(s => ({ key: `cs-${s.id}`, type: 'coaching', label: `w/ ${s.coach_name}`, start: s.start_time, end: s.end_time, dot: 'bg-emerald-400' })),
+              ...socialSessions.filter(s => s.date?.slice(0,10) === todayISO)
+                .map(s => ({ key: `sp-${s.id}`, type: 'social', label: s.title || 'Social Play', start: s.start_time, end: s.end_time, dot: 'bg-violet-400', data: s })),
+              ...tableBookings.filter(b => b.date?.slice(0,10) === todayISO)
+                .map(b => ({ key: `tb-${b.booking_group_id}`, type: 'booking', label: 'Table Booking', start: b.start_time, end: b.end_time, dot: 'bg-orange-400', data: b })),
+            ].sort((a, b) => a.start.localeCompare(b.start))
+
+            if (!todayEvents.length) return null
+            return (
+              <div className="border border-gray-300 rounded-xl overflow-hidden">
+                <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 px-5 pt-5 pb-3">Today</p>
+                <div className="divide-y divide-gray-100">
+                  {todayEvents.map(ev => {
+                    const clickable = ev.type === 'booking' || ev.type === 'social'
+                    return (
+                      <div
+                        key={ev.key}
+                        onClick={() => clickable && setSelectedEvent({ type: ev.type, data: ev.data })}
+                        className={`flex items-center gap-3 px-5 py-3.5 ${clickable ? 'cursor-pointer hover:bg-gray-50' : ''}`}
+                      >
+                        <div className={`w-2 h-2 rounded-full shrink-0 ${ev.dot}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-900">{ev.label}</p>
+                          {ev.type === 'booking' && (
+                            <p className="text-[11px] text-orange-500 mt-0.5">Card hold released on check-in</p>
+                          )}
                         </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-xs text-gray-500">{fmtTime(ev.start)}</p>
+                          <p className="text-[11px] text-gray-400">{fmtTime(ev.end)}</p>
+                        </div>
+                        {clickable && (
+                          <svg className="w-4 h-4 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
+                          </svg>
+                        )}
                       </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
               </div>
-              {coachingSessions.length > 3 && (
-                <button onClick={() => setShowAllUpcoming(o => !o)} className="mt-3 w-full text-xs text-gray-500 hover:text-black">
-                  {showAllUpcoming ? 'Show less' : `Show all (${coachingSessions.length})`}
-                </button>
-              )}
-            </div>
-          )}
+            )
+          })()}
+
+          {/* Upcoming */}
+          {(() => {
+            const allUpcoming = [
+              ...coachingSessions.filter(s => s.date?.slice(0,10) > todayISO)
+                .map(s => ({ key: `cs-${s.id}`, type: 'coaching', label: `w/ ${s.coach_name}`, date: s.date, start: s.start_time, end: s.end_time, dot: 'bg-emerald-400' })),
+              ...socialSessions.filter(s => s.date?.slice(0,10) > todayISO)
+                .map(s => ({ key: `sp-${s.id}`, type: 'social', label: s.title || 'Social Play', date: s.date, start: s.start_time, end: s.end_time, dot: 'bg-violet-400', data: s })),
+              ...tableBookings.filter(b => b.date?.slice(0,10) > todayISO)
+                .map(b => ({ key: `tb-${b.booking_group_id}`, type: 'booking', label: 'Table Booking', date: b.date, start: b.start_time, end: b.end_time, dot: 'bg-orange-400', data: b })),
+            ].sort((a, b) => a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date))
+
+            if (!allUpcoming.length) return null
+            const visible = showAllUpcoming ? allUpcoming : allUpcoming.slice(0, 5)
+            return (
+              <div className="border border-gray-300 rounded-xl overflow-hidden">
+                <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 px-5 pt-5 pb-3">Upcoming</p>
+                <div className="divide-y divide-gray-100">
+                  {visible.map(ev => {
+                    const dateStr = new Date(ev.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{ weekday:'short', day:'numeric', month:'short' })
+                    const clickable = ev.type === 'booking' || ev.type === 'social'
+                    return (
+                      <div
+                        key={ev.key}
+                        onClick={() => clickable && setSelectedEvent({ type: ev.type, data: ev.data })}
+                        className={`flex items-center gap-3 px-5 py-3.5 ${clickable ? 'cursor-pointer hover:bg-gray-50' : ''}`}
+                      >
+                        <div className={`w-2 h-2 rounded-full shrink-0 ${ev.dot}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-900 truncate">{dateStr} · {ev.label}</p>
+                          <p className="text-xs text-gray-400">{fmtTime(ev.start)} – {fmtTime(ev.end)}</p>
+                        </div>
+                        {clickable && (
+                          <svg className="w-4 h-4 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
+                          </svg>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+                {allUpcoming.length > 5 && (
+                  <button onClick={() => setShowAllUpcoming(o => !o)} className="w-full text-xs text-gray-500 hover:text-black py-3 border-t border-gray-100">
+                    {showAllUpcoming ? 'Show less' : `Show all (${allUpcoming.length})`}
+                  </button>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Attendance History (student view) */}
           {myAttendance.length > 0 && (
@@ -577,6 +679,7 @@ export default function DashboardPage() {
                 return coachingSessions.some(s => s.date?.slice(0, 10) === iso)
                   || coachSessions.some(s => s.date?.slice(0, 10) === iso)
                   || socialSessions.some(s => s.date?.slice(0, 10) === iso)
+                  || tableBookings.some(b => b.date?.slice(0, 10) === iso)
               })
               return (
                 <button
@@ -642,9 +745,16 @@ export default function DashboardPage() {
                       const top       = (startMins - CAL_START) / 30 * ROW_H
                       const height    = Math.max((endMins - startMins) / 30 * ROW_H - 2, 18)
                       const { bg, text } = EVENT_STYLES[type]
-                      const title = type === 'student' ? `w/ ${data.coach_name}` : type === 'coach' ? `→ ${data.student_name}` : data.title || 'Social Play'
+                      const title = type === 'student' ? `w/ ${data.coach_name}` : type === 'coach' ? `→ ${data.student_name}` : type === 'booking' ? 'Table Booking' : data.title || 'Social Play'
+                      const clickable = type === 'booking' || type === 'social'
                       return (
-                        <div key={id} className={`absolute left-0.5 right-0.5 border ${bg} ${text} text-xs leading-tight overflow-hidden`} style={{ top: top + 1, height }} title={`${title} · ${fmtTime(data.start_time)}–${fmtTime(data.end_time)}`}>
+                        <div
+                          key={id}
+                          onClick={() => clickable && setSelectedEvent({ type, data })}
+                          className={`absolute left-0.5 right-0.5 border ${bg} ${text} text-xs leading-tight overflow-hidden ${clickable ? 'cursor-pointer hover:brightness-95' : ''}`}
+                          style={{ top: top + 1, height }}
+                          title={`${title} · ${fmtTime(data.start_time)}–${fmtTime(data.end_time)}`}
+                        >
                           <div className="p-1 h-full flex flex-col justify-between">
                             <p className="font-normal truncate">{title}</p>
                             {height > 38 && <p className="opacity-60 truncate">{fmtTime(data.start_time)}</p>}
@@ -659,11 +769,12 @@ export default function DashboardPage() {
           </div>
 
           {/* Legend */}
-          <div className="flex gap-6 mt-3">
+          <div className="flex gap-4 flex-wrap mt-3">
             {[
               { label: 'Coaching Session', color: 'bg-emerald-200' },
               { label: 'Teaching Session', color: 'bg-sky-200' },
               { label: 'Social Play',      color: 'bg-violet-200' },
+              { label: 'Table Booking',    color: 'bg-orange-200' },
             ].map(({ label, color }) => (
               <div key={label} className="flex items-center gap-1.5">
                 <div className={`w-2.5 h-2.5 ${color}`} />
@@ -676,6 +787,73 @@ export default function DashboardPage() {
       )}
 
     </div>
+
+    {/* ── Event Detail Popup ──────────────────────────────────────────────── */}
+    {selectedEvent && (() => {
+      const { type, data } = selectedEvent
+      const isPast = data.date?.slice(0, 10) < todayISO
+      const dateStr = data.date ? new Date(data.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{ weekday:'long', day:'numeric', month:'long' }) : ''
+      const timeStr = `${fmtTime(data.start_time)} – ${fmtTime(data.end_time)}`
+
+      return (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setSelectedEvent(null) }}>
+          <div className="bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-6 space-y-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-black font-normal">
+                  {type === 'booking' ? 'Table Booking' : data.title || 'Social Play'}
+                </p>
+                <p className="text-gray-500 text-xs mt-0.5">{dateStr}</p>
+              </div>
+              <button onClick={() => setSelectedEvent(null)} className="text-gray-400 hover:text-black text-xl leading-none">×</button>
+            </div>
+
+            <div className="border border-gray-100 rounded-xl overflow-hidden text-sm">
+              {[
+                ['Time',   timeStr],
+                ...(type === 'booking' ? [['Status', data.status === 'confirmed' ? 'Confirmed' : data.status]] : []),
+                ...(type === 'social'  ? [['Spots',  data.participant_count != null ? `${data.participant_count} joined` : '']] : []),
+              ].filter(([,v]) => v).map(([label, val]) => (
+                <div key={label} className="flex justify-between px-4 py-2.5 border-b border-gray-100 last:border-0">
+                  <span className="text-xs tracking-widest uppercase text-gray-400">{label}</span>
+                  <span className="text-black">{val}</span>
+                </div>
+              ))}
+            </div>
+
+            {!isPast && (
+              type === 'booking' ? (
+                <button
+                  onClick={() => {
+                    if (!window.confirm('Cancel this booking? Your card hold will be released.')) return
+                    handleCancelBooking(data.booking_group_id)
+                  }}
+                  disabled={cancelling}
+                  className="w-full border border-red-200 text-red-600 text-xs tracking-widest uppercase py-3 rounded-full hover:bg-red-50 disabled:opacity-50 transition-colors"
+                >
+                  {cancelling ? 'Cancelling…' : 'Cancel Booking'}
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    if (!window.confirm('Cancel your spot? Cancellations must be made at least 24 hours before the session.')) return
+                    handleLeaveSession(data.id)
+                  }}
+                  disabled={cancelling}
+                  className="w-full border border-red-200 text-red-600 text-xs tracking-widest uppercase py-3 rounded-full hover:bg-red-50 disabled:opacity-50 transition-colors"
+                >
+                  {cancelling ? 'Cancelling…' : 'Cancel Spot'}
+                </button>
+              )
+            )}
+
+            {isPast && (
+              <p className="text-center text-xs text-gray-400">This session has already passed.</p>
+            )}
+          </div>
+        </div>
+      )
+    })()}
 
     {/* ── Student Rating Modal ─────────────────────────────────────────────── */}
     {ratingModal && (
