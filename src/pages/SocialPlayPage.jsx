@@ -32,7 +32,9 @@ function CardAuthModal({ session, onSuccess, onClose }) {
   // Mount Stripe card element once we have the clientSecret
   useEffect(() => {
     if (!clientSecret || cardElement) return;
-    const stripe = window.Stripe?.(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
+    const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+    if (!stripeKey) { setPaymentError("Stripe is not configured (missing VITE_STRIPE_PUBLISHABLE_KEY)."); return; }
+    const stripe = window.Stripe?.(stripeKey);
     if (!stripe) { setPaymentError("Payment system failed to load."); return; }
     setStripeInstance(stripe);
     const elements = stripe.elements();
@@ -179,11 +181,12 @@ export default function SocialPlayPage({ embedded = false }) {
   };
 
   const handleLeave = async (id) => {
+    if (!window.confirm("Are you sure you want to cancel your spot? Cancellations must be made at least 24 hours before the session.")) return;
     try {
       await socialAPI.leave(id);
       await fetchSessions();
-    } catch {
-      alert("Could not leave session.");
+    } catch (err) {
+      alert(err.response?.data?.message ?? "Could not leave session.");
     }
   };
 

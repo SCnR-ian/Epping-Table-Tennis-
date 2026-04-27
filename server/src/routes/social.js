@@ -5,6 +5,21 @@ const crypto = require('crypto')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
 const { checkOpenHours } = require('../utils/scheduleCheck')
 
+// Send a notification message to the club admin (fire-and-forget)
+async function notifyAdmin(pool, clubId, fromUserId, body) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id FROM users WHERE role='admin' AND club_id=$1 LIMIT 1`,
+      [clubId]
+    )
+    if (!rows[0]) return
+    await pool.query(
+      `INSERT INTO messages (sender_id, recipient_id, body, club_id) VALUES ($1,$2,$3,$4)`,
+      [fromUserId, rows[0].id, body, clubId]
+    )
+  } catch {}
+}
+
 // Reads JWT if present but never rejects — optional auth
 function softAuth(req) {
   try {
@@ -407,6 +422,12 @@ router.post('/:id/join', requireAuth, async (req, res) => {
       [req.params.id, req.user.id]
     )
     await client.query('COMMIT')
+
+    // Notify admin
+    const sessionTitle = rows[0].title || 'Social Play'
+    notifyAdmin(pool, clubId, req.user.id,
+      `📋 ${req.user.name} joined "${sessionTitle}" on ${rows[0].date}`)
+
     res.status(201).json({ message: 'Joined.' })
   } catch (err) {
     await client.query('ROLLBACK')
@@ -419,12 +440,40 @@ router.post('/:id/join', requireAuth, async (req, res) => {
 
 // DELETE /api/social/:id/join
 router.delete('/:id/join', requireAuth, async (req, res) => {
+  const clubId = req.club?.id ?? 1
   try {
-    const { rowCount } = await pool.query(
-      'DELETE FROM social_play_participants WHERE session_id=$1 AND user_id=$2',
+    // Check session exists and enforce 24h cancellation window
+    const { rows: sessionRows } = await pool.query(
+      `SELECT title, date, start_time FROM social_play_sessions
+       WHERE id=$1 AND status='open' AND club_id=$2`,
+      [req.params.id, clubId]
+    )
+    if (!sessionRows[0]) return res.status(404).json({ message: 'Session not found.' })
+
+    const sessionStart = new Date(`${sessionRows[0].date}T${sessionRows[0].start_time}`)
+    const hoursUntil = (sessionStart - Date.now()) / 3_600_000
+    if (hoursUntil < 24)
+      return res.status(409).json({ message: 'Cancellations must be made at least 24 hours before the session.' })
+
+    const { rows, rowCount } = await pool.query(
+      'DELETE FROM social_play_participants WHERE session_id=$1 AND user_id=$2 RETURNING payment_intent_id',
       [req.params.id, req.user.id]
     )
     if (rowCount === 0) return res.status(404).json({ message: 'Not a participant.' })
+
+    // Void the card hold if one exists
+    const intentId = rows[0]?.payment_intent_id
+    if (intentId && process.env.STRIPE_SECRET_KEY) {
+      try {
+        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
+        await stripe.paymentIntents.cancel(intentId).catch(() => {})
+      } catch {}
+    }
+
+    // Notify admin
+    notifyAdmin(pool, clubId, req.user.id,
+      `❌ ${req.user.name} cancelled their spot in "${sessionRows[0].title || 'Social Play'}" on ${sessionRows[0].date}`)
+
     res.json({ message: 'Left session.' })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })

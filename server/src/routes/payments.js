@@ -289,7 +289,7 @@ router.post('/confirm-authorize', requireAuth, async (req, res) => {
     } else if (type === 'social') {
       // Check not already joined
       const { rows: existing } = await client.query(
-        'SELECT id FROM social_play_participants WHERE session_id=$1 AND user_id=$2',
+        'SELECT 1 FROM social_play_participants WHERE session_id=$1 AND user_id=$2',
         [session_id, req.user.id]
       )
       if (existing.length) {
@@ -302,6 +302,19 @@ router.post('/confirm-authorize', requireAuth, async (req, res) => {
         [session_id, req.user.id, intentId]
       )
       await client.query('COMMIT')
+
+      // Notify admin (fire-and-forget)
+      Promise.all([
+        pool.query(`SELECT id FROM users WHERE role='admin' AND club_id=$1 LIMIT 1`, [clubId]),
+        pool.query(`SELECT title, date FROM social_play_sessions WHERE id=$1`, [session_id]),
+      ]).then(([{ rows: [admin] }, { rows: [s] }]) => {
+        if (!admin || !s) return
+        pool.query(
+          `INSERT INTO messages (sender_id, recipient_id, body, club_id) VALUES ($1,$2,$3,$4)`,
+          [req.user.id, admin.id, `📋 ${req.user.name} joined "${s.title || 'Social Play'}" on ${s.date}`, clubId]
+        ).catch(() => {})
+      }).catch(() => {})
+
       res.status(201).json({ message: 'Joined session. Card authorized.' })
     }
 
