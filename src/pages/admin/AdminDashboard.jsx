@@ -1435,6 +1435,8 @@ const [sessionForm,      setSessionForm]      = useState({
   const [calendarReschedule, setCalendarReschedule] = useState(null) // { type:'solo'|'group', ev, newDate, saving }
   const [socialCalendarEdit, setSocialCalendarEdit] = useState(null) // { id, title, num_courts, max_players, date, start_time, end_time, saving }
   const [expandedSeriesIds, setExpandedSeriesIds] = useState(new Set())
+  const [editingSeries, setEditingSeries] = useState(null) // { rid, title, start_time, end_time, max_players, saving }
+  const [managingSession, setManagingSession] = useState(null) // session id with open participant panel
   // { [sessionId]: { query: '', userId: '' } } — add-member state per session
   const [addingMember, setAddingMember] = useState({})
   const [editingMember, setEditingMember] = useState(null) // { id, name, email }
@@ -1959,6 +1961,29 @@ const [sessionForm,      setSessionForm]      = useState({
       setEditingSocial(prev => { const n = { ...prev }; delete n[id]; return n })
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not update session.')
+    }
+  }
+
+  const handleSaveSeriesEdit = async () => {
+    if (!editingSeries) return
+    setEditingSeries(prev => ({ ...prev, saving: true }))
+    try {
+      await socialAPI.updateSeries(editingSeries.rid, {
+        title:       editingSeries.title,
+        start_time:  editingSeries.start_time,
+        end_time:    editingSeries.end_time,
+        max_players: Number(editingSeries.max_players),
+      })
+      // Refresh all sessions in this series from local state
+      setSocialSessions(prev => prev.map(s =>
+        s.recurrence_id === editingSeries.rid
+          ? { ...s, title: editingSeries.title, start_time: editingSeries.start_time, end_time: editingSeries.end_time, max_players: Number(editingSeries.max_players) }
+          : s
+      ))
+      setEditingSeries(null)
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not update series.')
+      setEditingSeries(prev => ({ ...prev, saving: false }))
     }
   }
 
@@ -5159,8 +5184,8 @@ const [sessionForm,      setSessionForm]      = useState({
               }
             }
 
-            // Render a single session card (used for standalone + expanded series rows)
-            const SessionCard = ({ s, compact = false }) => {
+            // Standalone card (used for non-recurring sessions)
+            const SessionCard = ({ s }) => {
               const e = editingSocial[s.id]
               const setField = (field, val) => setEditingSocial(prev => ({ ...prev, [s.id]: { ...prev[s.id], [field]: val } }))
               const closeEdit = () => setEditingSocial(prev => { const n = { ...prev }; delete n[s.id]; return n })
@@ -5169,21 +5194,23 @@ const [sessionForm,      setSessionForm]      = useState({
               const suggestions = picker.query.length > 0
                 ? members.filter(m => !existingIds.has(m.id) && !m.is_walkin && m.name.toLowerCase().includes(picker.query.toLowerCase())).slice(0, 6)
                 : []
+              const isManaging = managingSession === s.id
+              const filled = s.online_count ?? s.participant_count
 
               return (
-                <div className={`${compact ? 'border-t border-gray-100 pt-3 mt-3' : 'card'} flex flex-col gap-3`}>
+                <div className="card flex flex-col gap-3">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      {!compact && <p className="text-gray-900 text-base">{s.title}</p>}
-                      <p className={`text-xs text-gray-800 font-medium ${!compact ? 'mt-0.5' : ''}`}>
+                      <p className="text-gray-900 text-base">{s.title}</p>
+                      <p className="text-xs text-gray-800 font-medium mt-0.5">
                         {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
                         {' · '}{fmtTime(s.start_time)}–{fmtTime(s.end_time)}
                         {' · '}{s.num_courts} court{s.num_courts !== 1 ? 's' : ''}
                       </p>
-                      {!compact && s.description && <p className="text-sm text-gray-800 mt-1">{s.description}</p>}
+                      {s.description && <p className="text-sm text-gray-800 mt-1">{s.description}</p>}
                     </div>
                     <div className="flex items-center gap-3 flex-shrink-0">
-                      <span className="text-xs text-gray-500">{s.online_count ?? s.participant_count}/{s.max_players}</span>
+                      <span className="text-xs text-gray-500">{filled}/{s.max_players}</span>
                       <button
                         onClick={() => setEditingSocial(prev => ({ ...prev, [s.id]: { title: s.title, date: s.date, start_time: s.start_time.slice(0,5), end_time: s.end_time.slice(0,5), max_players: s.max_players } }))}
                         className="text-xs text-sky-500 hover:text-sky-400"
@@ -5192,7 +5219,6 @@ const [sessionForm,      setSessionForm]      = useState({
                     </div>
                   </div>
 
-                  {/* Edit form */}
                   {e && (
                     <div className="bg-gray-50 rounded-xl p-3 space-y-2 text-xs">
                       <input type="text" className="input py-1 px-2 text-sm w-full" placeholder="Session name"
@@ -5218,51 +5244,181 @@ const [sessionForm,      setSessionForm]      = useState({
                     </div>
                   )}
 
-                  {/* Participant bar + management */}
                   <div>
                     <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mb-2">
                       <div
-                        className={`h-full rounded-full ${(s.online_count ?? s.participant_count) / s.max_players >= 0.9 ? 'bg-red-500' : 'bg-brand-500'}`}
-                        style={{ width: `${Math.min(Math.round((s.online_count ?? s.participant_count) / s.max_players * 100), 100)}%` }}
+                        className={`h-full rounded-full ${filled / s.max_players >= 0.9 ? 'bg-red-500' : 'bg-brand-500'}`}
+                        style={{ width: `${Math.min(Math.round(filled / s.max_players * 100), 100)}%` }}
                       />
                     </div>
                     {s.walkin_count > 0 && <p className="text-xs text-gray-400 mb-1">{s.walkin_count} walk-in</p>}
-                    {/* Add member */}
-                    {s.participant_count < s.max_players && (
-                      <div className="mt-1 relative">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="text" placeholder="Type name to add…" className="input text-xs py-1 px-2 flex-1"
-                            value={picker.query}
-                            onChange={ev => setAddingMember(prev => ({ ...prev, [s.id]: { query: ev.target.value, userId: '' } }))}
-                          />
-                          {picker.userId && (
-                            <button onClick={() => handleSocialAddMember(s.id, picker.userId)} className="text-xs text-emerald-400 font-medium whitespace-nowrap">Add</button>
-                          )}
-                          <button onClick={() => handleSocialAddWalkin(s.id)} className="text-xs text-gray-800 hover:text-gray-900 font-medium whitespace-nowrap border border-slate-600 hover:border-slate-400 rounded px-2 py-1 transition-colors">+ Walk-in</button>
-                        </div>
-                        {suggestions.length > 0 && (
-                          <div className="absolute z-10 left-0 right-0 mt-1 bg-gray-100 border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-                            {suggestions.map(m => (
-                              <button key={m.id} className="w-full text-left px-3 py-2 text-xs text-gray-800 hover:bg-gray-200 transition-colors"
-                                onClick={() => setAddingMember(prev => ({ ...prev, [s.id]: { query: m.name, userId: m.id } }))}
-                              >{m.name}</button>
+                    <button onClick={() => setManagingSession(prev => prev === s.id ? null : s.id)} className="text-xs text-sky-500 hover:text-sky-400 mb-2">
+                      {isManaging ? 'Hide participants ▲' : `Manage participants (${filled}) ▼`}
+                    </button>
+                    {isManaging && (
+                      <div className="space-y-2">
+                        {s.participant_count < s.max_players && (
+                          <div className="relative">
+                            <div className="flex items-center gap-2">
+                              <input type="text" placeholder="Type name to add…" className="input text-xs py-1 px-2 flex-1"
+                                value={picker.query}
+                                onChange={ev => setAddingMember(prev => ({ ...prev, [s.id]: { query: ev.target.value, userId: '' } }))}
+                              />
+                              {picker.userId && <button onClick={() => handleSocialAddMember(s.id, picker.userId)} className="text-xs text-emerald-400 font-medium whitespace-nowrap">Add</button>}
+                              <button onClick={() => handleSocialAddWalkin(s.id)} className="text-xs text-gray-800 font-medium whitespace-nowrap border border-slate-600 hover:border-slate-400 rounded px-2 py-1 transition-colors">+ Walk-in</button>
+                            </div>
+                            {suggestions.length > 0 && (
+                              <div className="absolute z-10 left-0 right-0 mt-1 bg-gray-100 border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                                {suggestions.map(m => (
+                                  <button key={m.id} className="w-full text-left px-3 py-2 text-xs text-gray-800 hover:bg-gray-200 transition-colors"
+                                    onClick={() => setAddingMember(prev => ({ ...prev, [s.id]: { query: m.name, userId: m.id } }))}
+                                  >{m.name}</button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {s.participants.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {s.participants.map(p => (
+                              <span key={p.id} className={`text-xs rounded-full px-2.5 py-0.5 flex items-center gap-1 ${p.is_walkin ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-gray-100 text-gray-800'}`}>
+                                {p.name}
+                                <button onClick={() => handleSocialRemoveMember(s.id, p.id)} className="text-gray-800 hover:text-red-400 transition-colors leading-none">×</button>
+                              </span>
                             ))}
                           </div>
                         )}
                       </div>
                     )}
-                    {s.participants.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {s.participants.map(p => (
-                          <span key={p.id} className={`text-xs rounded-full px-2.5 py-0.5 flex items-center gap-1 ${p.is_walkin ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-gray-100 text-gray-800'}`}>
-                            {p.name}
-                            <button onClick={() => handleSocialRemoveMember(s.id, p.id)} className="text-gray-800 hover:text-red-400 transition-colors leading-none">×</button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
                   </div>
+                </div>
+              )
+            }
+
+            // Compact row inside an expanded series (table-style)
+            const SeriesRow = ({ s }) => {
+              const e = editingSocial[s.id]
+              const setField = (field, val) => setEditingSocial(prev => ({ ...prev, [s.id]: { ...prev[s.id], [field]: val } }))
+              const closeEdit = () => setEditingSocial(prev => { const n = { ...prev }; delete n[s.id]; return n })
+              const picker = addingMember[s.id] ?? { query: '', userId: '' }
+              const existingIds = new Set(s.participants.map(p => p.id))
+              const suggestions = picker.query.length > 0
+                ? members.filter(m => !existingIds.has(m.id) && !m.is_walkin && m.name.toLowerCase().includes(picker.query.toLowerCase())).slice(0, 6)
+                : []
+              const isManaging = managingSession === s.id
+              const filled = s.online_count ?? s.participant_count
+              const pct = Math.min(Math.round(filled / s.max_players * 100), 100)
+
+              return (
+                <div className="border-b border-gray-100 last:border-0">
+                  {/* Main row */}
+                  <div className="flex items-center gap-4 py-3 px-1">
+                    {/* Date */}
+                    <div className="w-28 flex-shrink-0">
+                      <p className="text-xs font-medium text-gray-900">
+                        {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
+                      </p>
+                    </div>
+                    {/* Time */}
+                    <div className="w-36 flex-shrink-0 text-xs text-gray-600">
+                      {fmtTime(s.start_time)}–{fmtTime(s.end_time)}
+                    </div>
+                    {/* Capacity */}
+                    <div className="w-28 flex-shrink-0">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${pct >= 90 ? 'bg-red-500' : 'bg-brand-500'}`} style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="text-xs text-gray-500 whitespace-nowrap">{filled}/{s.max_players}</span>
+                      </div>
+                    </div>
+                    {/* Participant preview chips */}
+                    <div className="flex-1 min-w-0 flex flex-wrap gap-1">
+                      {s.participants.slice(0, 4).map(p => (
+                        <span key={p.id} className={`text-xs rounded-full px-2 py-0.5 ${p.is_walkin ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-700'}`}>{p.name}</span>
+                      ))}
+                      {s.participants.length > 4 && (
+                        <span className="text-xs text-gray-400">+{s.participants.length - 4} more</span>
+                      )}
+                    </div>
+                    {/* Actions */}
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <button
+                        onClick={() => setManagingSession(prev => prev === s.id ? null : s.id)}
+                        className="text-xs text-sky-500 hover:text-sky-400"
+                      >People</button>
+                      <button
+                        onClick={() => setEditingSocial(prev => ({ ...prev, [s.id]: { title: s.title, date: s.date, start_time: s.start_time.slice(0,5), end_time: s.end_time.slice(0,5), max_players: s.max_players } }))}
+                        className="text-xs text-sky-500 hover:text-sky-400"
+                      >Edit</button>
+                      <button onClick={() => handleCancelSocialSession(s.id)} className="text-xs text-red-400 hover:text-red-300">Cancel</button>
+                    </div>
+                  </div>
+
+                  {/* Edit form (inline, below the row) */}
+                  {e && (
+                    <div className="bg-gray-50 rounded-xl mx-1 mb-3 p-3 space-y-2 text-xs">
+                      <input type="text" className="input py-1 px-2 text-sm w-full" placeholder="Session name"
+                        value={e.title} onChange={ev => setField('title', ev.target.value)} />
+                      <div className="flex items-center gap-2">
+                        <input type="date" className="input py-1 px-2 text-xs flex-1"
+                          value={e.date} onChange={ev => setField('date', ev.target.value)} />
+                        <span className="text-gray-400">Max</span>
+                        <input type="number" min="1" className="input py-1 px-2 text-xs w-16"
+                          value={e.max_players} onChange={ev => setField('max_players', ev.target.value)} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input type="time" className="input py-1 px-2 text-xs flex-1"
+                          value={e.start_time} onChange={ev => setField('start_time', ev.target.value)} />
+                        <span className="text-gray-400">–</span>
+                        <input type="time" className="input py-1 px-2 text-xs flex-1"
+                          value={e.end_time} onChange={ev => setField('end_time', ev.target.value)} />
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button onClick={() => handleSaveSocial(s.id)} className="text-xs text-emerald-500 font-medium">Save</button>
+                        <button onClick={closeEdit} className="text-xs text-gray-500">Cancel</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Participant management panel */}
+                  {isManaging && (
+                    <div className="bg-gray-50 rounded-xl mx-1 mb-3 p-3 space-y-2">
+                      {s.participant_count < s.max_players && (
+                        <div className="relative">
+                          <div className="flex items-center gap-2">
+                            <input type="text" placeholder="Type name to add…" className="input text-xs py-1 px-2 flex-1"
+                              value={picker.query}
+                              onChange={ev => setAddingMember(prev => ({ ...prev, [s.id]: { query: ev.target.value, userId: '' } }))}
+                            />
+                            {picker.userId && <button onClick={() => handleSocialAddMember(s.id, picker.userId)} className="text-xs text-emerald-400 font-medium whitespace-nowrap">Add</button>}
+                            <button onClick={() => handleSocialAddWalkin(s.id)} className="text-xs text-gray-800 font-medium whitespace-nowrap border border-slate-600 hover:border-slate-400 rounded px-2 py-1 transition-colors">+ Walk-in</button>
+                          </div>
+                          {suggestions.length > 0 && (
+                            <div className="absolute z-10 left-0 right-0 mt-1 bg-gray-100 border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                              {suggestions.map(m => (
+                                <button key={m.id} className="w-full text-left px-3 py-2 text-xs text-gray-800 hover:bg-gray-200 transition-colors"
+                                  onClick={() => setAddingMember(prev => ({ ...prev, [s.id]: { query: m.name, userId: m.id } }))}
+                                >{m.name}</button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {s.participants.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {s.participants.map(p => (
+                            <span key={p.id} className={`text-xs rounded-full px-2.5 py-0.5 flex items-center gap-1 ${p.is_walkin ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-gray-100 text-gray-800'}`}>
+                              {p.name}
+                              <button onClick={() => handleSocialRemoveMember(s.id, p.id)} className="text-gray-800 hover:text-red-400 transition-colors leading-none">×</button>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400">No participants yet.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             }
@@ -5276,6 +5432,7 @@ const [sessionForm,      setSessionForm]      = useState({
                   const dow = new Date(first.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'long' })
                   const nextDate = new Date(first.date + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
                   const totalParticipants = sessions.reduce((sum, s) => sum + (s.online_count ?? s.participant_count), 0)
+                  const isEditingThis = editingSeries?.rid === rid
                   return (
                     <div key={rid} className="card p-0 overflow-hidden">
                       {/* Series header */}
@@ -5296,6 +5453,10 @@ const [sessionForm,      setSessionForm]      = useState({
                         <div className="flex items-center gap-3 flex-shrink-0">
                           <span className="text-xs text-gray-400">{totalParticipants} joined total</span>
                           <button
+                            onClick={e => { e.stopPropagation(); setEditingSeries(isEditingThis ? null : { rid, title: first.title, start_time: first.start_time.slice(0,5), end_time: first.end_time.slice(0,5), max_players: first.max_players }) }}
+                            className="text-xs text-sky-500 hover:text-sky-400 font-medium"
+                          >Edit Series</button>
+                          <button
                             onClick={e => { e.stopPropagation(); openCancelSeriesModal(rid) }}
                             className="text-xs text-red-400 hover:text-red-300 font-medium"
                           >Cancel Series</button>
@@ -5304,10 +5465,62 @@ const [sessionForm,      setSessionForm]      = useState({
                           </svg>
                         </div>
                       </button>
-                      {/* Expanded individual sessions */}
+
+                      {/* Edit Series inline form */}
+                      {isEditingThis && (
+                        <div className="border-t border-gray-100 bg-blue-50/50 px-4 py-3 space-y-3">
+                          <p className="text-xs font-medium text-blue-700 uppercase tracking-widest">Edit all upcoming sessions in this series</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="col-span-2">
+                              <label className="text-xs text-gray-500 mb-1 block">Title</label>
+                              <input type="text" className="input py-1.5 px-2 text-sm w-full"
+                                value={editingSeries.title}
+                                onChange={ev => setEditingSeries(prev => ({ ...prev, title: ev.target.value }))} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-500 mb-1 block">Start time</label>
+                              <input type="time" className="input py-1.5 px-2 text-sm w-full"
+                                value={editingSeries.start_time}
+                                onChange={ev => setEditingSeries(prev => ({ ...prev, start_time: ev.target.value }))} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-500 mb-1 block">End time</label>
+                              <input type="time" className="input py-1.5 px-2 text-sm w-full"
+                                value={editingSeries.end_time}
+                                onChange={ev => setEditingSeries(prev => ({ ...prev, end_time: ev.target.value }))} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-500 mb-1 block">Max players</label>
+                              <input type="number" min="1" className="input py-1.5 px-2 text-sm w-full"
+                                value={editingSeries.max_players}
+                                onChange={ev => setEditingSeries(prev => ({ ...prev, max_players: ev.target.value }))} />
+                            </div>
+                          </div>
+                          <div className="flex gap-3">
+                            <button
+                              onClick={handleSaveSeriesEdit}
+                              disabled={editingSeries.saving}
+                              className="text-xs bg-blue-600 text-white px-4 py-1.5 rounded-full hover:bg-blue-500 disabled:opacity-50 transition-colors"
+                            >{editingSeries.saving ? 'Saving…' : `Save (${sessions.length} sessions)`}</button>
+                            <button onClick={() => setEditingSeries(null)} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Expanded individual sessions — table layout */}
                       {isOpen && (
-                        <div className="px-4 pb-4">
-                          {sessions.map(s => <SessionCard key={s.id} s={s} compact />)}
+                        <div className="border-t border-gray-100">
+                          {/* Column headers */}
+                          <div className="flex items-center gap-4 px-4 py-2 bg-gray-50 border-b border-gray-100">
+                            <span className="w-28 flex-shrink-0 text-[10px] uppercase tracking-widest text-gray-400">Date</span>
+                            <span className="w-36 flex-shrink-0 text-[10px] uppercase tracking-widest text-gray-400">Time</span>
+                            <span className="w-28 flex-shrink-0 text-[10px] uppercase tracking-widest text-gray-400">Capacity</span>
+                            <span className="flex-1 text-[10px] uppercase tracking-widest text-gray-400">Participants</span>
+                            <span className="w-32 flex-shrink-0 text-[10px] uppercase tracking-widest text-gray-400 text-right">Actions</span>
+                          </div>
+                          <div className="px-4">
+                            {sessions.map(s => <SeriesRow key={s.id} s={s} />)}
+                          </div>
                         </div>
                       )}
                     </div>

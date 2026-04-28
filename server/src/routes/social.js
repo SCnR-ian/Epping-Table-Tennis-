@@ -313,6 +313,33 @@ router.patch('/:id', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message ?? 'Server error.' }) }
 })
 
+// PATCH /api/social/recurrence/:recurrenceId  — bulk-edit all future sessions in a series
+router.patch('/recurrence/:recurrenceId', requireAuth, requireAdmin, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  const { recurrenceId } = req.params
+  const { title, start_time, end_time, max_players } = req.body
+  try {
+    const updates = []
+    const values  = []
+
+    if (title       !== undefined) { updates.push(`title=$${values.length + 1}`);      values.push(String(title).trim() || 'Social Play') }
+    if (start_time  !== undefined) { updates.push(`start_time=$${values.length + 1}`); values.push(start_time) }
+    if (end_time    !== undefined) { updates.push(`end_time=$${values.length + 1}`);   values.push(end_time) }
+    if (max_players !== undefined) { updates.push(`max_players=$${values.length + 1}`); values.push(Math.max(1, Number(max_players))) }
+
+    if (updates.length === 0) return res.status(400).json({ message: 'Nothing to update.' })
+
+    values.push(recurrenceId)
+    values.push(clubId)
+    const { rowCount } = await pool.query(
+      `UPDATE social_play_sessions SET ${updates.join(', ')}
+       WHERE recurrence_id=$${values.length - 1} AND date >= CURRENT_DATE AND club_id=$${values.length}`,
+      values
+    )
+    res.json({ message: `Updated ${rowCount} session(s).`, count: rowCount })
+  } catch (err) { res.status(500).json({ message: err.message ?? 'Server error.' }) }
+})
+
 // DELETE /api/social/recurrence/:recurrenceId
 router.delete('/recurrence/:recurrenceId', requireAuth, requireAdmin, async (req, res) => {
   try {
