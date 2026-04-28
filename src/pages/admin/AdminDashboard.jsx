@@ -1435,7 +1435,7 @@ const [sessionForm,      setSessionForm]      = useState({
   const [calendarReschedule, setCalendarReschedule] = useState(null) // { type:'solo'|'group', ev, newDate, saving }
   const [socialCalendarEdit, setSocialCalendarEdit] = useState(null) // { id, title, num_courts, max_players, date, start_time, end_time, saving }
   const [expandedSeriesIds, setExpandedSeriesIds] = useState(new Set())
-  const [editingSeries, setEditingSeries] = useState(null) // { rid, title, start_time, end_time, max_players, saving }
+  const [editingSeries, setEditingSeries] = useState(null) // { rid, title, start_time, end_time, max_players, price_dollars, saving }
   const [managingSession, setManagingSession] = useState(null) // session id with open participant panel
   // { [sessionId]: { query: '', userId: '' } } — add-member state per session
   const [addingMember, setAddingMember] = useState({})
@@ -1968,16 +1968,18 @@ const [sessionForm,      setSessionForm]      = useState({
     if (!editingSeries) return
     setEditingSeries(prev => ({ ...prev, saving: true }))
     try {
+      const priceCents = Math.max(0, Math.round(Number(editingSeries.price_dollars ?? 0) * 100))
       await socialAPI.updateSeries(editingSeries.rid, {
         title:       editingSeries.title,
         start_time:  editingSeries.start_time,
         end_time:    editingSeries.end_time,
         max_players: Number(editingSeries.max_players),
+        price_cents: priceCents,
       })
       // Refresh all sessions in this series from local state
       setSocialSessions(prev => prev.map(s =>
         s.recurrence_id === editingSeries.rid
-          ? { ...s, title: editingSeries.title, start_time: editingSeries.start_time, end_time: editingSeries.end_time, max_players: Number(editingSeries.max_players) }
+          ? { ...s, title: editingSeries.title, start_time: editingSeries.start_time, end_time: editingSeries.end_time, max_players: Number(editingSeries.max_players), price_cents: priceCents }
           : s
       ))
       setEditingSeries(null)
@@ -5453,7 +5455,7 @@ const [sessionForm,      setSessionForm]      = useState({
                         <div className="flex items-center gap-3 flex-shrink-0">
                           <span className="text-xs text-gray-400">{totalParticipants} joined total</span>
                           <button
-                            onClick={e => { e.stopPropagation(); setEditingSeries(isEditingThis ? null : { rid, title: first.title, start_time: first.start_time.slice(0,5), end_time: first.end_time.slice(0,5), max_players: first.max_players }) }}
+                            onClick={e => { e.stopPropagation(); setEditingSeries(isEditingThis ? null : { rid, title: first.title, start_time: first.start_time.slice(0,5), end_time: first.end_time.slice(0,5), max_players: first.max_players, price_dollars: first.price_cents > 0 ? (first.price_cents / 100).toFixed(2) : '' }) }}
                             className="text-xs text-sky-500 hover:text-sky-400 font-medium"
                           >Edit Series</button>
                           <button
@@ -5494,6 +5496,13 @@ const [sessionForm,      setSessionForm]      = useState({
                               <input type="number" min="1" className="input py-1.5 px-2 text-sm w-full"
                                 value={editingSeries.max_players}
                                 onChange={ev => setEditingSeries(prev => ({ ...prev, max_players: ev.target.value }))} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-500 mb-1 block">Price (AUD $, 0 = free)</label>
+                              <input type="number" min="0" step="0.01" className="input py-1.5 px-2 text-sm w-full"
+                                placeholder="0.00"
+                                value={editingSeries.price_dollars}
+                                onChange={ev => setEditingSeries(prev => ({ ...prev, price_dollars: ev.target.value }))} />
                             </div>
                           </div>
                           <div className="flex gap-3">

@@ -317,15 +317,16 @@ router.patch('/:id', requireAuth, async (req, res) => {
 router.patch('/recurrence/:recurrenceId', requireAuth, requireAdmin, async (req, res) => {
   const clubId = req.club?.id ?? 1
   const { recurrenceId } = req.params
-  const { title, start_time, end_time, max_players } = req.body
+  const { title, start_time, end_time, max_players, price_cents } = req.body
   try {
     const updates = []
     const values  = []
 
-    if (title       !== undefined) { updates.push(`title=$${values.length + 1}`);      values.push(String(title).trim() || 'Social Play') }
-    if (start_time  !== undefined) { updates.push(`start_time=$${values.length + 1}`); values.push(start_time) }
-    if (end_time    !== undefined) { updates.push(`end_time=$${values.length + 1}`);   values.push(end_time) }
+    if (title       !== undefined) { updates.push(`title=$${values.length + 1}`);       values.push(String(title).trim() || 'Social Play') }
+    if (start_time  !== undefined) { updates.push(`start_time=$${values.length + 1}`);  values.push(start_time) }
+    if (end_time    !== undefined) { updates.push(`end_time=$${values.length + 1}`);    values.push(end_time) }
     if (max_players !== undefined) { updates.push(`max_players=$${values.length + 1}`); values.push(Math.max(1, Number(max_players))) }
+    if (price_cents !== undefined) { updates.push(`price_cents=$${values.length + 1}`); values.push(Math.max(0, Math.round(Number(price_cents)))) }
 
     if (updates.length === 0) return res.status(400).json({ message: 'Nothing to update.' })
 
