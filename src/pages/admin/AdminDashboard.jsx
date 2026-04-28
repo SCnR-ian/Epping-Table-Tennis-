@@ -1624,12 +1624,13 @@ const [sessionForm,      setSessionForm]      = useState({
   }
 
   const handleCancelBooking = async (bookingGroupId) => {
+    if (!bookingGroupId) return alert('This booking cannot be cancelled (no group ID).')
     try {
       await bookingsAPI.cancelGroup(bookingGroupId)
       setBookings(prev => prev.filter(b => b.booking_group_id !== bookingGroupId))
       setStats(prev => ({ ...prev, bookings: Math.max(0, prev.bookings - 1) }))
-    } catch {
-      alert('Could not cancel booking. Please try again.')
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not cancel booking. Please try again.')
     }
   }
 
@@ -6246,7 +6247,7 @@ const [sessionForm,      setSessionForm]      = useState({
                                             try {
                                               await bookingsAPI.cancelGroup(item.booking_group_id)
                                               setMemberModal(prev => ({ ...prev, bookings: prev.bookings.filter(x => x.booking_group_id !== item.booking_group_id) }))
-                                            } catch { alert('Could not cancel booking.') }
+                                            } catch (err) { alert(err.response?.data?.message ?? 'Could not cancel booking.') }
                                           }}>Cancel</button>
                                       )}
                                     </div>

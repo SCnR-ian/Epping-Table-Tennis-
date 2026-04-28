@@ -320,11 +320,14 @@ router.post('/group/:groupId/extend', requireAuth, async (req, res) => {
 
 // DELETE /api/bookings/group/:groupId
 router.delete('/group/:groupId', requireAuth, async (req, res) => {
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  if (!UUID_RE.test(req.params.groupId))
+    return res.status(400).json({ message: 'Invalid booking group ID.' })
   try {
     const clubId = req.club?.id ?? 1
     const { rows } = await pool.query(
-      'SELECT user_id, payment_intent_id FROM bookings WHERE booking_group_id=$1 AND status=$2 AND club_id=$3 LIMIT 1',
-      [req.params.groupId, 'confirmed', clubId]
+      'SELECT user_id, payment_intent_id FROM bookings WHERE booking_group_id=$1 AND club_id=$2 LIMIT 1',
+      [req.params.groupId, clubId]
     )
     if (!rows[0]) return res.status(404).json({ message: 'Booking not found.' })
     if (rows[0].user_id !== req.user.id && req.user.role !== 'admin')
@@ -376,7 +379,10 @@ router.delete('/group/:groupId', requireAuth, async (req, res) => {
     }
 
     res.json({ message: 'Booking cancelled.' })
-  } catch { res.status(500).json({ message: 'Server error.' }) }
+  } catch (err) {
+    console.error('[bookings] cancel group error:', err.message)
+    res.status(500).json({ message: 'Server error.' })
+  }
 })
 
 // DELETE /api/bookings/:id
