@@ -1956,6 +1956,7 @@ const [sessionForm,      setSessionForm]      = useState({
         start_time:  edits.start_time,
         end_time:    edits.end_time,
         max_players: Number(edits.max_players),
+        price_cents: Math.max(0, Math.round(Number(edits.price_dollars ?? 0) * 100)),
       })
       setSocialSessions(prev => prev.map(s => s.id === id ? { ...s, ...data.session } : s))
       setEditingSocial(prev => { const n = { ...prev }; delete n[id]; return n })
@@ -5214,7 +5215,7 @@ const [sessionForm,      setSessionForm]      = useState({
                     <div className="flex items-center gap-3 flex-shrink-0">
                       <span className="text-xs text-gray-500">{filled}/{s.max_players}</span>
                       <button
-                        onClick={() => setEditingSocial(prev => ({ ...prev, [s.id]: { title: s.title, date: s.date, start_time: s.start_time.slice(0,5), end_time: s.end_time.slice(0,5), max_players: s.max_players } }))}
+                        onClick={() => setEditingSocial(prev => ({ ...prev, [s.id]: { title: s.title, date: s.date, start_time: s.start_time.slice(0,5), end_time: s.end_time.slice(0,5), max_players: s.max_players, price_dollars: s.price_cents > 0 ? (s.price_cents / 100).toFixed(2) : '' } }))}
                         className="text-xs text-sky-500 hover:text-sky-400"
                       >Edit</button>
                       <button onClick={() => handleCancelSocialSession(s.id)} className="text-xs text-red-400 hover:text-red-300">Cancel</button>
@@ -5238,6 +5239,12 @@ const [sessionForm,      setSessionForm]      = useState({
                         <span className="text-gray-400">–</span>
                         <input type="time" className="input py-1 px-2 text-xs flex-1"
                           value={e.end_time} onChange={ev => setField('end_time', ev.target.value)} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400 whitespace-nowrap">Price AUD $</span>
+                        <input type="number" min="0" step="0.01" className="input py-1 px-2 text-xs flex-1"
+                          placeholder="0.00"
+                          value={e.price_dollars ?? ''} onChange={ev => setField('price_dollars', ev.target.value)} />
                       </div>
                       <div className="flex gap-2 pt-1">
                         <button onClick={() => handleSaveSocial(s.id)} className="text-xs text-emerald-500 font-medium">Save</button>
@@ -5350,7 +5357,7 @@ const [sessionForm,      setSessionForm]      = useState({
                         className="text-xs text-sky-500 hover:text-sky-400"
                       >People</button>
                       <button
-                        onClick={() => setEditingSocial(prev => ({ ...prev, [s.id]: { title: s.title, date: s.date, start_time: s.start_time.slice(0,5), end_time: s.end_time.slice(0,5), max_players: s.max_players } }))}
+                        onClick={() => setEditingSocial(prev => ({ ...prev, [s.id]: { title: s.title, date: s.date, start_time: s.start_time.slice(0,5), end_time: s.end_time.slice(0,5), max_players: s.max_players, price_dollars: s.price_cents > 0 ? (s.price_cents / 100).toFixed(2) : '' } }))}
                         className="text-xs text-sky-500 hover:text-sky-400"
                       >Edit</button>
                       <button onClick={() => handleCancelSocialSession(s.id)} className="text-xs text-red-400 hover:text-red-300">Cancel</button>
@@ -5375,6 +5382,12 @@ const [sessionForm,      setSessionForm]      = useState({
                         <span className="text-gray-400">–</span>
                         <input type="time" className="input py-1 px-2 text-xs flex-1"
                           value={e.end_time} onChange={ev => setField('end_time', ev.target.value)} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400 whitespace-nowrap">Price AUD $</span>
+                        <input type="number" min="0" step="0.01" className="input py-1 px-2 text-xs flex-1"
+                          placeholder="0.00"
+                          value={e.price_dollars ?? ''} onChange={ev => setField('price_dollars', ev.target.value)} />
                       </div>
                       <div className="flex gap-2 pt-1">
                         <button onClick={() => handleSaveSocial(s.id)} className="text-xs text-emerald-500 font-medium">Save</button>

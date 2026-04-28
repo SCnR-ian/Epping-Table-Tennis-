@@ -256,7 +256,7 @@ router.patch('/:id', requireAuth, async (req, res) => {
 
   const clubId = req.club?.id ?? 1
   try {
-    const { num_courts, start_time, end_time, title, max_players, date } = req.body
+    const { num_courts, start_time, end_time, title, max_players, date, price_cents } = req.body
     const updates = []
     const values  = []
 
@@ -297,7 +297,8 @@ router.patch('/:id', requireAuth, async (req, res) => {
     if (end_time   !== undefined) { updates.push(`end_time=$${values.length + 1}`);   values.push(end_time) }
     if (title      !== undefined) { updates.push(`title=$${values.length + 1}`);      values.push(String(title).trim() || 'Social Play') }
     if (max_players !== undefined) { updates.push(`max_players=$${values.length + 1}`); values.push(Math.max(1, Number(max_players))) }
-    if (date       !== undefined) { updates.push(`date=$${values.length + 1}`);       values.push(date) }
+    if (date        !== undefined) { updates.push(`date=$${values.length + 1}`);        values.push(date) }
+    if (price_cents !== undefined) { updates.push(`price_cents=$${values.length + 1}`); values.push(Math.max(0, Math.round(Number(price_cents)))) }
     if (updates.length === 0)
       return res.status(400).json({ message: 'Nothing to update.' })
 
