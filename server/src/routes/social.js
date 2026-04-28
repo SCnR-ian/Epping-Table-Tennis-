@@ -451,9 +451,8 @@ router.delete('/:id/join', requireAuth, async (req, res) => {
     if (!sessionRows[0]) return res.status(404).json({ message: 'Session not found.' })
 
     const sessionStart = new Date(`${sessionRows[0].date}T${sessionRows[0].start_time}`)
-    const hoursUntil = (sessionStart - Date.now()) / 3_600_000
-    if (hoursUntil < 24)
-      return res.status(409).json({ message: 'Cancellations must be made at least 24 hours before the session.' })
+    if (Date.now() >= sessionStart.getTime())
+      return res.status(409).json({ message: 'Cannot cancel after the session has started.' })
 
     const { rows, rowCount } = await pool.query(
       'DELETE FROM social_play_participants WHERE session_id=$1 AND user_id=$2 RETURNING payment_intent_id',
@@ -461,12 +460,23 @@ router.delete('/:id/join', requireAuth, async (req, res) => {
     )
     if (rowCount === 0) return res.status(404).json({ message: 'Not a participant.' })
 
-    // Void the card hold if one exists
+    // Refund the payment if one exists (full refund, no cancellation window)
     const intentId = rows[0]?.payment_intent_id
     if (intentId && process.env.STRIPE_SECRET_KEY) {
       try {
         const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
-        await stripe.paymentIntents.cancel(intentId).catch(() => {})
+        const intent = await stripe.paymentIntents.retrieve(intentId).catch(() => null)
+        if (intent) {
+          if (intent.status === 'requires_capture') {
+            // Old hold-style — cancel the hold
+            await stripe.paymentIntents.cancel(intentId).catch(() => {})
+          } else if (intent.status === 'succeeded') {
+            // New direct-charge — issue full refund
+            await stripe.refunds.create({ payment_intent: intentId }).catch(err => {
+              console.error('[social] Refund failed for intent', intentId, err.message)
+            })
+          }
+        }
       } catch {}
     }
 

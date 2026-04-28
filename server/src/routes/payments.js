@@ -348,7 +348,8 @@ router.post("/authorize", requireAuth, async (req, res) => {
     const intent = await stripe.paymentIntents.create({
       amount,
       currency: "aud",
-      capture_method: "manual",
+      // booking: hold card (manual capture on no-show); social: charge immediately
+      ...(type === "booking" ? { capture_method: "manual" } : {}),
       metadata,
       description,
     });
@@ -378,11 +379,13 @@ router.post("/confirm-authorize", requireAuth, async (req, res) => {
     const stripe = getStripe();
     const intent = await stripe.paymentIntents.retrieve(intentId);
 
-    if (intent.status !== "requires_capture")
+    // booking = manual hold (requires_capture); social = immediate charge (succeeded)
+    const expectedStatus = intent.metadata.type === "social" ? "succeeded" : "requires_capture"
+    if (intent.status !== expectedStatus)
       return res
         .status(402)
         .json({
-          message: `Authorization not completed (status: ${intent.status}).`,
+          message: `Payment not completed (status: ${intent.status}).`,
         });
     if (String(intent.metadata.user_id) !== String(req.user.id))
       return res

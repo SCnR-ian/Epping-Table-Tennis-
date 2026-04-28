@@ -64,7 +64,7 @@ function CardAuthModal({ session, onSuccess, onClose }) {
         payment_method: { card: cardElement },
       });
       if (error) { setPaymentError(error.message); return; }
-      if (paymentIntent.status === "requires_capture") {
+      if (paymentIntent.status === "succeeded" || paymentIntent.status === "requires_capture") {
         await paymentsAPI.confirmAuthorize(paymentIntent.id);
         onSuccess();
       } else {
@@ -88,9 +88,9 @@ function CardAuthModal({ session, onSuccess, onClose }) {
           <button onClick={onClose} className="text-gray-400 hover:text-black transition-colors text-xl leading-none">×</button>
         </div>
 
-        {/* No-charge notice */}
-        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700 leading-relaxed">
-          Your card will be held but <strong>not charged</strong>. The hold is released when you attend. It is only captured as a no-show fee if you miss the session.
+        {/* Payment notice */}
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-700 leading-relaxed">
+          Your card will be <strong>charged immediately</strong>. If you need to cancel, you will receive a full refund.
         </div>
 
         {loading ? (
@@ -101,7 +101,7 @@ function CardAuthModal({ session, onSuccess, onClose }) {
           <>
             {/* Amount summary */}
             <div className="flex justify-between items-center text-sm border-t border-gray-100 pt-4">
-              <span className="text-gray-500">Hold amount</span>
+              <span className="text-gray-500">Amount</span>
               <span className="text-black font-medium">AUD ${(amountCents / 100).toFixed(2)}</span>
             </div>
 
@@ -133,7 +133,7 @@ function CardAuthModal({ session, onSuccess, onClose }) {
                 disabled={processing || !cardElement}
                 className="flex-1 bg-black text-white text-sm tracking-widest uppercase py-3 rounded-full hover:bg-gray-800 disabled:opacity-50 transition-colors"
               >
-                {processing ? "Processing…" : "Authorize Card"}
+                {processing ? "Processing…" : "Pay & Join"}
               </button>
             </div>
           </>

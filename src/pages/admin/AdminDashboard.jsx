@@ -1340,6 +1340,9 @@ const [sessionForm,      setSessionForm]      = useState({
   const [coachingSearch,   setCoachingSearch]   = useState('')
   // Group coaching
   const [coachingSubTab,   setCoachingSubTab]   = useState('one-on-one')
+  const [allReviews,       setAllReviews]       = useState([])
+  const [reviewsLoading,   setReviewsLoading]   = useState(false)
+  const [selectedReviewStudent, setSelectedReviewStudent] = useState(null)
   const [groupSessions,    setGroupSessions]    = useState([])
   const [showGroupForm,    setShowGroupForm]    = useState(false)
   const [groupStudentSearch, setGroupStudentSearch] = useState('')
@@ -1720,6 +1723,18 @@ const [sessionForm,      setSessionForm]      = useState({
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [activeTab, coachingDate])
+
+  // Fetch reviews when Reviews sub-tab is opened
+  useEffect(() => {
+    if (activeTab !== 'Coaching' || coachingSubTab !== 'reviews') return
+    let cancelled = false
+    setReviewsLoading(true)
+    coachingAPI.getRecentReviews()
+      .then(r => { if (!cancelled) setAllReviews(r.data.reviews ?? []) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setReviewsLoading(false) })
+    return () => { cancelled = true }
+  }, [activeTab, coachingSubTab])
 
   // Auto-refresh coaching sessions when a substitute coach accepts coverage
   useEffect(() => {
@@ -3818,7 +3833,7 @@ const [sessionForm,      setSessionForm]      = useState({
 
           {/* ── Sub-tab bar ── */}
           <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
-            {[['Sessions', 'one-on-one'], ['Hours', 'hours']].map(([label, key]) => (
+            {[['Sessions', 'one-on-one'], ['Hours', 'hours'], ['Reviews', 'reviews']].map(([label, key]) => (
               <button key={key} onClick={() => setCoachingSubTab(key)}
                 className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${coachingSubTab === key ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>
                 {label}
@@ -3827,7 +3842,7 @@ const [sessionForm,      setSessionForm]      = useState({
           </div>
 
           {/* ── Date picker (sessions only) ── */}
-          {coachingSubTab !== 'hours' && (
+          {coachingSubTab !== 'hours' && coachingSubTab !== 'reviews' && (
             <div className="flex gap-2 overflow-x-auto pb-2 items-center">
               {upcomingDates.map(d => {
                 const iso      = toISO(d)
@@ -4100,7 +4115,7 @@ const [sessionForm,      setSessionForm]      = useState({
           })()}
 
           {/* ══════════ COMBINED COACHING SESSIONS ══════════ */}
-          {coachingSubTab !== 'hours' && (
+          {coachingSubTab !== 'hours' && coachingSubTab !== 'reviews' && (
             <div className="space-y-4">
               {/* Search */}
               <input type="text" placeholder="Search by student or coach name…"
@@ -4722,6 +4737,110 @@ const [sessionForm,      setSessionForm]      = useState({
             </div>
           )}
 
+          {/* ── Reviews sub-tab ── */}
+          {coachingSubTab === 'reviews' && (
+            <div className="space-y-4">
+              {reviewsLoading ? (
+                <p className="text-sm text-gray-400">Loading…</p>
+              ) : allReviews.length === 0 ? (
+                <p className="text-sm text-gray-400">No reviews yet.</p>
+              ) : selectedReviewStudent ? (() => {
+                const studentReviews = allReviews.filter(r => r.student_name === selectedReviewStudent)
+                return (
+                  <div className="space-y-3">
+                    <button
+                      onClick={() => setSelectedReviewStudent(null)}
+                      className="text-sm text-gray-500 hover:text-gray-800 flex items-center gap-1"
+                    >
+                      ← All students
+                    </button>
+                    <h3 className="text-sm font-medium text-gray-900">{selectedReviewStudent}</h3>
+                    <div className="space-y-3">
+                      {studentReviews.map(r => (
+                        <div key={r.session_id} className="card space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm text-gray-900">
+                              {new Date(r.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})}
+                              {' · '}{r.coach_name}
+                            </p>
+                            <p className="text-xs text-gray-400">{fmtTime(r.start_time)}–{fmtTime(r.end_time)}</p>
+                          </div>
+                          {(r.review_body || (r.review_skills?.length > 0)) && (
+                            <div className="border-l-2 border-sky-200 pl-3 space-y-1">
+                              <p className="text-xs text-gray-500 uppercase tracking-wide">Coach</p>
+                              {r.review_skills?.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  {r.review_skills.map(k => (
+                                    <span key={k} className="text-xs bg-gray-100 px-2 py-0.5 rounded-full text-gray-600">{k}</span>
+                                  ))}
+                                </div>
+                              )}
+                              {r.review_body && <p className="text-sm text-gray-700 whitespace-pre-wrap">{r.review_body}</p>}
+                            </div>
+                          )}
+                          {r.student_rating != null && (
+                            <div className="border-l-2 border-amber-200 pl-3 space-y-1">
+                              <p className="text-xs text-gray-500 uppercase tracking-wide">Student</p>
+                              <div className="flex items-center gap-1">
+                                {[1,2,3,4,5].map(n => (
+                                  <span key={n} className={`text-sm ${n <= r.student_rating ? 'text-amber-400' : 'text-gray-200'}`}>★</span>
+                                ))}
+                              </div>
+                              {r.student_comment && <p className="text-sm text-gray-700 whitespace-pre-wrap">{r.student_comment}</p>}
+                            </div>
+                          )}
+                          {!r.review_body && !r.review_skills?.length && r.student_rating == null && (
+                            <p className="text-xs text-gray-400 italic">No content yet.</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })() : (() => {
+                // Group by student, compute avg rating
+                const byStudent = {}
+                for (const r of allReviews) {
+                  if (!byStudent[r.student_name]) byStudent[r.student_name] = []
+                  byStudent[r.student_name].push(r)
+                }
+                return (
+                  <div className="card divide-y divide-gray-100">
+                    {Object.entries(byStudent).map(([name, reviews]) => {
+                      const rated = reviews.filter(r => r.student_rating != null)
+                      const avg   = rated.length ? (rated.reduce((s, r) => s + r.student_rating, 0) / rated.length) : null
+                      const latest = reviews[0]
+                      const latestDate = latest?.date ? new Date(latest.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}) : ''
+                      return (
+                        <button
+                          key={name}
+                          onClick={() => setSelectedReviewStudent(name)}
+                          className="w-full flex items-center justify-between py-3 px-1 text-left hover:bg-gray-50 transition-colors"
+                        >
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">{name}</p>
+                            <p className="text-xs text-gray-400">{reviews.length} session{reviews.length !== 1 ? 's' : ''} · Latest: {latestDate}</p>
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {avg != null ? (
+                              <>
+                                <span className="text-amber-400 text-sm">★</span>
+                                <span className="text-sm text-gray-700">{avg.toFixed(1)}</span>
+                              </>
+                            ) : (
+                              <span className="text-xs text-gray-400">No rating</span>
+                            )}
+                            <span className="text-gray-300 ml-2">›</span>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
+            </div>
+          )}
+
         </div>
       )}
 
@@ -4858,37 +4977,41 @@ const [sessionForm,      setSessionForm]      = useState({
               <div className="card mb-6 space-y-4">
                 <p className="text-xs text-gray-800 uppercase tracking-widest">New Social Play Session</p>
 
-                <div>
-                  <label className="block text-xs text-gray-800 mb-1">Title (optional — default: "Social Play")</label>
-                  <input
-                    type="text" className="input w-full" placeholder="e.g. Saturday Casual"
-                    value={socialForm.title}
-                    onChange={e => setSocialForm(f => ({ ...f, title: e.target.value }))}
-                  />
+                {/* Row 1: Title + Courts */}
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="block text-xs text-gray-800 mb-1">Title <span className="text-gray-400">(default: "Social Play")</span></label>
+                    <input
+                      type="text" className="input w-full" placeholder="e.g. Saturday Casual"
+                      value={socialForm.title}
+                      onChange={e => setSocialForm(f => ({ ...f, title: e.target.value }))}
+                    />
+                  </div>
+                  <div className="w-32">
+                    <label className="block text-xs text-gray-800 mb-1">Courts</label>
+                    <select
+                      className="input w-full"
+                      value={socialForm.num_courts}
+                      onChange={e => setSocialForm(f => ({ ...f, num_courts: Number(e.target.value) }))}
+                    >
+                      {[1, 2, 3, 4, 5, 6].map(n => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
+                {/* Row 2: Description */}
                 <div>
-                  <label className="block text-xs text-gray-800 mb-1">Description (optional)</label>
+                  <label className="block text-xs text-gray-800 mb-1">Description <span className="text-gray-400">(optional)</span></label>
                   <textarea
-                    className="input w-full h-20 resize-none" placeholder="Any notes for members…"
+                    className="input w-full h-14 resize-none" placeholder="Any notes for members…"
                     value={socialForm.description}
                     onChange={e => setSocialForm(f => ({ ...f, description: e.target.value }))}
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs text-gray-800 mb-1">Number of Courts</label>
-                  <select
-                    className="input w-full"
-                    value={socialForm.num_courts}
-                    onChange={e => setSocialForm(f => ({ ...f, num_courts: Number(e.target.value) }))}
-                  >
-                    {[1, 2, 3, 4, 5, 6].map(n => (
-                      <option key={n} value={n}>{n} court{n !== 1 ? 's' : ''}</option>
-                    ))}
-                  </select>
-                </div>
-
+                {/* Row 3: Date */}
                 <div>
                   <label className="block text-xs text-gray-800 mb-1">Date</label>
                   <input
@@ -4954,7 +5077,7 @@ const [sessionForm,      setSessionForm]      = useState({
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-800 mb-1">No-Show Fee (AUD $, 0 = free)</label>
+                    <label className="block text-xs text-gray-800 mb-1">Price (AUD $, 0 = free)</label>
                     <input
                       type="number" min={0} step={0.50} className="input w-32"
                       placeholder="0.00"
@@ -5197,13 +5320,6 @@ const [sessionForm,      setSessionForm]      = useState({
                           {s.participants.map(p => (
                             <span key={p.id} className={`text-xs rounded-full px-2.5 py-0.5 flex items-center gap-1 ${p.is_walkin ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-gray-100 text-gray-800'}`}>
                               {p.name}
-                              {p.payment_intent_id && (
-                                <button
-                                  onClick={() => handleSocialNoShow(p.payment_intent_id, p.name)}
-                                  className="text-amber-600 hover:text-amber-800 leading-none text-[10px] font-medium"
-                                  title="Charge no-show fee"
-                                >$</button>
-                              )}
                               <button
                                 onClick={() => handleSocialRemoveMember(s.id, p.id)}
                                 className="text-gray-800 hover:text-red-400 transition-colors leading-none"
