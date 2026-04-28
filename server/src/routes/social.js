@@ -577,14 +577,58 @@ router.post('/:id/walkin', requireAuth, requireAdmin, async (req, res) => {
 
 // DELETE /api/social/:id/participants/:userId  (admin)
 router.delete('/:id/participants/:userId', requireAuth, requireAdmin, async (req, res) => {
+  const clubId = req.club?.id ?? 1
   try {
-    const { rowCount } = await pool.query(
+    const { rows } = await pool.query(
+      `SELECT spp.payment_intent_id, u.name AS user_name,
+              sps.title AS session_title, sps.date AS session_date
+       FROM social_play_participants spp
+       JOIN users u ON u.id = spp.user_id
+       JOIN social_play_sessions sps ON sps.id = spp.session_id
+       WHERE spp.session_id=$1 AND spp.user_id=$2`,
+      [req.params.id, req.params.userId]
+    )
+    if (!rows[0]) return res.status(404).json({ message: 'Participant not found.' })
+
+    await pool.query(
       'DELETE FROM social_play_participants WHERE session_id=$1 AND user_id=$2',
       [req.params.id, req.params.userId]
     )
-    if (rowCount === 0) return res.status(404).json({ message: 'Participant not found.' })
-    res.json({ message: 'Removed.' })
-  } catch { res.status(500).json({ message: 'Server error.' }) }
+
+    // Refund if the user paid
+    let refundNote = ''
+    const intentId = rows[0].payment_intent_id
+    if (intentId) {
+      try {
+        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
+        const intent = await stripe.paymentIntents.retrieve(intentId)
+        if (intent.status === 'succeeded') {
+          await stripe.refunds.create({ payment_intent: intentId })
+          refundNote = ' Your payment has been refunded.'
+        } else if (intent.status === 'requires_capture') {
+          await stripe.paymentIntents.cancel(intentId)
+          refundNote = ' Your card hold has been released.'
+        }
+      } catch (e) {
+        console.error('[social] refund failed for intent', intentId, e.message)
+        refundNote = ' (Refund could not be processed automatically — please contact the club.)'
+      }
+    }
+
+    // Notify the removed user
+    const sessionTitle = rows[0].session_title || 'Social Play'
+    const sessionDate  = rows[0].session_date
+    const msgBody = `❌ You have been removed from "${sessionTitle}" on ${sessionDate} by an admin.${refundNote}`
+    pool.query(
+      `INSERT INTO messages (sender_id, recipient_id, body, club_id) VALUES ($1,$2,$3,$4)`,
+      [req.user.id, Number(req.params.userId), msgBody, clubId]
+    ).catch(() => {})
+
+    res.json({ message: 'Removed.', refunded: !!intentId })
+  } catch (err) {
+    console.error('[social] remove participant error:', err.message)
+    res.status(500).json({ message: 'Server error.' })
+  }
 })
 
 module.exports = router

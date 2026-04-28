@@ -12,7 +12,18 @@ function getStripe() {
 
 async function voidIntent(intentId) {
   if (!intentId) return
-  try { await getStripe().paymentIntents.cancel(intentId) } catch {}
+  try {
+    const stripe = getStripe()
+    const intent = await stripe.paymentIntents.retrieve(intentId)
+    if (intent.status === 'requires_capture') {
+      await stripe.paymentIntents.cancel(intentId)
+    } else if (intent.status === 'succeeded') {
+      await stripe.refunds.create({ payment_intent: intentId })
+    }
+    // already cancelled/refunded — nothing to do
+  } catch (e) {
+    console.error('[bookings] voidIntent failed for', intentId, e.message)
+  }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -328,18 +339,40 @@ router.delete('/group/:groupId', requireAuth, async (req, res) => {
       "UPDATE bookings SET status='cancelled' WHERE booking_group_id=$1 AND club_id=$2",
       [req.params.groupId, clubId]
     )
-    await voidIntent(rows[0].payment_intent_id)
+    // Check intent status BEFORE voiding so we can craft the right message
+    let refundNote = ''
+    const intentId = rows[0].payment_intent_id
+    if (intentId) {
+      try {
+        const stripe = getStripe()
+        const intent = await stripe.paymentIntents.retrieve(intentId)
+        if (intent.status === 'succeeded') refundNote = ' Your payment has been refunded.'
+        else if (intent.status === 'requires_capture') refundNote = ' Your card hold has been released.'
+      } catch {}
+    }
 
-    // Notify admin (fire-and-forget)
-    if (bRows[0] && rows[0].user_id === req.user.id) {
-      pool.query(`SELECT id FROM users WHERE role='admin' AND club_id=$1 LIMIT 1`, [clubId])
-        .then(({ rows: [admin] }) => {
-          if (!admin) return
-          const fmtT = t => { const [h,m] = t.substring(0,5).split(':').map(Number); return `${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}` }
-          const b = bRows[0]
-          pool.query(`INSERT INTO messages (sender_id, recipient_id, body, club_id) VALUES ($1,$2,$3,$4)`,
-            [req.user.id, admin.id, `❌ ${req.user.name} cancelled their table booking on ${b.date} · ${fmtT(b.start_time)}–${fmtT(b.end_time)}`, clubId]).catch(() => {})
-        }).catch(() => {})
+    await voidIntent(intentId)
+
+    const fmtT = t => { const [h,m] = t.substring(0,5).split(':').map(Number); return `${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}` }
+    const b = bRows[0]
+    const isAdminCancelling = req.user.role === 'admin' && rows[0].user_id !== req.user.id
+
+    if (b) {
+      if (isAdminCancelling) {
+        // Admin cancelled — notify the booking owner
+        pool.query(`INSERT INTO messages (sender_id, recipient_id, body, club_id) VALUES ($1,$2,$3,$4)`,
+          [req.user.id, rows[0].user_id,
+           `❌ Your table booking on ${b.date} · ${fmtT(b.start_time)}–${fmtT(b.end_time)} has been cancelled by an admin.${refundNote}`,
+           clubId]).catch(() => {})
+      } else {
+        // User cancelled themselves — notify admin
+        pool.query(`SELECT id FROM users WHERE role='admin' AND club_id=$1 LIMIT 1`, [clubId])
+          .then(({ rows: [admin] }) => {
+            if (!admin) return
+            pool.query(`INSERT INTO messages (sender_id, recipient_id, body, club_id) VALUES ($1,$2,$3,$4)`,
+              [req.user.id, admin.id, `❌ ${req.user.name} cancelled their table booking on ${b.date} · ${fmtT(b.start_time)}–${fmtT(b.end_time)}`, clubId]).catch(() => {})
+          }).catch(() => {})
+      }
     }
 
     res.json({ message: 'Booking cancelled.' })
