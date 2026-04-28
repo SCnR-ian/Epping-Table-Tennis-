@@ -113,6 +113,7 @@ router.post("/create-intent", requireAuth, async (req, res) => {
     const paymentIntent = await stripe.paymentIntents.create({
       amount,
       currency: "aud",
+      payment_method_types: ["card"],
       metadata: {
         user_id: String(req.user.id),
         club_id: String(clubId),
@@ -348,6 +349,7 @@ router.post("/authorize", requireAuth, async (req, res) => {
     const intent = await stripe.paymentIntents.create({
       amount,
       currency: "aud",
+      payment_method_types: ["card"],
       // booking: hold card (manual capture on no-show); social: charge immediately
       ...(type === "booking" ? { capture_method: "manual" } : {}),
       metadata,
@@ -611,6 +613,7 @@ router.post("/shop-intent", requireAuth, async (req, res) => {
     const paymentIntent = await stripe.paymentIntents.create({
       amount: totalCents,
       currency: "aud",
+      payment_method_types: ["card"],
       metadata: {
         user_id: String(req.user.id),
         club_id: String(clubId),
