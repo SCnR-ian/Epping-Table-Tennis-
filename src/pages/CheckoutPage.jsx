@@ -4,7 +4,7 @@ import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/context/AuthContext'
-import { paymentsAPI } from '@/api/api'
+import { paymentsAPI, shopAPI } from '@/api/api'
 
 const BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').replace('/api', '')
 function imgSrc(url) { return url ? `${BASE_URL}${url}` : null }
@@ -29,7 +29,7 @@ function PaymentForm({ totalPrice, onSuccess }) {
       redirect: 'if_required',
     })
     if (stripeErr) { setError(stripeErr.message); setLoading(false) }
-    else if (paymentIntent?.status === 'succeeded') onSuccess()
+    else if (paymentIntent?.status === 'succeeded') onSuccess(paymentIntent.id)
     else { setError('Payment incomplete. Please try again.'); setLoading(false) }
   }
 
@@ -117,6 +117,7 @@ export default function CheckoutPage() {
   const [step,         setStep]         = useState(1) // 1=delivery, 2=payment
   const [stripePromise, setStripePromise] = useState(null)
   const [clientSecret,  setClientSecret]  = useState(null)
+  const [intentId,      setIntentId]      = useState(null)
   const [stripeError,   setStripeError]   = useState(null)
   const [confirmed,     setConfirmed]     = useState(false)
 
@@ -149,6 +150,7 @@ export default function CheckoutPage() {
       ])
       setStripePromise(loadStripe(configRes.data.publishableKey))
       setClientSecret(intentRes.data.clientSecret)
+      setIntentId(intentRes.data.intentId)
       setStep(2)
       setTimeout(() => document.getElementById('payment-section')?.scrollIntoView({ behavior: 'smooth' }), 100)
     } catch (err) {
@@ -156,7 +158,17 @@ export default function CheckoutPage() {
     }
   }
 
-  function handleSuccess() {
+  async function handleSuccess(pIntentId) {
+    try {
+      await shopAPI.confirmOrder({
+        intentId: pIntentId,
+        delivery_type: delivery,
+        address: delivery === 'home' ? addr : null,
+      })
+    } catch {
+      // Order save failure is non-fatal — payment already succeeded.
+      // Log it server-side; user still sees confirmation.
+    }
     clearCart()
     setConfirmed(true)
   }

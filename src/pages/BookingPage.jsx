@@ -159,26 +159,32 @@ function CalendarPicker({ selectedDate, onSelect }) {
 // ─── Payment Sheet ────────────────────────────────────────────────────────────
 
 function PaymentSheet({ selectedDate, selectedTime, duration, onSuccess, onClose }) {
+  const [paymentMode,    setPaymentMode]    = useState(null);   // null = picking, 'hold' | 'immediate'
   const [clientSecret,   setClientSecret]   = useState(null);
   const [amountCents,    setAmountCents]     = useState(0);
   const [stripeInstance, setStripeInstance] = useState(null);
   const [cardElement,    setCardElement]    = useState(null);
   const [paymentError,   setPaymentError]   = useState(null);
-  const [loading,        setLoading]        = useState(true);
+  const [loading,        setLoading]        = useState(false);
   const [processing,     setProcessing]     = useState(false);
   const cardRef = useRef(null);
 
+  // Once mode is chosen, create the authorization intent
   useEffect(() => {
+    if (!paymentMode) return;
+    setLoading(true);
+    setPaymentError(null);
     paymentsAPI.authorize({
-      type:       "booking",
-      date:       selectedDate,
+      type: "booking",
+      date: selectedDate,
       start_time: selectedTime,
-      end_time:   addMins(selectedTime, duration),
+      end_time: addMins(selectedTime, duration),
+      payment_mode: paymentMode,
     })
       .then(({ data }) => { setClientSecret(data.clientSecret); setAmountCents(data.amount); })
-      .catch(err  => { setPaymentError(err.response?.data?.message || "Could not start payment."); })
+      .catch(err => setPaymentError(err.response?.data?.message || "Could not start payment."))
       .finally(() => setLoading(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [paymentMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!clientSecret || cardElement) return;
@@ -209,7 +215,7 @@ function PaymentSheet({ selectedDate, selectedTime, duration, onSuccess, onClose
         payment_method: { card: cardElement },
       });
       if (error) { setPaymentError(error.message); return; }
-      if (paymentIntent.status === "requires_capture") {
+      if (paymentIntent.status === "requires_capture" || paymentIntent.status === "succeeded") {
         await paymentsAPI.confirmAuthorize(paymentIntent.id);
         onSuccess();
       } else {
@@ -240,52 +246,81 @@ function PaymentSheet({ selectedDate, selectedTime, duration, onSuccess, onClose
           <button onClick={onClose} className="text-gray-400 hover:text-black transition-colors text-xl leading-none">×</button>
         </div>
 
-        {loading ? (
-          <p className="text-gray-400 text-sm text-center py-6">Loading…</p>
-        ) : paymentError && !clientSecret ? (
-          <p className="text-red-500 text-sm text-center">{paymentError}</p>
-        ) : (
+        {/* Step 1: pick payment mode */}
+        {!paymentMode && (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-500 uppercase tracking-widest">How would you like to pay?</p>
+            <button
+              onClick={() => setPaymentMode('hold')}
+              className="w-full text-left border border-gray-200 rounded-xl px-4 py-3.5 hover:border-black transition-colors"
+            >
+              <p className="text-sm font-medium text-gray-900">Pay in person (cash)</p>
+              <p className="text-xs text-gray-400 mt-0.5">Card held as guarantee · only charged if you don't show up</p>
+            </button>
+            <button
+              onClick={() => setPaymentMode('immediate')}
+              className="w-full text-left border border-gray-200 rounded-xl px-4 py-3.5 hover:border-black transition-colors"
+            >
+              <p className="text-sm font-medium text-gray-900">Pay now (card)</p>
+              <p className="text-xs text-gray-400 mt-0.5">Card charged immediately · full refund if you cancel</p>
+            </button>
+            <button onClick={onClose} className="w-full border border-gray-200 text-gray-500 text-xs tracking-widest uppercase py-3 rounded-full hover:border-black transition-colors">
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* Step 2: card details */}
+        {paymentMode && (
           <>
-            {/* No-charge notice */}
-            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700 leading-relaxed">
-              Your card will be held but <strong>not charged</strong>. The hold is released when you check in. It is only captured as a no-show fee if you miss your session.
+            <div className={`rounded-xl px-4 py-3 text-xs leading-relaxed ${paymentMode === 'hold' ? 'bg-amber-50 border border-amber-200 text-amber-700' : 'bg-blue-50 border border-blue-200 text-blue-700'}`}>
+              {paymentMode === 'hold'
+                ? <>Card held as guarantee only. <strong>Pay cash on the day.</strong> Card charged only if you don't show up.</>
+                : <>Your card will be <strong>charged immediately</strong>. Full refund if you cancel in time.</>
+              }
             </div>
 
-            {/* Amount */}
-            <div className="flex justify-between items-center text-sm border-t border-gray-100 pt-4">
-              <span className="text-gray-500">Hold amount</span>
-              <span className="text-black font-medium">AUD ${(amountCents / 100).toFixed(2)}</span>
-            </div>
+            {loading ? (
+              <p className="text-gray-400 text-sm text-center py-6">Loading…</p>
+            ) : paymentError && !clientSecret ? (
+              <p className="text-red-500 text-sm text-center">{paymentError}</p>
+            ) : (
+              <>
+                <div className="flex justify-between items-center text-sm border-t border-gray-100 pt-4">
+                  <span className="text-gray-500">{paymentMode === 'hold' ? 'Hold amount' : 'Amount'}</span>
+                  <span className="text-black font-medium">AUD ${(amountCents / 100).toFixed(2)}</span>
+                </div>
 
-            {/* Stripe card element */}
-            <div>
-              <label className="block text-xs text-gray-500 uppercase tracking-wider mb-2">Card Details</label>
-              <div ref={cardRef} className="border border-gray-300 rounded-xl px-4 py-3.5 min-h-[46px]" />
-              {paymentError && <p className="text-red-500 text-xs mt-2">{paymentError}</p>}
-            </div>
+                <div>
+                  <label className="block text-xs text-gray-500 uppercase tracking-wider mb-2">Card Details</label>
+                  <div ref={cardRef} className="border border-gray-300 rounded-xl px-4 py-3.5 min-h-[46px]" />
+                  {paymentError && <p className="text-red-500 text-xs mt-2">{paymentError}</p>}
+                </div>
 
-            <p className="text-[11px] text-gray-400 flex items-center gap-1.5">
-              <svg className="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-              </svg>
-              Secured by Stripe. Card details never stored on our servers.
-            </p>
+                <p className="text-[11px] text-gray-400 flex items-center gap-1.5">
+                  <svg className="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                  </svg>
+                  Secured by Stripe. Card details never stored on our servers.
+                </p>
 
-            <div className="flex gap-3 pt-1">
-              <button
-                onClick={onClose}
-                className="flex-1 border border-gray-300 text-gray-700 text-xs tracking-widest uppercase py-3 rounded-full hover:border-black hover:text-black transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handlePay}
-                disabled={processing || !cardElement}
-                className="flex-1 bg-black text-white text-xs tracking-widest uppercase py-3 rounded-full hover:bg-gray-800 disabled:opacity-50 transition-colors"
-              >
-                {processing ? "Processing…" : "Authorize Card"}
-              </button>
-            </div>
+                <div className="flex gap-3 pt-1">
+                  <button
+                    onClick={() => { setPaymentMode(null); setClientSecret(null); setCardElement(null); }}
+                    className="flex-1 border border-gray-300 text-gray-700 text-xs tracking-widest uppercase py-3 rounded-full hover:border-black hover:text-black transition-colors"
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={handlePay}
+                    disabled={processing || !cardElement}
+                    className="flex-1 bg-black text-white text-xs tracking-widest uppercase py-3 rounded-full hover:bg-gray-800 disabled:opacity-50 transition-colors"
+                  >
+                    {processing ? "Processing…" : paymentMode === 'hold' ? "Hold & Book" : "Pay & Book"}
+                  </button>
+                </div>
+              </>
+            )}
           </>
         )}
       </div>

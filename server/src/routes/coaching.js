@@ -3,6 +3,7 @@ const pool           = require('../db')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
 const { randomUUID } = require('crypto')
 const { checkOpenHours } = require('../utils/scheduleCheck')
+const { sendCoachingScheduled } = require('../utils/email')
 
 // ─── Time helpers ─────────────────────────────────────────────────────────────
 
@@ -23,12 +24,34 @@ function sessionHours(startTime, endTime) {
 }
 
 // Deduct (or refund) hours for one student/session pair within a pg client transaction.
+// After insert, checks new balance and notifies admin if it drops below zero.
 async function ledgerEntry(client, userId, delta, note, sessionId, createdBy, clubId) {
   await client.query(
     `INSERT INTO coaching_hour_ledger (user_id, delta, note, session_id, created_by, club_id)
      VALUES ($1, $2, $3, $4, $5, $6)`,
     [userId, delta, note, sessionId ?? null, createdBy ?? null, clubId ?? 1]
   )
+  if (delta < 0) {
+    const { rows: [bal] } = await client.query(
+      `SELECT COALESCE(SUM(delta), 0)::numeric AS balance FROM coaching_hour_ledger WHERE user_id=$1 AND club_id=$2`,
+      [userId, clubId ?? 1]
+    )
+    if (Number(bal.balance) < 0) {
+      pool.query(
+        `SELECT a.id AS admin_id, u.name AS student_name
+         FROM users a JOIN users u ON u.id=$1
+         WHERE a.role='admin' AND a.club_id=$2 LIMIT 1`,
+        [userId, clubId ?? 1]
+      ).then(({ rows: [row] }) => {
+        if (!row) return
+        const balance = Math.round(Number(bal.balance) * 100) / 100
+        pool.query(
+          `INSERT INTO messages (sender_id, recipient_id, body, club_id) VALUES ($1,$2,$3,$4)`,
+          [userId, row.admin_id, `⚠️ Coaching balance alert: ${row.student_name}'s balance is now $${balance}.`, clubId ?? 1]
+        ).catch(() => {})
+      }).catch(() => {})
+    }
+  }
 }
 
 // Send a system message from an admin to a member (fire-and-forget, never throws)
@@ -386,6 +409,17 @@ router.post('/sessions', requireAuth, requireAdmin, async (req, res) => {
     }
     if (notes) msgBody += `\nNotes: ${notes}`
     await sendSystemMessage(req.user.id, student_id, msgBody)
+
+    // Confirmation email to student (fire-and-forget)
+    pool.query('SELECT email, name FROM users WHERE id=$1', [student_id])
+      .then(({ rows: [u] }) => {
+        if (!u) return
+        sendCoachingScheduled({
+          to: u.email, name: u.name, coachName,
+          dates: inserted.map(s => s.date),
+          start_time, end_time, notes,
+        }).catch(() => {})
+      }).catch(() => {})
 
     res.status(201).json({ sessions: inserted, recurrence_id: recurrenceId, skipped })
   } catch (err) {
@@ -1587,6 +1621,16 @@ router.post('/hours/:userId', requireAuth, requireAdmin, async (req, res) => {
       targetId,
       `💰 Your coaching credit has been updated.\n${sign}$${round(delta)}${noteStr}\nNew balance: $${newBalance}`
     )
+
+    // Notify admin if balance went negative
+    if (newBalance < 0) {
+      const { rows: [u] } = await pool.query('SELECT name FROM users WHERE id=$1', [targetId])
+      sendSystemMessage(
+        targetId,
+        req.user.id,
+        `⚠️ Coaching balance alert: ${u?.name ?? 'A student'}'s balance is now $${newBalance}.`
+      )
+    }
 
     res.json({ message: 'Balance updated.', balance: newBalance })
   } catch { res.status(500).json({ message: 'Server error.' }) }

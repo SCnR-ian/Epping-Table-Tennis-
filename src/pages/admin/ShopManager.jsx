@@ -7,6 +7,7 @@ const BASE_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://lo
 
 const EMPTY_FORM = {
   name: '', category: 'rubbers', price: '', sort_order: '0', description: '',
+  stock: '',
   code: '', product_type: '', reaction_property: '', vibration_property: '',
   structure: '', thickness: '', head_size: '', is_active: true,
 }
@@ -19,6 +20,7 @@ function ProductModal({ product, onClose, onSaved }) {
     ? { ...EMPTY_FORM, ...product,
         price: product.price ?? '',
         sort_order: product.sort_order ?? '0',
+        stock: product.stock ?? '',
         reaction_property: product.reaction_property ?? '',
         vibration_property: product.vibration_property ?? '',
       }
@@ -41,6 +43,7 @@ function ProductModal({ product, onClose, onSaved }) {
         category:           form.category,
         price:              form.price !== '' ? Number(form.price) : null,
         sort_order:         Number(form.sort_order) || 0,
+        stock:              form.stock !== '' ? Number(form.stock) : null,
         description:        form.description || null,
         is_active:          form.is_active,
         code:               form.code || null,
@@ -128,6 +131,15 @@ function ProductModal({ product, onClose, onSaved }) {
                 value={form.price} onChange={e => set('price', e.target.value)}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
                 placeholder="e.g. 189.00"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Stock (leave blank = unlimited)</label>
+              <input
+                type="number" min="0" step="1"
+                value={form.stock} onChange={e => set('stock', e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+                placeholder="e.g. 10"
               />
             </div>
             <div>
@@ -306,8 +318,113 @@ function ProductModal({ product, onClose, onSaved }) {
   )
 }
 
+// ── Orders Panel ─────────────────────────────────────────────────────────────
+const ORDER_STATUSES = ['pending','paid','processing','shipped','completed','cancelled']
+const STATUS_STYLE = {
+  pending:    'bg-yellow-50 text-yellow-700',
+  paid:       'bg-blue-50 text-blue-700',
+  processing: 'bg-purple-50 text-purple-700',
+  shipped:    'bg-indigo-50 text-indigo-700',
+  completed:  'bg-emerald-50 text-emerald-700',
+  cancelled:  'bg-red-50 text-red-500',
+}
+
+function OrdersPanel() {
+  const [orders,  setOrders]  = useState([])
+  const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState(null)
+
+  const load = () => {
+    setLoading(true)
+    shopAPI.getOrders().then(r => setOrders(r.data.orders ?? [])).catch(() => {}).finally(() => setLoading(false))
+  }
+  useEffect(load, [])
+
+  const updateStatus = async (id, status) => {
+    try { await shopAPI.updateOrderStatus(id, status); load() }
+    catch { alert('Failed to update status.') }
+  }
+
+  const fmtDate = (d) => new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const fmtAmt  = (cents) => `$${(cents / 100).toFixed(2)}`
+
+  return (
+    <div className="space-y-4">
+      {loading ? <p className="text-sm text-gray-400">Loading…</p> : orders.length === 0 ? (
+        <p className="text-sm text-gray-400">No orders yet.</p>
+      ) : (
+        <div className="card overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Delivery</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {orders.map(o => (
+                <>
+                  <tr key={o.id} className="hover:bg-gray-50/50 transition-colors">
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">#{o.id}</td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-gray-900">{o.user_name}</p>
+                      <p className="text-xs text-gray-400">{o.user_email}</p>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{fmtDate(o.created_at)}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900">{fmtAmt(o.total_cents)}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500 capitalize">{o.delivery_type}</td>
+                    <td className="px-4 py-3">
+                      <select
+                        value={o.status}
+                        onChange={e => updateStatus(o.id, e.target.value)}
+                        className={`text-xs px-2 py-1 rounded-full border-0 font-medium cursor-pointer ${STATUS_STYLE[o.status] ?? 'bg-gray-100 text-gray-500'}`}
+                      >
+                        {ORDER_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button onClick={() => setExpanded(expanded === o.id ? null : o.id)} className="text-xs text-gray-500 hover:text-black transition-colors">
+                        {expanded === o.id ? 'Hide' : 'Items'}
+                      </button>
+                    </td>
+                  </tr>
+                  {expanded === o.id && (
+                    <tr key={`${o.id}-detail`}>
+                      <td colSpan={7} className="px-4 pb-4 bg-gray-50/50">
+                        <div className="space-y-1 pt-2">
+                          {(o.items ?? []).map((item, i) => (
+                            <div key={i} className="flex justify-between text-xs text-gray-600">
+                              <span>{item.name} ×{item.qty}</span>
+                              <span>${(item.price_cents / 100).toFixed(2)}</span>
+                            </div>
+                          ))}
+                          {o.delivery_type === 'home' && o.address && (
+                            <p className="text-xs text-gray-400 pt-2 border-t border-gray-100 mt-2">
+                              Ship to: {o.address.firstName} {o.address.lastName}, {o.address.address1}, {o.address.city} {o.address.postcode} {o.address.state}
+                            </p>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main ShopManager ──────────────────────────────────────────────────────────
 export default function ShopManager() {
+  const [sub,      setSub]       = useState('products') // 'products' | 'orders'
   const [products, setProducts]   = useState([])
   const [loading, setLoading]     = useState(true)
   const [modal, setModal]         = useState(null) // null | 'new' | product object
@@ -354,6 +471,19 @@ export default function ShopManager() {
   return (
     <div className="animate-fade-in space-y-6">
 
+      {/* Sub-tabs */}
+      <div className="flex border-b border-gray-100 gap-1">
+        {['products','orders'].map(t => (
+          <button key={t} onClick={() => setSub(t)}
+            className={`px-5 py-2 text-sm font-medium rounded-t-lg transition-colors capitalize ${sub === t ? 'bg-white text-black border border-b-white border-gray-100 -mb-px' : 'text-gray-500 hover:text-gray-800'}`}>
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {sub === 'orders' && <OrdersPanel />}
+
+      {sub === 'products' && <>
       {/* Header bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 flex-wrap">
@@ -400,6 +530,7 @@ export default function ShopManager() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Code</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
@@ -432,6 +563,15 @@ export default function ShopManager() {
                     <td className="px-4 py-3 text-gray-500 font-mono text-xs">{p.code ?? '—'}</td>
                     <td className="px-4 py-3 text-gray-700">
                       {p.price != null ? `$${Number(p.price).toFixed(2)}` : '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      {p.stock == null ? (
+                        <span className="text-xs text-gray-400">∞</span>
+                      ) : (
+                        <span className={`text-xs font-medium ${p.stock === 0 ? 'text-red-500' : p.stock <= 5 ? 'text-yellow-600' : 'text-gray-700'}`}>
+                          {p.stock}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
@@ -490,6 +630,7 @@ export default function ShopManager() {
           onSaved={handleSaved}
         />
       )}
+      </>}
     </div>
   )
 }

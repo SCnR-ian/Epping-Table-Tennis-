@@ -1,7 +1,10 @@
 // ─── Payments Route ───────────────────────────────────────────────────────────
-// POST /api/payments/create-intent  →  creates a Stripe PaymentIntent
-// POST /api/payments/confirm        →  verifies payment then saves booking to DB
-// GET  /api/payments/config         →  returns publishable key to frontend
+// POST /api/payments/authorize         →  creates a Stripe PaymentIntent (hold or charge)
+// POST /api/payments/confirm-authorize →  confirms authorization and saves to DB
+// POST /api/payments/capture/:id       →  admin capture (no-show charge)
+// POST /api/payments/void/:id          →  release a card hold
+// POST /api/payments/shop-intent       →  shop order PaymentIntent
+// GET  /api/payments/config            →  returns publishable key to frontend
 // ─────────────────────────────────────────────────────────────────────────────
 
 const router = require("express").Router();
@@ -12,6 +15,7 @@ const {
   checkOpenHours,
   maxConcurrentCourts,
 } = require("../utils/scheduleCheck");
+const { sendBookingConfirmation, sendSocialPlayJoined } = require('../utils/email')
 
 // Lazy-load Stripe so the server still boots without the package installed
 // (will throw a clear error only when a payment endpoint is called)
@@ -55,216 +59,27 @@ router.get("/config", (req, res) => {
   res.json({ publishableKey: process.env.STRIPE_PUBLISHABLE_KEY });
 });
 
-// ─── POST /api/payments/create-intent ────────────────────────────────────────
-// 1. Validates the requested slot is still available
-// 2. Creates a Stripe PaymentIntent
-// 3. Returns { clientSecret, amount, currency } to the frontend
-// (No booking is saved to DB yet — that happens after payment succeeds)
-router.post("/create-intent", requireAuth, async (req, res) => {
-  const { date, start_time, end_time } = req.body;
-  if (!date || !start_time || !end_time)
-    return res
-      .status(400)
-      .json({ message: "date, start_time and end_time are required." });
+// ─── POST /api/payments/create-intent (REMOVED) ──────────────────────────────
+// Replaced by /authorize + /confirm-authorize (hold-based flow).
+// Kept as dead route returning 410 Gone so old clients get a clear error.
+router.post("/create-intent", (req, res) =>
+  res.status(410).json({ message: "This endpoint has been removed. Use /authorize instead." })
+)
 
-  const startMins = toMins(start_time);
-  const endMins = toMins(end_time);
-  if (
-    endMins <= startMins ||
-    endMins - startMins < 60 ||
-    (endMins - startMins) % 30 !== 0
-  )
-    return res
-      .status(400)
-      .json({
-        message: "Duration must be at least 60 minutes and a multiple of 30.",
-      });
-
-  try {
-    const stripe = getStripe();
-
-    const clubId = req.club?.id ?? 1;
-
-    const scheduleError = await checkOpenHours(
-      date,
-      start_time,
-      end_time,
-      clubId,
-    );
-    if (scheduleError) return res.status(409).json({ message: scheduleError });
-
-    // Check courts still available (peak concurrent per 30-min slot)
-    const { maxUsed: intentMax } = await maxConcurrentCourts(
-      pool,
-      date,
-      start_time,
-      end_time,
-      clubId,
-    );
-    if (intentMax >= 6)
-      return res
-        .status(409)
-        .json({ message: "Sorry, all courts are fully booked at that time." });
-
-    const amount = calcAmount(start_time, end_time);
-    const durationMins = endMins - startMins;
-
-    // Create PaymentIntent — metadata stores booking details for the confirm step
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount,
-      currency: "aud",
-      payment_method_types: ["card"],
-      metadata: {
-        user_id: String(req.user.id),
-        club_id: String(clubId),
-        date,
-        start_time,
-        end_time,
-      },
-      description: `Court booking – ${date} ${start_time.substring(0, 5)}–${end_time.substring(0, 5)} (${durationMins} min)`,
-    });
-
-    res.json({
-      clientSecret: paymentIntent.client_secret,
-      amount,
-      currency: "aud",
-      durationMins,
-    });
-  } catch (err) {
-    console.error("[payments] create-intent error:", err.message);
-    if (err.message.includes("STRIPE_SECRET_KEY"))
-      return res
-        .status(503)
-        .json({
-          message: "Payment system is not configured. Please contact the club.",
-        });
-    res
-      .status(500)
-      .json({ message: "Failed to create payment. Please try again." });
-  }
-});
-
-// ─── POST /api/payments/confirm ───────────────────────────────────────────────
-// Called by the frontend after stripe.confirmCardPayment() succeeds.
-// 1. Retrieves the PaymentIntent from Stripe to verify status
-// 2. Extracts booking details from metadata
-// 3. Inserts booking rows into the DB (same logic as POST /api/bookings)
-router.post("/confirm", requireAuth, async (req, res) => {
-  const { paymentIntentId } = req.body;
-  if (!paymentIntentId)
-    return res.status(400).json({ message: "paymentIntentId is required." });
-
-  const client = await pool.connect();
-  try {
-    const stripe = getStripe();
-
-    // Verify payment with Stripe (never trust frontend alone)
-    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-
-    if (paymentIntent.status !== "succeeded")
-      return res
-        .status(402)
-        .json({
-          message: `Payment not completed (status: ${paymentIntent.status}).`,
-        });
-
-    // Validate the user matches the intent metadata (security check)
-    if (String(paymentIntent.metadata.user_id) !== String(req.user.id))
-      return res
-        .status(403)
-        .json({ message: "Payment does not belong to this user." });
-
-    const {
-      date,
-      start_time,
-      end_time,
-      club_id: metaClubId,
-    } = paymentIntent.metadata;
-    // Strict club validation: payment must have been created for the current club
-    const metaClubIdNum = Number(metaClubId)
-    const currentClubId = req.club?.id ?? 1
-    if (!metaClubIdNum || metaClubIdNum !== currentClubId)
-      return res.status(403).json({ message: 'Payment is not valid for this club.' })
-    const clubId = metaClubIdNum
-    const amountPaid = paymentIntent.amount / 100; // convert cents → dollars
-
-    await client.query("BEGIN");
-
-    // Check no one else took the last court while the user was paying (peak concurrent per slot)
-    const { maxUsed: confirmMax } = await maxConcurrentCourts(
-      client,
-      date,
-      start_time,
-      end_time,
-      clubId,
-    );
-    if (confirmMax >= 6) {
-      await client.query("ROLLBACK");
-      const refund = await stripe.refunds
-        .create({ payment_intent: paymentIntentId, reason: "duplicate" })
-        .catch(err => { console.error('[payments] REFUND FAILED for intent', paymentIntentId, err.message); return null; });
-      if (!refund) console.error('[payments] ACTION REQUIRED: manual refund needed for intent', paymentIntentId);
-      return res.status(409).json({
-        message:
-          "Sorry, all courts were just taken. Your payment will be fully refunded within 5–10 business days.",
-      });
-    }
-
-    // Split into 30-min slots and insert
-    const startMins = toMins(start_time);
-    const endMins = toMins(end_time);
-    const groupId = randomUUID();
-
-    for (let t = startMins; t < endMins; t += 30) {
-      await client.query(
-        `INSERT INTO bookings
-           (user_id, date, start_time, end_time, booking_group_id, payment_intent_id, amount_paid, club_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [
-          req.user.id,
-          date,
-          minsToTime(t),
-          minsToTime(t + 30),
-          groupId,
-          paymentIntentId,
-          amountPaid / ((endMins - startMins) / 30),
-          clubId,
-        ],
-      );
-    }
-
-    await client.query("COMMIT");
-    res.status(201).json({
-      message: "Booking confirmed.",
-      booking_group_id: groupId,
-      amount_paid: amountPaid,
-    });
-  } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("[payments] confirm error:", err.message);
-    if (err.code === "23505")
-      return res
-        .status(409)
-        .json({
-          message: "That slot was just taken. Please choose another time.",
-        });
-    res
-      .status(500)
-      .json({
-        message: "Booking confirmation failed. Please contact the club.",
-      });
-  } finally {
-    client.release();
-  }
-});
+router.post("/confirm", (req, res) =>
+  res.status(410).json({ message: "This endpoint has been removed. Use /confirm-authorize instead." })
+)
 
 // ─── POST /api/payments/authorize ────────────────────────────────────────────
-// Creates a PaymentIntent with capture_method:'manual' (card hold, no charge).
-// type:'booking' → amount from time slots
-// type:'social'  → amount from session.price_cents
+// Creates a PaymentIntent.
+// payment_mode:'hold'      → capture_method:'manual' (card held, not charged)
+// payment_mode:'immediate' → charged immediately
+// type:'booking' defaults to 'hold'; type:'social' defaults to 'immediate'
 router.post("/authorize", requireAuth, async (req, res) => {
-  const { type, date, start_time, end_time, session_id } = req.body;
+  const { type, date, start_time, end_time, session_id, payment_mode: rawMode } = req.body;
   if (!type) return res.status(400).json({ message: "type is required." });
+  const payment_mode = rawMode === 'immediate' ? 'immediate' : rawMode === 'hold' ? 'hold'
+    : (type === 'booking' ? 'hold' : 'immediate');
 
   const clubId = req.club?.id ?? 1;
   try {
@@ -311,6 +126,7 @@ router.post("/authorize", requireAuth, async (req, res) => {
       description = `Court booking hold – ${date} ${start_time.substring(0, 5)}–${end_time.substring(0, 5)} (${durationMins} min)`;
       metadata = {
         type: "booking",
+        payment_mode,
         user_id: String(req.user.id),
         club_id: String(clubId),
         date,
@@ -336,6 +152,7 @@ router.post("/authorize", requireAuth, async (req, res) => {
       description = `Social play hold – ${rows[0].title || "Social Play"} session ${session_id}`;
       metadata = {
         type: "social",
+        payment_mode,
         user_id: String(req.user.id),
         club_id: String(clubId),
         session_id: String(session_id),
@@ -350,8 +167,7 @@ router.post("/authorize", requireAuth, async (req, res) => {
       amount,
       currency: "aud",
       payment_method_types: ["card"],
-      // booking: hold card (manual capture on no-show); social: charge immediately
-      ...(type === "booking" ? { capture_method: "manual" } : {}),
+      ...(payment_mode === "hold" ? { capture_method: "manual" } : {}),
       metadata,
       description,
     });
@@ -381,27 +197,22 @@ router.post("/confirm-authorize", requireAuth, async (req, res) => {
     const stripe = getStripe();
     const intent = await stripe.paymentIntents.retrieve(intentId);
 
-    // booking = manual hold (requires_capture); social = immediate charge (succeeded)
-    const expectedStatus = intent.metadata.type === "social" ? "succeeded" : "requires_capture"
-    if (intent.status !== expectedStatus)
-      return res
-        .status(402)
-        .json({
-          message: `Payment not completed (status: ${intent.status}).`,
-        });
-    if (String(intent.metadata.user_id) !== String(req.user.id))
-      return res
-        .status(403)
-        .json({ message: "Authorization does not belong to this user." });
-
     const {
       type,
+      payment_mode,
       date,
       start_time,
       end_time,
       club_id: metaClub,
       session_id,
     } = intent.metadata;
+
+    // hold → requires_capture; immediate → succeeded
+    const expectedStatus = payment_mode === "hold" ? "requires_capture" : "succeeded"
+    if (intent.status !== expectedStatus)
+      return res.status(402).json({ message: `Payment not completed (status: ${intent.status}).` });
+    if (String(intent.metadata.user_id) !== String(req.user.id))
+      return res.status(403).json({ message: "Authorization does not belong to this user." });
     // Strict club validation
     const metaClubNum = Number(metaClub)
     const currentClubId = req.club?.id ?? 1
@@ -441,8 +252,8 @@ router.post("/confirm-authorize", requireAuth, async (req, res) => {
       for (let t = startMins; t < endMins; t += 30) {
         await client.query(
           `INSERT INTO bookings
-             (user_id, date, start_time, end_time, booking_group_id, payment_intent_id, amount_paid, club_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+             (user_id, date, start_time, end_time, booking_group_id, payment_intent_id, amount_paid, payment_mode, club_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           [
             req.user.id,
             date,
@@ -451,6 +262,7 @@ router.post("/confirm-authorize", requireAuth, async (req, res) => {
             groupId,
             intentId,
             amountPerSlot,
+            payment_mode || 'hold',
             clubId,
           ],
         );
@@ -467,6 +279,13 @@ router.post("/confirm-authorize", requireAuth, async (req, res) => {
           pool.query(`INSERT INTO messages (sender_id, recipient_id, body, club_id) VALUES ($1,$2,$3,$4)`,
             [req.user.id, admin.id, body, clubId]).catch(() => {});
         }).catch(() => {});
+
+      // Confirmation email to member (fire-and-forget)
+      pool.query('SELECT name FROM users WHERE id=$1', [req.user.id])
+        .then(({ rows: [u] }) => sendBookingConfirmation({
+          to: req.user.email, name: u?.name,
+          date, start_time, end_time,
+        })).catch(() => {})
 
       res
         .status(201)
@@ -485,44 +304,28 @@ router.post("/confirm-authorize", requireAuth, async (req, res) => {
           .json({ message: "You have already joined this session." });
       }
       await client.query(
-        "INSERT INTO social_play_participants (session_id, user_id, payment_intent_id) VALUES ($1,$2,$3)",
-        [session_id, req.user.id, intentId],
+        "INSERT INTO social_play_participants (session_id, user_id, payment_intent_id, payment_mode) VALUES ($1,$2,$3,$4)",
+        [session_id, req.user.id, intentId, payment_mode || 'immediate'],
       );
       await client.query("COMMIT");
 
-      // Notify admin (fire-and-forget)
+      // Notify admin + send confirmation email (fire-and-forget)
       Promise.all([
-        pool.query(
-          `SELECT id FROM users WHERE role='admin' AND club_id=$1 LIMIT 1`,
-          [clubId],
-        ),
-        pool.query(`SELECT title, date FROM social_play_sessions WHERE id=$1`, [
-          session_id,
-        ]),
+        pool.query(`SELECT id FROM users WHERE role='admin' AND club_id=$1 LIMIT 1`, [clubId]),
+        pool.query(`SELECT title, date FROM social_play_sessions WHERE id=$1`, [session_id]),
+        pool.query(`SELECT name FROM users WHERE id=$1`, [req.user.id]),
       ])
-        .then(
-          ([
-            {
-              rows: [admin],
-            },
-            {
-              rows: [s],
-            },
-          ]) => {
-            if (!admin || !s) return;
-            pool
-              .query(
+        .then(([{ rows: [admin] }, { rows: [s] }, { rows: [u] }]) => {
+          if (s) {
+            if (admin) {
+              pool.query(
                 `INSERT INTO messages (sender_id, recipient_id, body, club_id) VALUES ($1,$2,$3,$4)`,
-                [
-                  req.user.id,
-                  admin.id,
-                  `📋 ${req.user.name} joined "${s.title || "Social Play"}" on ${s.date}`,
-                  clubId,
-                ],
-              )
-              .catch(() => {});
-          },
-        )
+                [req.user.id, admin.id, `📋 ${u?.name ?? req.user.email} joined "${s.title || 'Social Play'}" on ${s.date}`, clubId],
+              ).catch(() => {})
+            }
+            sendSocialPlayJoined({ to: req.user.email, name: u?.name, title: s.title, date: s.date }).catch(() => {})
+          }
+        })
         .catch(() => {});
 
       res.status(201).json({ message: "Joined session. Card authorized." });
@@ -533,6 +336,58 @@ router.post("/confirm-authorize", requireAuth, async (req, res) => {
     res.status(500).json({ message: "Failed to confirm authorization." });
   } finally {
     client.release();
+  }
+});
+
+// ─── POST /api/payments/authorize-extension ──────────────────────────────────
+// Creates a hold PaymentIntent for a booking extension.
+// body: { groupId, extra_minutes }
+router.post("/authorize-extension", requireAuth, async (req, res) => {
+  const { groupId, extra_minutes } = req.body;
+  const extra = Number(extra_minutes);
+  if (!groupId || !extra || extra % 30 !== 0 || extra <= 0)
+    return res.status(400).json({ message: "groupId and extra_minutes (multiple of 30) are required." });
+
+  const clubId = req.club?.id ?? 1;
+  try {
+    const { rows } = await pool.query(
+      `SELECT user_id, date, MAX(end_time) AS end_time FROM bookings
+       WHERE booking_group_id=$1 AND club_id=$2 GROUP BY user_id, date`,
+      [groupId, clubId]
+    );
+    if (!rows[0]) return res.status(404).json({ message: "Booking not found." });
+    if (rows[0].user_id !== req.user.id)
+      return res.status(403).json({ message: "Forbidden." });
+
+    const { date, end_time } = rows[0];
+    // Build start/end for the extension window
+    const toM = (t) => { const [h, m] = t.substring(0,5).split(":").map(Number); return h*60+m; };
+    const extStart = minsToTime(toM(end_time));
+    const extEnd   = minsToTime(toM(end_time) + extra);
+    const amount   = (extra / 30) * PRICE_PER_30_MIN_CENTS;
+
+    const stripe = getStripe();
+    const intent = await stripe.paymentIntents.create({
+      amount,
+      currency: "aud",
+      payment_method_types: ["card"],
+      capture_method: "manual",
+      metadata: {
+        type: "booking_extension",
+        user_id: String(req.user.id),
+        club_id: String(clubId),
+        group_id: String(groupId),
+        date,
+        start_time: extStart,
+        end_time: extEnd,
+      },
+      description: `Extension hold – ${date} ${extStart.substring(0,5)}–${extEnd.substring(0,5)} (+${extra} min)`,
+    });
+
+    res.json({ clientSecret: intent.client_secret, intentId: intent.id, amount });
+  } catch (err) {
+    console.error("[payments] authorize-extension error:", err.message);
+    res.status(500).json({ message: "Failed to create extension. Please try again." });
   }
 });
 
@@ -579,14 +434,14 @@ router.post("/shop-intent", requireAuth, async (req, res) => {
   try {
     const stripe = getStripe();
 
-    // Fetch real prices from DB
+    // Fetch real prices and stock from DB
     const ids = items.map((i) => i.product_id);
     const { rows: products } = await pool.query(
-      `SELECT id, name, price FROM products WHERE id = ANY($1) AND club_id=$2 AND is_active=TRUE`,
+      `SELECT id, name, price, stock FROM products WHERE id = ANY($1) AND club_id=$2 AND is_active=TRUE`,
       [ids, clubId],
     );
 
-    // Build line items and calculate total
+    // Build line items and calculate total; enforce stock
     let totalCents = 0;
     const lineItems = [];
     for (const item of items) {
@@ -600,9 +455,11 @@ router.post("/shop-intent", requireAuth, async (req, res) => {
           .status(400)
           .json({ message: `Product "${product.name}" has no price set.` });
       const qty = Math.max(1, Math.floor(item.qty));
+      if (product.stock !== null && product.stock !== undefined && product.stock < qty)
+        return res.status(409).json({ message: `"${product.name}" only has ${product.stock} left in stock.` });
       const cents = Math.round(Number(product.price) * 100) * qty;
       totalCents += cents;
-      lineItems.push({ name: product.name, qty, price: product.price });
+      lineItems.push({ product_id: product.id, name: product.name, qty, price_cents: cents });
     }
 
     if (totalCents < 50)
@@ -618,12 +475,14 @@ router.post("/shop-intent", requireAuth, async (req, res) => {
         user_id: String(req.user.id),
         club_id: String(clubId),
         type: "shop_order",
+        items: JSON.stringify(lineItems),
       },
       description: `Shop order: ${description}`,
     });
 
     res.json({
       clientSecret: paymentIntent.client_secret,
+      intentId: paymentIntent.id,
       amount: totalCents,
       currency: "aud",
     });

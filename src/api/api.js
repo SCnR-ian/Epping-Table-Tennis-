@@ -79,8 +79,8 @@ export const bookingsAPI = {
   create: (data) => api.post("/bookings", data),
   cancel: (id) => api.delete(`/bookings/${id}`),
   cancelGroup: (groupId) => api.delete(`/bookings/group/${groupId}`),
-  extendGroup: (groupId, extraMins) =>
-    api.post(`/bookings/group/${groupId}/extend`, { extra_minutes: extraMins }),
+  extendGroup: (groupId, extraMins, intentId) =>
+    api.post(`/bookings/group/${groupId}/extend`, { extra_minutes: extraMins, intentId }),
   getAvailable: (date) => api.get("/bookings/available", { params: { date } }),
 };
 
@@ -93,16 +93,6 @@ export const courtsAPI = {
 };
 
 // ---------------------------------------------------------------------------
-// Tournaments
-// ---------------------------------------------------------------------------
-export const tournamentsAPI = {
-  getAll: (params) => api.get("/tournaments", { params }),
-  getById: (id) => api.get(`/tournaments/${id}`),
-  register: (id) => api.post(`/tournaments/${id}/register`),
-  withdraw: (id) => api.delete(`/tournaments/${id}/register`),
-};
-
-// ---------------------------------------------------------------------------
 // Admin
 // ---------------------------------------------------------------------------
 export const adminAPI = {
@@ -110,9 +100,6 @@ export const adminAPI = {
   getAllMembers:  (params) => api.get("/admin/members", { params }),
   createMember:  (data)   => api.post("/admin/members", data),
   getAllBookings: (params) => api.get("/admin/bookings", { params }),
-  createTournament: (data) => api.post("/admin/tournaments", data),
-  updateTournament: (id, d) => api.put(`/admin/tournaments/${id}`, d),
-  deleteTournament: (id) => api.delete(`/admin/tournaments/${id}`),
   updateMemberRole: (id, d) => api.put(`/admin/members/${id}/role`, d),
   updateMember: (id, d) => api.patch(`/admin/members/${id}`, d),
   deleteMember: (id) => api.delete(`/admin/members/${id}`),
@@ -204,6 +191,7 @@ export const socialAPI = {
   updateSeries:           (recurrenceId, data) => api.patch(`/social/recurrence/${recurrenceId}`, data),
   cancelRecurringSessions:(recurrenceId)     => api.delete(`/social/recurrence/${recurrenceId}`),
   cancelBatch:            (ids)              => api.delete('/social/batch', { data: { ids } }),
+  getMySessions:          ()                 => api.get('/social/my-sessions'),
 }
 
 // ---------------------------------------------------------------------------
@@ -229,12 +217,19 @@ export const checkinAPI = {
 // Schedule / Announcements
 // ---------------------------------------------------------------------------
 export const scheduleAPI = {
-  getAll: () => api.get("/schedule"),
+  getAll:    ()           => api.get('/schedule'),
+  getAdmin:  ()           => api.get('/schedule?all=1'),
+  update:    (id, data)   => api.patch(`/schedule/${id}`, data),
+  create:    (data)       => api.post('/schedule', data),
+  remove:    (id)         => api.delete(`/schedule/${id}`),
 };
 
 export const announcementsAPI = {
-  getAll: () => api.get("/announcements"),
-  getLatest: () => api.get("/announcements?limit=3"),
+  getAll:   ()           => api.get('/announcements'),
+  getLatest:()           => api.get('/announcements?limit=3'),
+  create:   (data)       => api.post('/announcements', data),
+  update:   (id, data)   => api.put(`/announcements/${id}`, data),
+  remove:   (id)         => api.delete(`/announcements/${id}`),
 };
 
 // ---------------------------------------------------------------------------
@@ -274,14 +269,13 @@ export const pagesAPI = {
 // Payments
 // ---------------------------------------------------------------------------
 export const paymentsAPI = {
-  getConfig:       ()          => api.get('/payments/config'),
-  createIntent:    (data)      => api.post('/payments/create-intent', data),
-  confirm:         (paymentIntentId) => api.post('/payments/confirm', { paymentIntentId }),
-  shopIntent:      (items)     => api.post('/payments/shop-intent', { items }),
-  authorize:       (data)      => api.post('/payments/authorize', data),
-  confirmAuthorize:(intentId)  => api.post('/payments/confirm-authorize', { intentId }),
-  capture:         (intentId)  => api.post(`/payments/capture/${intentId}`),
-  void:            (intentId)  => api.post(`/payments/void/${intentId}`),
+  getConfig:          ()       => api.get('/payments/config'),
+  shopIntent:         (items)  => api.post('/payments/shop-intent', { items }),
+  authorize:          (data)   => api.post('/payments/authorize', data),
+  confirmAuthorize:   (intentId) => api.post('/payments/confirm-authorize', { intentId }),
+  capture:            (intentId) => api.post(`/payments/capture/${intentId}`),
+  void:               (intentId) => api.post(`/payments/void/${intentId}`),
+  authorizeExtension: (data)   => api.post('/payments/authorize-extension', data),
 }
 
 export const messagesAPI = {
@@ -310,6 +304,10 @@ export const shopAPI = {
   uploadImage:      (id, formData) => api.post(`/shop/products/${id}/images`, formData, { headers: { 'Content-Type': undefined } }),
   deleteImage:      (productId, imageId) => api.delete(`/shop/products/${productId}/images/${imageId}`),
   imageUrl:         (filename) => `${api.defaults.baseURL}/shop/images/${filename}`,
+  // Orders
+  confirmOrder:     (data)     => api.post('/shop/orders', data),
+  getOrders:        ()         => api.get('/shop/orders'),
+  updateOrderStatus:(id, status) => api.patch(`/shop/orders/${id}`, { status }),
 }
 
 // ---------------------------------------------------------------------------
@@ -322,6 +320,7 @@ export const venueAPI = {
   getToday:     (date)    => api.get('/venue/today', { params: date ? { date } : {} }),
   getQR:        ()        => api.get('/venue/qr'),
   regenerateQR: ()        => api.post('/venue/qr/regenerate'),
+  getHistory:   ()        => api.get('/venue/history'),
 }
 
 // ---------------------------------------------------------------------------

@@ -86,6 +86,22 @@ router.get('/', async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
+// GET /api/social/my-sessions — all sessions the current user has joined (including past)
+router.get('/my-sessions', requireAuth, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.id, s.title, s.date, s.start_time, s.end_time, s.price_cents, s.num_courts
+       FROM social_play_sessions s
+       JOIN social_play_participants p ON p.session_id = s.id
+       WHERE p.user_id = $1 AND s.club_id = $2
+       ORDER BY s.date DESC, s.start_time DESC`,
+      [req.user.id, clubId]
+    )
+    res.json({ sessions: rows })
+  } catch (e) { console.error('[social/my-sessions]', e.message); res.status(500).json({ message: e.message }) }
+})
+
 // GET /api/social/admin?date=YYYY-MM-DD
 router.get('/admin', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin')
@@ -113,7 +129,7 @@ router.get('/admin', requireAuth, async (req, res) => {
     let participantRows = []
     if (ids.length) {
       const { rows } = await pool.query(
-        `SELECT p.session_id, u.id AS user_id, u.name, u.is_walkin, p.payment_intent_id
+        `SELECT p.session_id, u.id AS user_id, u.name, u.is_walkin, p.payment_intent_id, p.payment_mode
          FROM social_play_participants p
          JOIN users u ON u.id = p.user_id
          WHERE p.session_id = ANY($1)
@@ -127,7 +143,7 @@ router.get('/admin', requireAuth, async (req, res) => {
       ...s,
       participants: participantRows
         .filter(p => p.session_id === s.id)
-        .map(p => ({ id: p.user_id, name: p.name, is_walkin: p.is_walkin, payment_intent_id: p.payment_intent_id })),
+        .map(p => ({ id: p.user_id, name: p.name, is_walkin: p.is_walkin, payment_intent_id: p.payment_intent_id, payment_mode: p.payment_mode })),
     }))
 
     res.json({ sessions: result })

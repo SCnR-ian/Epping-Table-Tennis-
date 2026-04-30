@@ -309,7 +309,8 @@ router.get('/bookings', async (req, res) => {
          u.name                   AS user_name,
          u.email                  AS user_email,
          c.name                   AS court_name,
-         MIN(b.payment_intent_id) AS payment_intent_id
+         MIN(b.payment_intent_id) AS payment_intent_id,
+         MIN(b.payment_mode)      AS payment_mode
        FROM bookings b
        JOIN users u ON u.id  = b.user_id
        LEFT JOIN courts c ON c.id = b.court_id
@@ -319,46 +320,6 @@ router.get('/bookings', async (req, res) => {
       params
     )
     res.json({ bookings: rows })
-  } catch { res.status(500).json({ message: 'Server error.' }) }
-})
-
-// POST /api/admin/tournaments
-router.post('/tournaments', async (req, res) => {
-  const { name, date, prize, status, max_participants, format } = req.body
-  const clubId = req.club?.id ?? 1
-  try {
-    const { rows } = await pool.query(
-      `INSERT INTO tournaments (name, date, prize, status, max_participants, format, club_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [name, date, prize, status || 'upcoming', max_participants || 32, format || 'Singles', clubId]
-    )
-    res.status(201).json({ tournament: rows[0] })
-  } catch { res.status(500).json({ message: 'Server error.' }) }
-})
-
-// PUT /api/admin/tournaments/:id
-router.put('/tournaments/:id', async (req, res) => {
-  const { name, date, prize, status, max_participants, format } = req.body
-  const clubId = req.club?.id ?? 1
-  try {
-    const { rows } = await pool.query(
-      `UPDATE tournaments SET name=$1, date=$2, prize=$3, status=$4,
-       max_participants=$5, format=$6 WHERE id=$7 AND club_id=$8 RETURNING *`,
-      [name, date, prize, status, max_participants, format, req.params.id, clubId]
-    )
-    res.json({ tournament: rows[0] })
-  } catch { res.status(500).json({ message: 'Server error.' }) }
-})
-
-// DELETE /api/admin/tournaments/:id
-router.delete('/tournaments/:id', async (req, res) => {
-  try {
-    const clubId = req.club?.id ?? 1
-    await pool.query(
-      'DELETE FROM tournaments WHERE id=$1 AND club_id=$2',
-      [req.params.id, clubId]
-    )
-    res.json({ message: 'Tournament deleted.' })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 

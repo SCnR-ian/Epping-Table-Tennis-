@@ -2,14 +2,6 @@ const router = require('express').Router()
 const pool   = require('../db')
 const { requireAuth } = require('../middleware/auth')
 
-function voidIntent(intentId) {
-  if (!intentId || !process.env.STRIPE_SECRET_KEY) return
-  try {
-    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
-    stripe.paymentIntents.cancel(intentId).catch(() => {})
-  } catch {}
-}
-
 // Resolve the target user: the logged-in user themselves, or (if admin) a
 // specified user passed in the request body.
 function resolveTarget(req) {
@@ -44,12 +36,19 @@ router.post('/booking/:groupId', requireAuth, async (req, res) => {
        ON CONFLICT (user_id, type, reference_id) DO NOTHING`,
       [uid, req.params.groupId, rows[0].date, checkedInBy(req, uid)]
     )
-    // Release the card hold when user shows up
+    // Void the booking hold when user shows up (booking uses capture_method:'manual')
     const { rows: bRows } = await pool.query(
       `SELECT payment_intent_id FROM bookings WHERE booking_group_id=$1 AND user_id=$2 LIMIT 1`,
       [req.params.groupId, uid]
     )
-    if (bRows[0]?.payment_intent_id) voidIntent(bRows[0].payment_intent_id)
+    if (bRows[0]?.payment_intent_id) {
+      try {
+        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
+        const intent = await stripe.paymentIntents.retrieve(bRows[0].payment_intent_id)
+        if (intent.status === 'requires_capture')
+          await stripe.paymentIntents.cancel(bRows[0].payment_intent_id)
+      } catch {}
+    }
     res.json({ message: 'Checked in.' })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
@@ -75,12 +74,7 @@ router.post('/social/:sessionId', requireAuth, async (req, res) => {
        ON CONFLICT (user_id, type, reference_id) DO NOTHING`,
       [uid, req.params.sessionId, rows[0].date, checkedInBy(req, uid)]
     )
-    // Release the card hold when user shows up
-    const { rows: pRows } = await pool.query(
-      `SELECT payment_intent_id FROM social_play_participants WHERE session_id=$1 AND user_id=$2 LIMIT 1`,
-      [req.params.sessionId, uid]
-    )
-    if (pRows[0]?.payment_intent_id) voidIntent(pRows[0].payment_intent_id)
+    // Social play is direct charge (no hold to release)
     res.json({ message: 'Checked in.' })
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })

@@ -4,6 +4,7 @@ const cors           = require('cors')
 const path           = require('path')
 const session        = require('express-session')
 const passport       = require('./config/passport')
+const cron           = require('node-cron')
 
 const app  = express()
 const PORT = process.env.PORT || 8000
@@ -51,7 +52,6 @@ app.use('/api/profile',       require('./routes/profile'))
 app.use('/api/members',       require('./routes/members'))
 app.use('/api/courts',        require('./routes/courts'))
 app.use('/api/bookings',      require('./routes/bookings'))
-app.use('/api/tournaments',   require('./routes/tournaments'))
 app.use('/api/admin',         require('./routes/admin'))
 app.use('/api/coaching',      require('./routes/coaching'))
 app.use('/api/social',        require('./routes/social'))
@@ -381,11 +381,122 @@ async function runMigrations() {
        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
      )`,
     `ALTER TABLE session_leave_requests ADD COLUMN IF NOT EXISTS available_slots JSONB`,
+    // Stock tracking for shop products (NULL = unlimited)
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS stock INTEGER`,
+    // Shop orders
+    `CREATE TABLE IF NOT EXISTS shop_orders (
+       id                 SERIAL PRIMARY KEY,
+       user_id            INTEGER REFERENCES users(id) ON DELETE SET NULL,
+       club_id            INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id),
+       payment_intent_id  VARCHAR(255),
+       status             VARCHAR(30) NOT NULL DEFAULT 'pending',
+       delivery_type      VARCHAR(20) NOT NULL DEFAULT 'collect',
+       address            JSONB,
+       total_cents        INTEGER NOT NULL DEFAULT 0,
+       created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE TABLE IF NOT EXISTS shop_order_items (
+       id          SERIAL PRIMARY KEY,
+       order_id    INTEGER NOT NULL REFERENCES shop_orders(id) ON DELETE CASCADE,
+       product_id  INTEGER REFERENCES products(id) ON DELETE SET NULL,
+       name        VARCHAR(255) NOT NULL,
+       qty         INTEGER NOT NULL DEFAULT 1,
+       price_cents INTEGER NOT NULL DEFAULT 0
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_shop_orders_club ON shop_orders(club_id)`,
+    `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(10) DEFAULT 'hold'`,
+    `ALTER TABLE social_play_participants ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(10) DEFAULT 'immediate'`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }
   }
 }
+
+// ── Scheduled jobs ────────────────────────────────────────────────────────────
+
+// Every 5 minutes: auto no-show for expired bookings with no check-in
+cron.schedule('*/5 * * * *', async () => {
+  const pool = require('./db')
+  try {
+    // Find confirmed bookings where end_time has passed, no check-in, hold not yet resolved
+    const { rows } = await pool.query(`
+      SELECT DISTINCT b.booking_group_id, b.user_id, b.club_id,
+             MIN(b.payment_intent_id) AS payment_intent_id,
+             u.id AS user_id, u.email,
+             MIN(b.start_time)::text AS start_time,
+             MAX(b.end_time)::text   AS end_time
+      FROM bookings b
+      JOIN users u ON u.id = b.user_id
+      WHERE b.date = CURRENT_DATE
+        AND b.status = 'confirmed'
+        AND b.end_time::time < CURRENT_TIME
+        AND b.payment_intent_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM check_ins ci
+          WHERE ci.type = 'booking'
+            AND ci.reference_id = b.booking_group_id::text
+            AND ci.user_id = b.user_id
+        )
+      GROUP BY b.booking_group_id, b.user_id, b.club_id, u.id, u.email
+    `)
+
+    for (const row of rows) {
+      try {
+        // Mark as no-show in check_ins
+        await pool.query(
+          `INSERT INTO check_ins (user_id, type, reference_id, date, no_show, club_id)
+           VALUES ($1,'booking',$2,CURRENT_DATE,true,$3) ON CONFLICT DO NOTHING`,
+          [row.user_id, row.booking_group_id, row.club_id]
+        )
+
+        // Capture the payment hold
+        if (process.env.STRIPE_SECRET_KEY) {
+          const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
+          const intent = await stripe.paymentIntents.retrieve(row.payment_intent_id).catch(() => null)
+          if (intent?.status === 'requires_capture')
+            await stripe.paymentIntents.capture(row.payment_intent_id).catch(() => {})
+        }
+
+        // Notify admin
+        const { rows: [admin] } = await pool.query(
+          `SELECT id FROM users WHERE role='admin' AND club_id=$1 LIMIT 1`, [row.club_id]
+        )
+        if (admin) {
+          const msg = `⚠️ No-show: ${row.email} — booking ${row.start_time?.slice(0,5)}–${row.end_time?.slice(0,5)}. Hold captured.`
+          await pool.query(
+            `INSERT INTO messages (sender_id, recipient_id, body, club_id) VALUES ($1,$2,$3,$4)`,
+            [row.user_id, admin.id, msg, row.club_id]
+          ).catch(() => {})
+          // Notify member
+          await pool.query(
+            `INSERT INTO messages (sender_id, recipient_id, body, club_id) VALUES ($1,$2,$3,$4)`,
+            [admin.id, row.user_id, `⚠️ You were marked as a no-show for your ${row.start_time?.slice(0,5)}–${row.end_time?.slice(0,5)} booking. Your card hold has been captured.`, row.club_id]
+          ).catch(() => {})
+        }
+      } catch (e) {
+        console.error('[cron] no-show processing error:', e.message)
+      }
+    }
+  } catch (e) {
+    console.error('[cron] auto no-show failed:', e.message)
+  }
+})
+
+// Daily at 23:58: auto-close open venue check-ins (forgot to check out)
+cron.schedule('58 23 * * *', async () => {
+  const pool = require('./db')
+  try {
+    const { rowCount } = await pool.query(`
+      UPDATE venue_checkins
+      SET checked_out_at = (date + TIME '23:59:00')::timestamptz
+      WHERE date = CURRENT_DATE AND checked_out_at IS NULL
+    `)
+    if (rowCount > 0)
+      console.log(`[cron] Auto-closed ${rowCount} open venue check-in(s) at midnight`)
+  } catch (e) {
+    console.error('[cron] midnight checkout failed:', e.message)
+  }
+})
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 runMigrations().then(() =>

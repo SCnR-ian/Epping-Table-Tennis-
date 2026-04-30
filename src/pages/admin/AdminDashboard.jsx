@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Camera, Plus, Trash2 } from 'lucide-react'
-import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, homepageAPI, pagesAPI, clubAPI, venueAPI, articlesAPI, paymentsAPI } from '@/api/api'
+import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, venueAPI, articlesAPI, announcementsAPI, scheduleAPI, paymentsAPI } from '@/api/api'
 import ShopManager from './ShopManager'
 import QRCode from 'react-qr-code'
 import { useClub } from '@/context/ClubContext'
-import { EditModeContext } from '@/context/EditModeContext'
-import EditableText from '@/components/cms/EditableText'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   LineChart, Line, CartesianGrid, Legend,
@@ -128,7 +126,7 @@ function groupByWeek(sessions) {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 
-const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Analytics', 'QR-Code', 'Shop', 'Articles']
+const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Analytics', 'QR-Code', 'Shop', 'Articles', 'Announcements', 'Schedule']
 
 const BOOKABLE_COURTS = [
   { id: 1, label: 'Court 1' },
@@ -205,823 +203,6 @@ function layoutEvents(events) {
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
-
-// ── Homepage Cards Tab ───────────────────────────────────────────────────────
-function HomepageCardsTab() {
-  const [cards, setCards] = useState([])
-  const [uploading, setUploading] = useState({})
-
-  useEffect(() => {
-    homepageAPI.getCards().then(r => setCards(r.data.cards)).catch(() => {})
-  }, [])
-
-  const handleUpload = async (id, file) => {
-    if (!file) return
-    setUploading(p => ({ ...p, [id]: true }))
-    try {
-      const fd = new FormData()
-      fd.append('image', file)
-      await homepageAPI.uploadImage(id, fd)
-      const r = await homepageAPI.getCards()
-      setCards(r.data.cards)
-    } catch (err) {
-      alert(err.response?.data?.message ?? 'Upload failed.')
-    } finally {
-      setUploading(p => ({ ...p, [id]: false }))
-    }
-  }
-
-  const handleRemove = async (id) => {
-    if (!confirm('Remove photo for this card?')) return
-    try {
-      await homepageAPI.deleteImage(id)
-      setCards(prev => prev.map(c => c.id === id ? { ...c, hasImage: false } : c))
-    } catch { alert('Could not remove image.') }
-  }
-
-  return (
-    <div className="animate-fade-in space-y-6">
-      <h2 className="text-gray-900 text-lg font-medium">Homepage Cards</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {cards.map(card => (
-          <div key={card.id} className="card space-y-3">
-            {/* Photo preview */}
-            <div className="relative h-40 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center">
-              {card.hasImage ? (
-                <>
-                  <img
-                    src={`${homepageAPI.getImageUrl(card.id)}?t=${Date.now()}`}
-                    alt={card.title}
-                    className="w-full h-full object-cover"
-                  />
-                  <button
-                    onClick={() => handleRemove(card.id)}
-                    className="absolute top-2 right-2 bg-black/60 hover:bg-red-600 text-gray-900 rounded-full w-6 h-6 flex items-center justify-center text-xs transition-colors"
-                  >✕</button>
-                </>
-              ) : (
-                <span className="text-gray-800 text-xs">No photo</span>
-              )}
-            </div>
-            <p className="text-gray-900 text-sm font-medium">{card.title}</p>
-            <label className="block">
-              <span className="btn-secondary text-xs py-1.5 px-3 cursor-pointer w-full text-center block">
-                {uploading[card.id] ? 'Uploading…' : card.hasImage ? 'Replace Photo' : 'Upload Photo'}
-              </span>
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                disabled={uploading[card.id]}
-                onChange={e => handleUpload(card.id, e.target.files[0])}
-              />
-            </label>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ── Reusable banner slot grid ─────────────────────────────────────────────────
-function BannerSlotsGrid({ slots, prefix, onUpload, onDelete }) {
-  return (
-    <div className="grid grid-cols-3 gap-3">
-      {slots.map((slot, idx) => (
-        <div key={slot.key}
-          className="relative h-28 bg-gray-100 rounded-lg overflow-hidden border-2 border-dashed border-gray-300 group"
-          onDragOver={e => e.preventDefault()}
-          onDrop={e => { e.preventDefault(); onUpload(idx, e.dataTransfer.files[0]) }}
-        >
-          <label htmlFor={`${prefix}-input-${idx}`} className="absolute inset-0 flex items-center justify-center cursor-pointer">
-            {slot.hasImage ? (
-              <>
-                <img src={`${pagesAPI.getImageUrl(slot.key)}?t=${slot.ts}`} alt="" className="w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
-                <span className="absolute bottom-1 left-1 bg-black/50 text-white text-[10px] px-1 rounded">{idx + 1}</span>
-              </>
-            ) : (
-              <div className="text-center pointer-events-none">
-                {slot.uploading ? <span className="text-gray-400 text-xs">Uploading…</span> : (
-                  <>
-                    <svg className="w-6 h-6 text-gray-300 mx-auto mb-1" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.338-2.32 5.75 5.75 0 011.344 11.095" /></svg>
-                    <span className="text-gray-400 text-[10px]">Slot {idx + 1}</span>
-                  </>
-                )}
-              </div>
-            )}
-          </label>
-          {slot.hasImage && (
-            <button onClick={() => onDelete(idx)} className="absolute top-1 right-1 z-10 bg-black/60 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
-          )}
-          <input id={`${prefix}-input-${idx}`} type="file" accept="image/*" className="hidden" disabled={slot.uploading}
-            onChange={e => { onUpload(idx, e.target.files[0]); e.target.value = '' }} />
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ── Club Settings Tab ─────────────────────────────────────────────────────────
-function ClubSettingsTab() {
-  const { club, setClub } = useClub() ?? {}
-  const [form, setForm] = React.useState({
-    name:          '',
-    contactPhone:  '',
-    contactEmail:  '',
-    address:       '',
-    wechat:        '',
-    primaryColor:  '#2563eb',
-    primaryDark:   '#1d4ed8',
-    logoUrl:       '',
-  })
-  const [saving, setSaving] = React.useState(false)
-  const [saved,  setSaved]  = React.useState(false)
-
-  React.useEffect(() => {
-    if (!club) return
-    const s = club.settings ?? {}
-    const t = s.theme ?? {}
-    setForm({
-      name:         club.name          ?? '',
-      contactPhone: s.contactPhone     ?? '',
-      contactEmail: s.contactEmail     ?? '',
-      address:      s.address          ?? '',
-      wechat:       s.wechat           ?? '',
-      primaryColor: t.primaryColor     ?? '#2563eb',
-      primaryDark:  t.primaryDark      ?? '#1d4ed8',
-      logoUrl:      t.logoUrl          ?? '',
-    })
-  }, [club])
-
-  const handleSave = async () => {
-    setSaving(true); setSaved(false)
-    try {
-      const payload = {
-        name: form.name,
-        settings: {
-          ...(club?.settings ?? {}),
-          contactPhone: form.contactPhone,
-          contactEmail: form.contactEmail,
-          address:      form.address,
-          wechat:       form.wechat,
-          theme: {
-            ...(club?.settings?.theme ?? {}),
-            primaryColor: form.primaryColor,
-            primaryDark:  form.primaryDark,
-            logoUrl:      form.logoUrl,
-          },
-        },
-      }
-      const r = await clubAPI.update(payload)
-      setClub(r.data.club)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 3000)
-    } catch { alert('Save failed.') }
-    finally { setSaving(false) }
-  }
-
-  const field = (label, key, type = 'text', extra = {}) => (
-    <div>
-      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
-      {type === 'textarea'
-        ? <textarea
-            rows={3}
-            value={form[key]}
-            onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            {...extra}
-          />
-        : <input
-            type={type}
-            value={form[key]}
-            onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            {...extra}
-          />
-      }
-    </div>
-  )
-
-  return (
-    <div className="max-w-xl mx-auto py-8 px-4 space-y-8">
-      <h2 className="text-lg font-semibold text-gray-900">Club Settings</h2>
-
-      {/* Identity */}
-      <section className="space-y-4">
-        <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider">Identity</h3>
-        {field('Club Name', 'name')}
-        {field('Logo URL', 'logoUrl', 'text', { placeholder: '/logo.png or https://…' })}
-      </section>
-
-      {/* Contact */}
-      <section className="space-y-4">
-        <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider">Contact</h3>
-        {field('Phone', 'contactPhone')}
-        {field('Email', 'contactEmail', 'email')}
-        {field('Address', 'address', 'textarea')}
-        {field('WeChat ID', 'wechat')}
-      </section>
-
-      {/* Theme */}
-      <section className="space-y-4">
-        <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider">Theme</h3>
-        <div className="flex gap-6">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Primary Colour</label>
-            <div className="flex items-center gap-2">
-              <input type="color" value={form.primaryColor} onChange={e => setForm(f => ({ ...f, primaryColor: e.target.value }))}
-                className="w-10 h-10 rounded cursor-pointer border border-gray-300" />
-              <span className="text-sm text-gray-500">{form.primaryColor}</span>
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Primary Dark</label>
-            <div className="flex items-center gap-2">
-              <input type="color" value={form.primaryDark} onChange={e => setForm(f => ({ ...f, primaryDark: e.target.value }))}
-                className="w-10 h-10 rounded cursor-pointer border border-gray-300" />
-              <span className="text-sm text-gray-500">{form.primaryDark}</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="px-6 py-2 bg-black text-white text-sm rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
-      >
-        {saving ? 'Saving…' : saved ? 'Saved!' : 'Save Changes'}
-      </button>
-    </div>
-  )
-}
-
-// ── Pages CMS Tab ─────────────────────────────────────────────────────────────
-const PAGE_SUBTABS = ['Cards', 'Home', 'About Us', 'Training']
-
-const DEFAULT_HOME_HERO    = { headline: 'Epping Table Tennis', subheadline: "Sydney's Premier Table Tennis Club" }
-const DEFAULT_HOME_INTRO   = { headline: 'More Than Just a Club', body1: "Founded in 2015, Epping Table Tennis Club has grown into Sydney's premier destination for players of all levels.", body2: "We offer six competition-grade courts, certified coaching, weekly social nights, and a vibrant tournament calendar." }
-const DEFAULT_HOME_CONTACT = {
-  phone: '(02) 9876 5432', email: 'info@eppingttclub.com.au',
-  address: '33 Oxford St\nEpping NSW 2121\nAustralia', wechat: '',
-  gettingHere: '2 min walk from Epping Station\nBus stop directly outside\nFree parking on-site',
-  schedule: [
-    { day: 'Mon', time: '4:00 – 8:30 PM' }, { day: 'Tue', time: '4:00 – 8:30 PM' },
-    { day: 'Wed', time: '4:00 – 8:30 PM' }, { day: 'Sat', time: '1:00 – 6:30 PM' },
-  ],
-}
-const DEFAULT_ABOUT_STORY    = { headline: 'More Than Just a Club', body1: '', body2: '' }
-const DEFAULT_ABOUT_COACHING = { headline: 'World-Class Coaching', body1: '', body2: '' }
-const DEFAULT_ABOUT_COACHES  = { coaches: [
-  { name: 'David Chen',  title: 'Head Coach',               bio: '' },
-  { name: 'Sarah Kim',   title: 'Junior Development Coach',  bio: '' },
-  { name: 'Marcus Liu',  title: 'Fitness & Strategy Coach',  bio: '' },
-] }
-const DEFAULT_TRAINING_INTRO = { headline: 'Training Programs', subheadline: 'From beginner to competitive — we have a program designed for every stage of your journey.' }
-const TRAINING_PROGRAM_IDS   = ['private', 'group', 'school', 'holiday']
-const DEFAULT_TRAINING_PROGRAMS = {
-  private: { label: 'One-on-One',       tagline: 'Personalised sessions tailored entirely to your game',       description: '', features: [] },
-  group:   { label: 'Group Session',    tagline: 'Learn together, improve together',                           description: '', features: [] },
-  school:  { label: 'School Coaching',  tagline: 'Bringing table tennis to the classroom',                     description: '', features: [] },
-  holiday: { label: 'School Holiday',   tagline: 'Fun, intensive programs during school holidays',             description: '', features: [] },
-}
-
-function ImageUploadBox({ imageUrl, fallback, onUpload, onDelete, uploading }) {
-  const uid = React.useId()
-  const [hasImg, setHasImg] = React.useState(false)
-  const [ts, setTs] = React.useState(Date.now())
-  React.useEffect(() => {
-    const img = new Image()
-    img.onload  = () => { setHasImg(true);  setTs(Date.now()) }
-    img.onerror = () => { setHasImg(false) }
-    img.src = imageUrl
-  }, [imageUrl])
-  const handleDrop = e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) { onUpload(f); setTs(Date.now()) } }
-  const handleChange = e => { const f = e.target.files[0]; if (f) { onUpload(f); setTs(Date.now()) }; e.target.value = '' }
-  return (
-    <div className="relative h-32 bg-gray-100 rounded-lg overflow-hidden border-2 border-dashed border-gray-300 group"
-      onDragOver={e => e.preventDefault()} onDrop={handleDrop}>
-      <label htmlFor={uid} className="absolute inset-0 flex items-center justify-center cursor-pointer">
-        {hasImg
-          ? <img src={`${imageUrl}?t=${ts}`} alt="" className="w-full h-full object-cover" onError={() => setHasImg(false)} />
-          : <span className="text-gray-400 text-xs text-center px-2">{uploading ? 'Uploading…' : fallback || 'Drag & drop or click to upload'}</span>
-        }
-      </label>
-      {hasImg && (
-        <button onClick={() => { onDelete(); setHasImg(false) }}
-          className="absolute top-1 right-1 z-10 bg-black/60 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
-      )}
-      <input id={uid} type="file" accept="image/*" className="hidden" disabled={uploading} onChange={handleChange} />
-    </div>
-  )
-}
-
-function SaveButton({ onSave, saving, saved }) {
-  return (
-    <button onClick={onSave} disabled={saving} className="btn-primary text-sm py-1.5 px-4 mt-2">
-      {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}
-    </button>
-  )
-}
-
-const BANNER_SLOTS = 6
-const FALLBACK_BANNERS = ['/images/ETTC1.jpg','/images/ETTC2.jpg','/images/ETTC3.jpg','/images/ETTC4.jpg','/images/ETTC5.jpg','/images/ETTC6.jpg']
-
-function HomePagePreview({
-  hero, setHero,
-  intro, setIntro,
-  contact, setContact,
-  bannerSrcs, bannerSrcs2, bannerSrcs3,
-  onUploadBanner1, onUploadBanner2, onUploadBanner3,
-}) {
-  const srcs  = bannerSrcs?.length  ? bannerSrcs  : FALLBACK_BANNERS
-  const srcs2 = bannerSrcs2?.length ? bannerSrcs2 : FALLBACK_BANNERS
-  const srcs3 = bannerSrcs3?.length ? bannerSrcs3 : FALLBACK_BANNERS
-  const [cur,  setCur]  = React.useState(0)
-  const [cur2, setCur2] = React.useState(0)
-  const [cur3, setCur3] = React.useState(0)
-  const b1Ref = React.useRef(); const b2Ref = React.useRef(); const b3Ref = React.useRef()
-  React.useEffect(() => { setCur(0)  }, [srcs.length])
-  React.useEffect(() => { setCur2(0) }, [srcs2.length])
-  React.useEffect(() => { setCur3(0) }, [srcs3.length])
-  React.useEffect(() => {
-    const t = setInterval(() => setCur(i => (i + 1) % srcs.length), 3000)
-    return () => clearInterval(t)
-  }, [srcs.length])
-  React.useEffect(() => {
-    const t = setInterval(() => setCur2(i => (i + 1) % srcs2.length), 3500)
-    return () => clearInterval(t)
-  }, [srcs2.length])
-  React.useEffect(() => {
-    const t = setInterval(() => setCur3(i => (i + 1) % srcs3.length), 4000)
-    return () => clearInterval(t)
-  }, [srcs3.length])
-
-  const saveHero    = (h) => pagesAPI.updateContent('home_hero',    h).catch(() => {})
-  const saveIntro   = (d) => pagesAPI.updateContent('home_intro',   d).catch(() => {})
-  const saveContact = (c) => pagesAPI.updateContent('home_contact', c).catch(() => {})
-
-  const schedule = contact?.schedule ?? []
-
-  return (
-    <EditModeContext.Provider value={{ isEditing: true, setIsEditing: () => {} }}>
-      <div className="rounded-xl overflow-hidden border border-gray-200 shadow-lg" style={{ height: '88vh' }}>
-        {/* Browser chrome */}
-        <div className="bg-gray-100 px-3 py-2 flex items-center gap-2 border-b border-gray-200 flex-shrink-0">
-          <span className="w-2.5 h-2.5 rounded-full bg-red-400 block" />
-          <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 block" />
-          <span className="w-2.5 h-2.5 rounded-full bg-green-400 block" />
-          <div className="flex-1 mx-2 bg-white rounded text-[10px] text-gray-400 px-2 py-0.5 text-center truncate">eppingttclub.com.au</div>
-          <span className="text-[9px] text-blue-500 font-medium whitespace-nowrap">✎ Click to edit</span>
-        </div>
-        {/* Scrollable page */}
-        <div className="overflow-y-auto bg-white" style={{ height: 'calc(88vh - 33px)' }}>
-          {/* Nav stub */}
-          <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100">
-            <span className="text-xs tracking-widest text-gray-400 uppercase">Menu</span>
-            <span className="text-sm tracking-[0.15em] text-gray-900 font-medium">EPPING TABLE TENNIS</span>
-            <span className="w-6 h-6 rounded-full bg-gray-200" />
-          </div>
-
-          {/* Hero — Banner 1 */}
-          <div className="relative overflow-hidden group" style={{ height: 260 }}>
-            {srcs.map((src, i) => (
-              <img key={src} src={src} alt="" className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700" style={{ opacity: i === cur ? 1 : 0 }} />
-            ))}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-black/20 pointer-events-none" />
-            <button onClick={() => b1Ref.current?.click()} className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs font-medium px-3 py-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-              <Camera size={12} /> Replace Image
-            </button>
-            <input ref={b1Ref} type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files[0]) onUploadBanner1?.(e.target.files[0]); e.target.value = '' }} />
-            <div className="absolute inset-0 flex flex-col items-center justify-end pb-8 text-center px-6">
-              <EditableText as="p" value={hero?.subheadline ?? ''} onChange={v => setHero(h => ({...h, subheadline: v}))} onSave={v => setHero(h => { const u = {...h, subheadline: v}; saveHero(u); return u })} className="text-white/60 text-xs tracking-[0.3em] uppercase mb-2" />
-              <EditableText as="p" value={hero?.headline ?? ''} onChange={v => setHero(h => ({...h, headline: v}))} onSave={v => setHero(h => { const u = {...h, headline: v}; saveHero(u); return u })} className="text-white text-2xl font-normal tracking-tight leading-tight" />
-            </div>
-          </div>
-
-          {/* Intro */}
-          <div className="px-8 py-10 text-center border-b border-gray-100">
-            <EditableText as="h2" value={intro?.headline ?? ''} onChange={v => setIntro(d => ({...d, headline: v}))} onSave={v => setIntro(d => { const u = {...d, headline: v}; saveIntro(u); return u })} className="text-3xl font-bold text-black mb-4" />
-            <EditableText as="p" value={intro?.body1 ?? ''} onChange={v => setIntro(d => ({...d, body1: v}))} onSave={v => setIntro(d => { const u = {...d, body1: v}; saveIntro(u); return u })} multiline className="text-gray-600 leading-relaxed mb-3" />
-            <EditableText as="p" value={intro?.body2 ?? ''} onChange={v => setIntro(d => ({...d, body2: v}))} onSave={v => setIntro(d => { const u = {...d, body2: v}; saveIntro(u); return u })} multiline className="text-gray-600 leading-relaxed" />
-          </div>
-
-          {/* Banner 2 */}
-          <div className="relative overflow-hidden group" style={{ height: 180 }}>
-            {srcs2.map((src, i) => (
-              <img key={src} src={src} alt="" className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700" style={{ opacity: i === cur2 ? 1 : 0 }} />
-            ))}
-            <button onClick={() => b2Ref.current?.click()} className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs font-medium px-3 py-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-              <Camera size={12} /> Replace Image
-            </button>
-            <input ref={b2Ref} type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files[0]) onUploadBanner2?.(e.target.files[0]); e.target.value = '' }} />
-          </div>
-
-          {/* Training programs */}
-          <div className="px-8 py-8 border-b border-gray-100">
-            <p className="text-xs font-bold text-black text-center mb-6 tracking-widest uppercase">Training Programs</p>
-            <div className="grid grid-cols-4 gap-4">
-              {['One-on-One','Group','School','Holiday'].map(t => (
-                <div key={t} className="bg-gray-100 aspect-[3/4] rounded flex items-end p-2">
-                  <p className="text-xs text-gray-500 text-center w-full">{t}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Banner 3 */}
-          <div className="relative overflow-hidden group" style={{ height: 180 }}>
-            {srcs3.map((src, i) => (
-              <img key={src} src={src} alt="" className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700" style={{ opacity: i === cur3 ? 1 : 0 }} />
-            ))}
-            <button onClick={() => b3Ref.current?.click()} className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs font-medium px-3 py-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-              <Camera size={12} /> Replace Image
-            </button>
-            <input ref={b3Ref} type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files[0]) onUploadBanner3?.(e.target.files[0]); e.target.value = '' }} />
-          </div>
-
-          {/* Schedule */}
-          <div className="px-8 py-8 border-b border-gray-100">
-            <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-2 text-center">Opening Hours</p>
-            <p className="text-xl font-bold text-black text-center mb-6">Weekly Schedule</p>
-            <div className="divide-y divide-gray-100 border-t border-gray-100 mb-4">
-              {schedule.map((row, i) => (
-                <div key={i} className="flex items-center gap-3 py-3">
-                  <EditableText as="span" value={row.day} onChange={v => setContact(c => ({...c, schedule: c.schedule.map((r, ri) => ri === i ? {...r, day: v} : r)}))} onSave={v => setContact(c => { const s = c.schedule.map((r, ri) => ri === i ? {...r, day: v} : r); const u = {...c, schedule: s}; saveContact(u); return u })} className="font-bold text-black text-sm w-10 flex-shrink-0" />
-                  <span className="text-gray-400 text-xs flex-1 text-center">Open Practice</span>
-                  <EditableText as="span" value={row.time} onChange={v => setContact(c => ({...c, schedule: c.schedule.map((r, ri) => ri === i ? {...r, time: v} : r)}))} onSave={v => setContact(c => { const s = c.schedule.map((r, ri) => ri === i ? {...r, time: v} : r); const u = {...c, schedule: s}; saveContact(u); return u })} className="text-gray-600 text-xs w-32 text-right flex-shrink-0" />
-                  <button onClick={() => setContact(c => { const u = {...c, schedule: c.schedule.filter((_, ri) => ri !== i)}; saveContact(u); return u })} className="text-gray-300 hover:text-red-400 transition-colors">
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <button onClick={() => setContact(c => { const u = {...c, schedule: [...c.schedule, {day: 'New', time: '9:00 – 5:00 PM'}]}; saveContact(u); return u })} className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-black transition-colors">
-              <Plus size={13} /> Add row
-            </button>
-          </div>
-
-          {/* Location */}
-          <div className="px-8 py-8 bg-gray-50">
-            <p className="text-xs tracking-[0.3em] uppercase text-gray-400 mb-2 text-center">Location</p>
-            <p className="text-xl font-bold text-black text-center mb-6">Find Us</p>
-            <div className="grid grid-cols-2 gap-6">
-              <div>
-                <p className="font-semibold text-gray-700 mb-2 uppercase text-xs tracking-wide">Address</p>
-                <EditableText as="p" value={contact?.address ?? ''} onChange={v => setContact(c => ({...c, address: v}))} onSave={v => setContact(c => { const u = {...c, address: v}; saveContact(u); return u })} multiline className="text-gray-600 text-sm whitespace-pre-line" />
-              </div>
-              <div>
-                <p className="font-semibold text-gray-700 mb-2 uppercase text-xs tracking-wide">Contact</p>
-                <EditableText as="p" value={contact?.phone ?? ''} onChange={v => setContact(c => ({...c, phone: v}))} onSave={v => setContact(c => { const u = {...c, phone: v}; saveContact(u); return u })} className="text-gray-600 text-sm" />
-                <EditableText as="p" value={contact?.email ?? ''} onChange={v => setContact(c => ({...c, email: v}))} onSave={v => setContact(c => { const u = {...c, email: v}; saveContact(u); return u })} className="text-gray-600 text-sm mt-1" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </EditModeContext.Provider>
-  )
-}
-
-function PagesTab() {
-  const [sub, setSub] = React.useState('Cards')
-  const { club } = useClub() ?? {}
-
-  // ── Home state ──
-  const [hero, setHero] = React.useState(() => ({
-    ...DEFAULT_HOME_HERO,
-    headline: club?.name ?? DEFAULT_HOME_HERO.headline,
-  }))
-  const [contact, setContact] = React.useState(() => ({
-    ...DEFAULT_HOME_CONTACT,
-    phone:   club?.settings?.contactPhone || DEFAULT_HOME_CONTACT.phone,
-    email:   club?.settings?.contactEmail || DEFAULT_HOME_CONTACT.email,
-    address: club?.settings?.address      || DEFAULT_HOME_CONTACT.address,
-    wechat:  club?.settings?.wechat       ?? DEFAULT_HOME_CONTACT.wechat,
-  }))
-  const [intro, setIntro] = React.useState(DEFAULT_HOME_INTRO)
-  const [heroSaving, setHeroSaving]       = React.useState(false); const [heroSaved, setHeroSaved] = React.useState(false)
-  const [contactSaving, setContactSaving] = React.useState(false); const [contactSaved, setContactSaved] = React.useState(false)
-  // banner slots: array of { key, hasImage, ts, uploading }
-  const [bannerSlots,  setBannerSlots]  = React.useState(
-    Array.from({ length: BANNER_SLOTS }, (_, i) => ({ key: `home_banner_${i}`,  hasImage: false, ts: Date.now(), uploading: false }))
-  )
-  const [bannerSlots2, setBannerSlots2] = React.useState(
-    Array.from({ length: BANNER_SLOTS }, (_, i) => ({ key: `home_banner2_${i}`, hasImage: false, ts: Date.now(), uploading: false }))
-  )
-  const [bannerSlots3, setBannerSlots3] = React.useState(
-    Array.from({ length: BANNER_SLOTS }, (_, i) => ({ key: `home_banner3_${i}`, hasImage: false, ts: Date.now(), uploading: false }))
-  )
-  const bannerSrcs  = bannerSlots.filter(s => s.hasImage).map(s => `${pagesAPI.getImageUrl(s.key)}?t=${s.ts}`)
-  const bannerSrcs2 = bannerSlots2.filter(s => s.hasImage).map(s => `${pagesAPI.getImageUrl(s.key)}?t=${s.ts}`)
-  const bannerSrcs3 = bannerSlots3.filter(s => s.hasImage).map(s => `${pagesAPI.getImageUrl(s.key)}?t=${s.ts}`)
-
-  // ── About state ──
-  const [story,    setStory]    = React.useState(DEFAULT_ABOUT_STORY)
-  const [coaching, setCoaching] = React.useState(DEFAULT_ABOUT_COACHING)
-  const [coaches,  setCoaches]  = React.useState(DEFAULT_ABOUT_COACHES.coaches)
-  const [storySaving,    setStorySaving]    = React.useState(false); const [storySaved,    setStorySaved]    = React.useState(false)
-  const [coachingSaving, setCoachingSaving] = React.useState(false); const [coachingSaved, setCoachingSaved] = React.useState(false)
-  const [coachesSaving,  setCoachesSaving]  = React.useState(false); const [coachesSaved,  setCoachesSaved]  = React.useState(false)
-  const [imgUploading, setImgUploading] = React.useState({})
-
-  // ── Training state ──
-  const [trainingIntro,    setTrainingIntro]    = React.useState(DEFAULT_TRAINING_INTRO)
-  const [trainingPrograms, setTrainingPrograms] = React.useState(DEFAULT_TRAINING_PROGRAMS)
-  const [trainingIntroSaving, setTrainingIntroSaving] = React.useState(false); const [trainingIntroSaved, setTrainingIntroSaved] = React.useState(false)
-  const [trainingSaving, setTrainingSaving] = React.useState({}); const [trainingSaved, setTrainingSaved] = React.useState({})
-  const [cardUploading, setCardUploading] = React.useState({})
-
-  React.useEffect(() => {
-    pagesAPI.getContent().then(r => {
-      const c = r.data.content
-      if (c.home_hero)       setHero(h => ({ ...h, ...c.home_hero }))
-      if (c.home_intro)      setIntro(d => ({ ...d, ...c.home_intro }))
-      if (c.home_contact)    setContact(h => ({ ...h, ...c.home_contact }))
-      if (c.about_story)     setStory(h => ({ ...h, ...c.about_story }))
-      if (c.about_coaching)  setCoaching(h => ({ ...h, ...c.about_coaching }))
-      if (c.about_coaches?.coaches) setCoaches(c.about_coaches.coaches)
-      if (c.training_intro)  setTrainingIntro(h => ({ ...h, ...c.training_intro }))
-      TRAINING_PROGRAM_IDS.forEach(id => {
-        if (c[`training_${id}`]) setTrainingPrograms(p => ({ ...p, [id]: { ...p[id], ...c[`training_${id}`] } }))
-      })
-    }).catch(() => {})
-    pagesAPI.getImageIds('home_banner_').then(r => {
-      const populated = new Set(r.data.ids)
-      setBannerSlots(prev => prev.map(s => ({ ...s, hasImage: populated.has(s.key) })))
-    }).catch(() => {})
-    pagesAPI.getImageIds('home_banner2').then(r => {
-      const populated = new Set(r.data.ids)
-      setBannerSlots2(prev => prev.map(s => ({ ...s, hasImage: populated.has(s.key) })))
-    }).catch(() => {})
-    pagesAPI.getImageIds('home_banner3').then(r => {
-      const populated = new Set(r.data.ids)
-      setBannerSlots3(prev => prev.map(s => ({ ...s, hasImage: populated.has(s.key) })))
-    }).catch(() => {})
-  }, [])
-
-  const saveSection = async (id, data, setSaving, setSaved) => {
-    setSaving(true); setSaved(false)
-    try { await pagesAPI.updateContent(id, data); setSaved(true); setTimeout(() => setSaved(false), 3000) }
-    catch { alert('Save failed.') }
-    finally { setSaving(false) }
-  }
-
-  const uploadBanner = async (idx, file) => {
-    if (!file) return
-    const key = `home_banner_${idx}`
-    setBannerSlots(prev => prev.map((s, i) => i === idx ? { ...s, uploading: true } : s))
-    try {
-      const fd = new FormData(); fd.append('image', file)
-      await pagesAPI.uploadImage(key, fd)
-      setBannerSlots(prev => prev.map((s, i) => i === idx ? { ...s, hasImage: true, ts: Date.now(), uploading: false } : s))
-    } catch (err) { alert('Upload failed: ' + (err.response?.data?.message ?? err.message)); setBannerSlots(prev => prev.map((s, i) => i === idx ? { ...s, uploading: false } : s)) }
-  }
-
-  const deleteBanner = async (idx) => {
-    const key = `home_banner_${idx}`
-    try { await pagesAPI.deleteImage(key); setBannerSlots(prev => prev.map((s, i) => i === idx ? { ...s, hasImage: false } : s)) }
-    catch { alert('Delete failed.') }
-  }
-
-  const uploadBanner2 = async (idx, file) => {
-    if (!file) return
-    const key = `home_banner2_${idx}`
-    setBannerSlots2(prev => prev.map((s, i) => i === idx ? { ...s, uploading: true } : s))
-    try {
-      const fd = new FormData(); fd.append('image', file)
-      await pagesAPI.uploadImage(key, fd)
-      setBannerSlots2(prev => prev.map((s, i) => i === idx ? { ...s, hasImage: true, ts: Date.now(), uploading: false } : s))
-    } catch (err) { alert('Upload failed: ' + (err.response?.data?.message ?? err.message)); setBannerSlots2(prev => prev.map((s, i) => i === idx ? { ...s, uploading: false } : s)) }
-  }
-  const deleteBanner2 = async (idx) => {
-    const key = `home_banner2_${idx}`
-    try { await pagesAPI.deleteImage(key); setBannerSlots2(prev => prev.map((s, i) => i === idx ? { ...s, hasImage: false } : s)) }
-    catch { alert('Delete failed.') }
-  }
-
-  const uploadBanner3 = async (idx, file) => {
-    if (!file) return
-    const key = `home_banner3_${idx}`
-    setBannerSlots3(prev => prev.map((s, i) => i === idx ? { ...s, uploading: true } : s))
-    try {
-      const fd = new FormData(); fd.append('image', file)
-      await pagesAPI.uploadImage(key, fd)
-      setBannerSlots3(prev => prev.map((s, i) => i === idx ? { ...s, hasImage: true, ts: Date.now(), uploading: false } : s))
-    } catch (err) { alert('Upload failed: ' + (err.response?.data?.message ?? err.message)); setBannerSlots3(prev => prev.map((s, i) => i === idx ? { ...s, uploading: false } : s)) }
-  }
-  const deleteBanner3 = async (idx) => {
-    const key = `home_banner3_${idx}`
-    try { await pagesAPI.deleteImage(key); setBannerSlots3(prev => prev.map((s, i) => i === idx ? { ...s, hasImage: false } : s)) }
-    catch { alert('Delete failed.') }
-  }
-
-  // Quick-replace slot 0 of each banner (used by the visual editor "Replace Image" buttons)
-  const replaceBanner1 = (file) => uploadBanner(0, file)
-  const replaceBanner2 = (file) => uploadBanner2(0, file)
-  const replaceBanner3 = (file) => uploadBanner3(0, file)
-
-  const uploadImg = async (key, file) => {
-    setImgUploading(p => ({ ...p, [key]: true }))
-    try { const fd = new FormData(); fd.append('image', file); await pagesAPI.uploadImage(key, fd) }
-    catch (err) { alert('Upload failed: ' + (err.response?.data?.message ?? err.message)) }
-    finally { setImgUploading(p => ({ ...p, [key]: false })) }
-  }
-
-  const deleteImg = async (key) => {
-    try { await pagesAPI.deleteImage(key) } catch { alert('Delete failed.') }
-  }
-
-  const uploadCard = async (id, file) => {
-    setCardUploading(p => ({ ...p, [id]: true }))
-    try { const fd = new FormData(); fd.append('image', file); await homepageAPI.uploadImage(id, fd) }
-    catch (err) { alert('Upload failed: ' + (err.response?.data?.message ?? err.message)) }
-    finally { setCardUploading(p => ({ ...p, [id]: false })) }
-  }
-
-  const deleteCard = async (id) => {
-    try { await homepageAPI.deleteImage(id) } catch { alert('Delete failed.') }
-  }
-
-  const updateCoach = (i, field, val) => setCoaches(prev => prev.map((c, ci) => ci === i ? { ...c, [field]: val } : c))
-
-  const updateScheduleRow = (i, field, val) =>
-    setContact(c => ({ ...c, schedule: c.schedule.map((r, ri) => ri === i ? { ...r, [field]: val } : r) }))
-
-  const updateFeature = (progId, i, val) =>
-    setTrainingPrograms(p => ({ ...p, [progId]: { ...p[progId], features: p[progId].features.map((f, fi) => fi === i ? val : f) } }))
-
-  const addFeature = (progId) =>
-    setTrainingPrograms(p => ({ ...p, [progId]: { ...p[progId], features: [...(p[progId].features || []), ''] } }))
-
-  const removeFeature = (progId, i) =>
-    setTrainingPrograms(p => ({ ...p, [progId]: { ...p[progId], features: p[progId].features.filter((_, fi) => fi !== i) } }))
-
-  return (
-    <div className="animate-fade-in space-y-4">
-      <h2 className="text-gray-900 text-lg font-medium">Pages CMS</h2>
-      {/* Sub-tab bar */}
-      <div className="flex gap-1 border-b border-gray-200">
-        {PAGE_SUBTABS.map(t => (
-          <button key={t} onClick={() => setSub(t)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${sub === t ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-black'}`}>
-            {t}
-          </button>
-        ))}
-      </div>
-
-      {/* ── Cards sub-tab ── */}
-      {sub === 'Cards' && <HomepageCardsTab />}
-
-      {/* ── Home sub-tab: banner strip + full-width visual editor ── */}
-      {sub === 'Home' && (
-        <div className="space-y-4">
-          {/* Banner image management — 3 columns */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="card space-y-2">
-              <h3 className="text-sm font-medium text-gray-900">Banner 1 — Hero</h3>
-              <p className="text-xs text-gray-400">Up to {BANNER_SLOTS} images. Use "Replace Image" in the preview to quick-swap, or manage all slots here.</p>
-              <BannerSlotsGrid slots={bannerSlots} prefix="banner1" onUpload={uploadBanner} onDelete={deleteBanner} />
-            </div>
-            <div className="card space-y-2">
-              <h3 className="text-sm font-medium text-gray-900">Banner 2 — Mid</h3>
-              <p className="text-xs text-gray-400">Full-width image below the intro section.</p>
-              <BannerSlotsGrid slots={bannerSlots2} prefix="banner2" onUpload={uploadBanner2} onDelete={deleteBanner2} />
-            </div>
-            <div className="card space-y-2">
-              <h3 className="text-sm font-medium text-gray-900">Banner 3 — Bottom</h3>
-              <p className="text-xs text-gray-400">Full-width image below the training programs.</p>
-              <BannerSlotsGrid slots={bannerSlots3} prefix="banner3" onUpload={uploadBanner3} onDelete={deleteBanner3} />
-            </div>
-          </div>
-          {/* Full-width visual editor */}
-          <HomePagePreview
-            hero={hero} setHero={setHero}
-            intro={intro} setIntro={setIntro}
-            contact={contact} setContact={setContact}
-            bannerSrcs={bannerSrcs} bannerSrcs2={bannerSrcs2} bannerSrcs3={bannerSrcs3}
-            onUploadBanner1={replaceBanner1}
-            onUploadBanner2={replaceBanner2}
-            onUploadBanner3={replaceBanner3}
-          />
-        </div>
-      )}
-
-      {/* ── About Us sub-tab ── */}
-      {sub === 'About Us' && (
-        <div className="space-y-8 max-w-2xl">
-          <div className="card space-y-3">
-            <h3 className="font-medium text-gray-900">Story Section</h3>
-            <label className="block"><span className="text-xs text-gray-500">Headline</span>
-              <input className="input mt-1 w-full" value={story.headline} onChange={e => setStory(s => ({ ...s, headline: e.target.value }))} />
-            </label>
-            <label className="block"><span className="text-xs text-gray-500">Paragraph 1</span>
-              <textarea className="input mt-1 w-full h-24 resize-none" value={story.body1} onChange={e => setStory(s => ({ ...s, body1: e.target.value }))} />
-            </label>
-            <label className="block"><span className="text-xs text-gray-500">Paragraph 2</span>
-              <textarea className="input mt-1 w-full h-24 resize-none" value={story.body2} onChange={e => setStory(s => ({ ...s, body2: e.target.value }))} />
-            </label>
-            <div>
-              <p className="text-xs text-gray-500 mb-1">Section Image</p>
-              <ImageUploadBox imageUrl={pagesAPI.getImageUrl('about_story')} fallback="Story image" uploading={imgUploading['about_story']} onUpload={f => uploadImg('about_story', f)} onDelete={() => deleteImg('about_story')} />
-            </div>
-            <SaveButton onSave={() => saveSection('about_story', story, setStorySaving, setStorySaved)} saving={storySaving} saved={storySaved} />
-          </div>
-          <div className="card space-y-3">
-            <h3 className="font-medium text-gray-900">Coaching Section</h3>
-            <label className="block"><span className="text-xs text-gray-500">Headline</span>
-              <input className="input mt-1 w-full" value={coaching.headline} onChange={e => setCoaching(s => ({ ...s, headline: e.target.value }))} />
-            </label>
-            <label className="block"><span className="text-xs text-gray-500">Paragraph 1</span>
-              <textarea className="input mt-1 w-full h-24 resize-none" value={coaching.body1} onChange={e => setCoaching(s => ({ ...s, body1: e.target.value }))} />
-            </label>
-            <label className="block"><span className="text-xs text-gray-500">Paragraph 2</span>
-              <textarea className="input mt-1 w-full h-24 resize-none" value={coaching.body2} onChange={e => setCoaching(s => ({ ...s, body2: e.target.value }))} />
-            </label>
-            <div>
-              <p className="text-xs text-gray-500 mb-1">Section Image</p>
-              <ImageUploadBox imageUrl={pagesAPI.getImageUrl('about_coaching')} fallback="Coaching image" uploading={imgUploading['about_coaching']} onUpload={f => uploadImg('about_coaching', f)} onDelete={() => deleteImg('about_coaching')} />
-            </div>
-            <SaveButton onSave={() => saveSection('about_coaching', coaching, setCoachingSaving, setCoachingSaved)} saving={coachingSaving} saved={coachingSaved} />
-          </div>
-          <div className="card space-y-4">
-            <h3 className="font-medium text-gray-900">Coaches</h3>
-            {coaches.map((coach, i) => (
-              <div key={i} className="border border-gray-100 rounded-lg p-3 space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="block"><span className="text-xs text-gray-500">Name</span>
-                    <input className="input mt-1 w-full" value={coach.name || ''} onChange={e => updateCoach(i, 'name', e.target.value)} />
-                  </label>
-                  <label className="block"><span className="text-xs text-gray-500">Title</span>
-                    <input className="input mt-1 w-full" value={coach.title || ''} onChange={e => updateCoach(i, 'title', e.target.value)} />
-                  </label>
-                </div>
-                <label className="block"><span className="text-xs text-gray-500">Bio</span>
-                  <textarea className="input mt-1 w-full h-20 resize-none" value={coach.bio || ''} onChange={e => updateCoach(i, 'bio', e.target.value)} />
-                </label>
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">Photo</p>
-                  <ImageUploadBox imageUrl={pagesAPI.getImageUrl(`about_coach_${i}`)} fallback={`Coach ${i + 1} photo`} uploading={imgUploading[`about_coach_${i}`]} onUpload={f => uploadImg(`about_coach_${i}`, f)} onDelete={() => deleteImg(`about_coach_${i}`)} />
-                </div>
-              </div>
-            ))}
-            <button onClick={() => setCoaches(prev => [...prev, { name: '', title: '', bio: '' }])} className="text-sm text-gray-500 hover:text-black">+ Add Coach</button>
-            <SaveButton onSave={() => saveSection('about_coaches', { coaches }, setCoachesSaving, setCoachesSaved)} saving={coachesSaving} saved={coachesSaved} />
-          </div>
-        </div>
-      )}
-
-      {/* ── Training sub-tab ── */}
-      {sub === 'Training' && (
-        <div className="space-y-8 max-w-2xl">
-          <div className="card space-y-3">
-            <h3 className="font-medium text-gray-900">Page Header</h3>
-            <label className="block"><span className="text-xs text-gray-500">Headline</span>
-              <input className="input mt-1 w-full" value={trainingIntro.headline} onChange={e => setTrainingIntro(s => ({ ...s, headline: e.target.value }))} />
-            </label>
-            <label className="block"><span className="text-xs text-gray-500">Subheadline</span>
-              <input className="input mt-1 w-full" value={trainingIntro.subheadline} onChange={e => setTrainingIntro(s => ({ ...s, subheadline: e.target.value }))} />
-            </label>
-            <SaveButton onSave={() => saveSection('training_intro', trainingIntro, setTrainingIntroSaving, setTrainingIntroSaved)} saving={trainingIntroSaving} saved={trainingIntroSaved} />
-          </div>
-          {TRAINING_PROGRAM_IDS.map(id => {
-            const prog = trainingPrograms[id]
-            return (
-              <div key={id} className="card space-y-3">
-                <h3 className="font-medium text-gray-900 capitalize">{prog.label}</h3>
-                <label className="block"><span className="text-xs text-gray-500">Label</span>
-                  <input className="input mt-1 w-full" value={prog.label || ''} onChange={e => setTrainingPrograms(p => ({ ...p, [id]: { ...p[id], label: e.target.value } }))} />
-                </label>
-                <label className="block"><span className="text-xs text-gray-500">Tagline</span>
-                  <input className="input mt-1 w-full" value={prog.tagline || ''} onChange={e => setTrainingPrograms(p => ({ ...p, [id]: { ...p[id], tagline: e.target.value } }))} />
-                </label>
-                <label className="block"><span className="text-xs text-gray-500">Description</span>
-                  <textarea className="input mt-1 w-full h-24 resize-none" value={prog.description || ''} onChange={e => setTrainingPrograms(p => ({ ...p, [id]: { ...p[id], description: e.target.value } }))} />
-                </label>
-                <div>
-                  <p className="text-xs text-gray-500 mb-2">Features</p>
-                  {(prog.features || []).map((f, fi) => (
-                    <div key={fi} className="flex gap-2 mb-1">
-                      <input className="input flex-1" value={f} onChange={e => updateFeature(id, fi, e.target.value)} />
-                      <button onClick={() => removeFeature(id, fi)} className="text-red-500 text-sm px-2">✕</button>
-                    </div>
-                  ))}
-                  <button onClick={() => addFeature(id)} className="text-sm text-gray-500 hover:text-black">+ Add feature</button>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">Card Image</p>
-                  <ImageUploadBox imageUrl={homepageAPI.getImageUrl(id)} fallback={`${prog.label} image`} uploading={cardUploading[id]} onUpload={f => uploadCard(id, f)} onDelete={() => deleteCard(id)} />
-                </div>
-                <SaveButton onSave={() => saveSection(`training_${id}`, prog, s => setTrainingSaving(p => ({ ...p, [id]: s })), s => setTrainingSaved(p => ({ ...p, [id]: s })))} saving={trainingSaving[id]} saved={trainingSaved[id]} />
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
 
 // ── Articles Manager ──────────────────────────────────────────────────────────
 const ARTICLE_TYPES = ['competition', 'news', 'achievement']
@@ -1233,6 +414,234 @@ function ArticlesManager() {
                 className="flex-1 py-2 rounded-full bg-red-500 text-white text-sm font-medium hover:bg-red-600">Delete</button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Schedule Manager ──────────────────────────────────────────────────────────
+const DAY_OPTIONS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+function ScheduleManager() {
+  const [rows,    setRows]    = useState([])
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(null) // row id being edited
+  const [draft,   setDraft]   = useState({})
+  const [showAdd, setShowAdd] = useState(false)
+  const [newRow,  setNewRow]  = useState({ day: 'Mon', start_time: '09:00', end_time: '17:00', label: '' })
+  const [saving,  setSaving]  = useState(false)
+
+  const load = () => {
+    setLoading(true)
+    scheduleAPI.getAdmin().then(r => setRows(r.data.schedule ?? [])).catch(() => {}).finally(() => setLoading(false))
+  }
+  useEffect(load, [])
+
+  const startEdit = (row) => { setEditing(row.id); setDraft({ day: row.day, start_time: row.start_time.slice(0,5), end_time: row.end_time.slice(0,5), label: row.label, is_active: row.is_active }) }
+  const cancelEdit = () => { setEditing(null); setDraft({}) }
+
+  const save = async (id) => {
+    setSaving(true)
+    try { await scheduleAPI.update(id, draft); cancelEdit(); load() }
+    catch { alert('Failed to save.') } finally { setSaving(false) }
+  }
+
+  const toggle = async (row) => {
+    try { await scheduleAPI.update(row.id, { is_active: !row.is_active }); load() }
+    catch { alert('Failed to update.') }
+  }
+
+  const remove = async (id) => {
+    if (!window.confirm('Delete this schedule row?')) return
+    try { await scheduleAPI.remove(id); load() } catch { alert('Failed to delete.') }
+  }
+
+  const addRow = async () => {
+    if (!newRow.label.trim()) return
+    setSaving(true)
+    try { await scheduleAPI.create(newRow); setShowAdd(false); setNewRow({ day: 'Mon', start_time: '09:00', end_time: '17:00', label: '' }); load() }
+    catch { alert('Failed to add.') } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="animate-fade-in space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-widest">Open Hours Schedule</h3>
+        <button onClick={() => setShowAdd(s => !s)} className="flex items-center gap-1.5 text-sm font-medium bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors">
+          <Plus size={14} /> Add Row
+        </button>
+      </div>
+      <p className="text-xs text-gray-400">These rows control when members can make bookings. Inactive rows are hidden from members but kept for reference.</p>
+
+      {showAdd && (
+        <div className="card border border-gray-200 space-y-3">
+          <h4 className="text-sm font-semibold">New Schedule Row</h4>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Day</label>
+              <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={newRow.day} onChange={e => setNewRow(r => ({...r, day: e.target.value}))}>
+                {DAY_OPTIONS.map(d => <option key={d}>{d}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Label</label>
+              <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder="e.g. Open Practice" value={newRow.label} onChange={e => setNewRow(r => ({...r, label: e.target.value}))} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Open</label>
+              <input type="time" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={newRow.start_time} onChange={e => setNewRow(r => ({...r, start_time: e.target.value}))} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Close</label>
+              <input type="time" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={newRow.end_time} onChange={e => setNewRow(r => ({...r, end_time: e.target.value}))} />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={addRow} disabled={saving} className="btn-primary text-sm px-4 py-2">{saving ? 'Saving…' : 'Add'}</button>
+            <button onClick={() => setShowAdd(false)} className="btn-secondary text-sm px-4 py-2">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {loading ? <p className="text-sm text-gray-500">Loading…</p> : (
+        <div className="space-y-2">
+          {rows.map(row => editing === row.id ? (
+            <div key={row.id} className="card border border-black/10 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Day</label>
+                  <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={draft.day} onChange={e => setDraft(d => ({...d, day: e.target.value}))}>
+                    {DAY_OPTIONS.map(d => <option key={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Label</label>
+                  <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={draft.label} onChange={e => setDraft(d => ({...d, label: e.target.value}))} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Open</label>
+                  <input type="time" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={draft.start_time} onChange={e => setDraft(d => ({...d, start_time: e.target.value}))} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Close</label>
+                  <input type="time" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={draft.end_time} onChange={e => setDraft(d => ({...d, end_time: e.target.value}))} />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => save(row.id)} disabled={saving} className="btn-primary text-sm px-4 py-2">{saving ? 'Saving…' : 'Save'}</button>
+                <button onClick={cancelEdit} className="btn-secondary text-sm px-4 py-2">Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <div key={row.id} className={`card border flex items-center gap-4 ${row.is_active ? 'border-gray-100' : 'border-gray-100 opacity-50'}`}>
+              <div className="w-10 text-sm font-semibold text-gray-700">{row.day}</div>
+              <div className="flex-1">
+                <p className="text-sm text-gray-900">{row.label}</p>
+                <p className="text-xs text-gray-400">{row.start_time?.slice(0,5)} – {row.end_time?.slice(0,5)}</p>
+              </div>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${row.is_active ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
+                {row.is_active ? 'Active' : 'Inactive'}
+              </span>
+              <div className="flex gap-3 flex-shrink-0">
+                <button onClick={() => toggle(row)} className="text-xs text-gray-400 hover:text-black transition-colors">{row.is_active ? 'Disable' : 'Enable'}</button>
+                <button onClick={() => startEdit(row)} className="text-xs text-gray-500 hover:text-black transition-colors">Edit</button>
+                <button onClick={() => remove(row.id)} className="text-xs text-red-400 hover:text-red-600 transition-colors">Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Announcements Manager ─────────────────────────────────────────────────────
+function AnnouncementsManager() {
+  const [announcements, setAnnouncements] = useState([])
+  const [loading,  setLoading]  = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [editing,  setEditing]  = useState(null)
+  const [saving,   setSaving]   = useState(false)
+  const empty = { title: '', body: '' }
+  const [form, setForm] = useState(empty)
+
+  const load = () => {
+    setLoading(true)
+    announcementsAPI.getAll().then(r => setAnnouncements(r.data.announcements ?? [])).catch(() => {}).finally(() => setLoading(false))
+  }
+  useEffect(load, [])
+
+  const openNew  = () => { setEditing(null); setForm(empty); setShowForm(true) }
+  const openEdit = (a) => { setEditing(a); setForm({ title: a.title, body: a.body }); setShowForm(true) }
+  const cancel   = () => { setShowForm(false); setEditing(null); setForm(empty) }
+
+  const save = async () => {
+    if (!form.title.trim() || !form.body.trim()) return
+    setSaving(true)
+    try {
+      if (editing) await announcementsAPI.update(editing.id, form)
+      else         await announcementsAPI.create(form)
+      cancel(); load()
+    } catch { alert('Failed to save.') } finally { setSaving(false) }
+  }
+
+  const remove = async (id) => {
+    if (!window.confirm('Delete this announcement?')) return
+    try { await announcementsAPI.remove(id); load() } catch { alert('Failed to delete.') }
+  }
+
+  return (
+    <div className="animate-fade-in space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-widest">Announcements</h3>
+        <button onClick={openNew} className="flex items-center gap-1.5 text-sm font-medium bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors">
+          <Plus size={14} /> New
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="card space-y-3 border border-gray-200">
+          <h4 className="text-sm font-semibold">{editing ? 'Edit Announcement' : 'New Announcement'}</h4>
+          <input
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+            placeholder="Title"
+            value={form.title}
+            onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+          />
+          <textarea
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10 resize-none"
+            rows={4}
+            placeholder="Body"
+            value={form.body}
+            onChange={e => setForm(f => ({ ...f, body: e.target.value }))}
+          />
+          <div className="flex gap-2">
+            <button onClick={save} disabled={saving} className="btn-primary text-sm px-4 py-2">{saving ? 'Saving…' : 'Save'}</button>
+            <button onClick={cancel} className="btn-secondary text-sm px-4 py-2">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {loading ? <p className="text-sm text-gray-500">Loading…</p> : announcements.length === 0 ? (
+        <p className="text-sm text-gray-400">No announcements yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {announcements.map(a => (
+            <div key={a.id} className="card border border-gray-100 space-y-1">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="font-medium text-sm text-gray-900">{a.title}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{new Date(a.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  <button onClick={() => openEdit(a)} className="text-xs text-gray-500 hover:text-black transition-colors">Edit</button>
+                  <button onClick={() => remove(a.id)} className="text-xs text-red-400 hover:text-red-600 transition-colors">Delete</button>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600 whitespace-pre-wrap">{a.body}</p>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -1651,6 +1060,16 @@ const [sessionForm,      setSessionForm]      = useState({
       alert('No-show fee charged.')
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not charge no-show fee.')
+    }
+  }
+
+  const handleSocialCashCollected = async (intentId, participantName) => {
+    if (!window.confirm(`Mark cash collected for ${participantName}? This will release the card hold.`)) return
+    try {
+      await paymentsAPI.void(intentId)
+      alert('Card hold released.')
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not release hold.')
     }
   }
 
@@ -3718,6 +3137,8 @@ const [sessionForm,      setSessionForm]      = useState({
                           >
                             <p className="text-blue-900 text-xs leading-tight font-medium break-words">{ev.user_name}</p>
                             <p className="text-blue-700 text-xs mt-0.5 leading-none">{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</p>
+                            {ev.payment_mode === 'immediate' && <span className="text-[9px] bg-blue-200 text-blue-800 rounded px-1 w-fit">paid</span>}
+                            {ev.payment_mode === 'hold' && <span className="text-[9px] bg-orange-200 text-orange-800 rounded px-1 w-fit">cash</span>}
                             <div className="mt-auto flex items-center justify-between gap-1">
                               {checkedIn ? (
                                 <button
@@ -3734,11 +3155,11 @@ const [sessionForm,      setSessionForm]      = useState({
                                 </button>
                               )}
                               <div className="flex items-center gap-1">
-                                {!checkedIn && ev.payment_intent_id && (
+                                {!checkedIn && ev.payment_intent_id && ev.payment_mode === 'hold' && (
                                   <button
                                     onClick={() => handleBookingNoShow(ev.payment_intent_id)}
                                     className="text-[10px] text-amber-600 hover:text-amber-800 leading-none"
-                                    title="Charge no-show fee"
+                                    title="No-show — charge hold"
                                   >NS</button>
                                 )}
                                 <button
@@ -5297,8 +4718,15 @@ const [sessionForm,      setSessionForm]      = useState({
                         {s.participants.length > 0 && (
                           <div className="flex flex-wrap gap-1.5">
                             {s.participants.map(p => (
-                              <span key={p.id} className={`text-xs rounded-full px-2.5 py-0.5 flex items-center gap-1 ${p.is_walkin ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-gray-100 text-gray-800'}`}>
+                              <span key={p.id} className={`text-xs rounded-full px-2.5 py-0.5 flex items-center gap-1 ${p.is_walkin ? 'bg-amber-100 text-amber-800 border border-amber-300' : p.payment_mode === 'hold' ? 'bg-orange-100 text-orange-800 border border-orange-300' : 'bg-gray-100 text-gray-800'}`}>
                                 {p.name}
+                                {p.payment_mode === 'hold' && <span className="text-[10px] opacity-70">cash</span>}
+                                {p.payment_mode === 'hold' && p.payment_intent_id && (
+                                  <>
+                                    <button onClick={() => handleSocialCashCollected(p.payment_intent_id, p.name)} className="text-green-700 hover:text-green-900 transition-colors leading-none font-bold" title="Cash collected — release hold">✓</button>
+                                    <button onClick={() => handleSocialNoShow(p.payment_intent_id, p.name)} className="text-red-500 hover:text-red-700 transition-colors leading-none" title="No-show — capture hold">$</button>
+                                  </>
+                                )}
                                 <button onClick={() => handleSocialRemoveMember(s.id, p.id)} className="text-gray-800 hover:text-red-400 transition-colors leading-none">×</button>
                               </span>
                             ))}
@@ -5433,8 +4861,15 @@ const [sessionForm,      setSessionForm]      = useState({
                       {s.participants.length > 0 ? (
                         <div className="flex flex-wrap gap-1.5">
                           {s.participants.map(p => (
-                            <span key={p.id} className={`text-xs rounded-full px-2.5 py-0.5 flex items-center gap-1 ${p.is_walkin ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-gray-100 text-gray-800'}`}>
+                            <span key={p.id} className={`text-xs rounded-full px-2.5 py-0.5 flex items-center gap-1 ${p.is_walkin ? 'bg-amber-100 text-amber-800 border border-amber-300' : p.payment_mode === 'hold' ? 'bg-orange-100 text-orange-800 border border-orange-300' : 'bg-gray-100 text-gray-800'}`}>
                               {p.name}
+                              {p.payment_mode === 'hold' && <span className="text-[10px] opacity-70">cash</span>}
+                              {p.payment_mode === 'hold' && p.payment_intent_id && (
+                                <>
+                                  <button onClick={() => handleSocialCashCollected(p.payment_intent_id, p.name)} className="text-green-700 hover:text-green-900 transition-colors leading-none font-bold" title="Cash collected — release hold">✓</button>
+                                  <button onClick={() => handleSocialNoShow(p.payment_intent_id, p.name)} className="text-red-500 hover:text-red-700 transition-colors leading-none" title="No-show — capture hold">$</button>
+                                </>
+                              )}
                               <button onClick={() => handleSocialRemoveMember(s.id, p.id)} className="text-gray-800 hover:text-red-400 transition-colors leading-none">×</button>
                             </span>
                           ))}
@@ -5547,16 +4982,16 @@ const [sessionForm,      setSessionForm]      = useState({
 
                       {/* Expanded individual sessions — table layout */}
                       {isOpen && (
-                        <div className="border-t border-gray-100">
+                        <div className="border-t border-gray-100 overflow-x-auto">
                           {/* Column headers */}
-                          <div className="flex items-center gap-4 px-4 py-2 bg-gray-50 border-b border-gray-100">
+                          <div className="flex items-center gap-4 px-4 py-2 bg-gray-50 border-b border-gray-100 min-w-[600px]">
                             <span className="w-28 flex-shrink-0 text-[10px] uppercase tracking-widest text-gray-400">Date</span>
                             <span className="w-36 flex-shrink-0 text-[10px] uppercase tracking-widest text-gray-400">Time</span>
                             <span className="w-28 flex-shrink-0 text-[10px] uppercase tracking-widest text-gray-400">Capacity</span>
                             <span className="flex-1 text-[10px] uppercase tracking-widest text-gray-400">Participants</span>
                             <span className="w-32 flex-shrink-0 text-[10px] uppercase tracking-widest text-gray-400 text-right">Actions</span>
                           </div>
-                          <div className="px-4">
+                          <div className="px-4 min-w-[600px]">
                             {sessions.map(s => <SeriesRow key={s.id} s={s} />)}
                           </div>
                         </div>
@@ -5910,6 +5345,12 @@ const [sessionForm,      setSessionForm]      = useState({
 
       {/* ── Articles Tab ──────────────────────────────────────────────────── */}
       {activeTab === 'Articles' && <ArticlesManager />}
+
+      {/* ── Announcements Tab ─────────────────────────────────────────────── */}
+      {activeTab === 'Announcements' && <AnnouncementsManager />}
+
+      {/* ── Schedule Tab ──────────────────────────────────────────────────── */}
+      {activeTab === 'Schedule' && <ScheduleManager />}
 
       {/* ── Cancel Series Selection Modal ─────────────────────────────────── */}
       {cancelSeriesModal && (

@@ -1,8 +1,58 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import { loadStripe } from '@stripe/stripe-js'
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { useAuth } from '@/context/AuthContext'
-import { coachingAPI, socialAPI, checkinAPI, bookingsAPI } from '@/api/api'
+import { coachingAPI, socialAPI, checkinAPI, bookingsAPI, paymentsAPI, venueAPI } from '@/api/api'
 import QrScanModal from '@/components/QrScanModal'
+
+// ── Stripe extension payment form ─────────────────────────────────────────────
+function ExtensionPaymentForm({ groupId, extraMins, intentId, amountCents, onSuccess, onError }) {
+  const stripe   = useStripe()
+  const elements = useElements()
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState(null)
+
+  async function handlePay(e) {
+    e.preventDefault()
+    if (!stripe || !elements) return
+    setLoading(true); setError(null)
+    const { error: stripeErr, paymentIntent } = await stripe.confirmPayment({
+      elements,
+      confirmParams: { return_url: window.location.origin },
+      redirect: 'if_required',
+    })
+    if (stripeErr) { setError(stripeErr.message); setLoading(false); return }
+    // Manual-capture PI → status is 'requires_capture' after card auth
+    if (paymentIntent?.status === 'requires_capture' || paymentIntent?.status === 'succeeded') {
+      try {
+        await bookingsAPI.extendGroup(groupId, extraMins, intentId)
+        onSuccess()
+      } catch (err) {
+        setError(err.response?.data?.message ?? 'Extension failed. Please contact us.')
+        setLoading(false)
+      }
+    } else {
+      setError('Payment incomplete. Please try again.')
+      setLoading(false)
+    }
+  }
+
+  const aud = (amountCents / 100).toLocaleString('en-AU', { minimumFractionDigits: 2 })
+  return (
+    <form onSubmit={handlePay} className="space-y-3">
+      <PaymentElement />
+      {error && <p className="text-xs text-red-500">{error}</p>}
+      <button
+        type="submit"
+        disabled={!stripe || loading}
+        className="w-full bg-black text-white text-sm py-3 rounded-full hover:bg-gray-800 disabled:opacity-50 transition-colors"
+      >
+        {loading ? 'Processing…' : `Pay AUD $${aud}`}
+      </button>
+    </form>
+  )
+}
 
 const REVIEW_SKILLS = [
   { key: 'forehand',         label: 'Forehand' },
@@ -25,6 +75,17 @@ function fmtTime(t) {
   const [h, m] = t.substring(0, 5).split(':').map(Number)
   const period = h >= 12 ? 'PM' : 'AM'
   return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${period}`
+}
+
+function fmtDuration(inAt, outAt) {
+  if (!inAt || !outAt) return null
+  const ms = new Date(outAt) - new Date(inAt)
+  const totalMins = Math.round(ms / 60000)
+  const h = Math.floor(totalMins / 60)
+  const m = totalMins % 60
+  if (h === 0) return `${m}m`
+  if (m === 0) return `${h}h`
+  return `${h}h ${m}m`
 }
 
 function toISO(d) {
@@ -100,6 +161,7 @@ export default function DashboardPage() {
   const [coachingSessions, setCoachingSessions] = useState([])
   const [coachSessions,    setCoachSessions]    = useState([])
   const [socialSessions,   setSocialSessions]   = useState([])
+  const [allMySocial,      setAllMySocial]      = useState([])
   const [tableBookings,    setTableBookings]    = useState([])
   const [checkedIn,        setCheckedIn]        = useState(new Set())
   const [selectedEvent,    setSelectedEvent]    = useState(null) // { type, data }
@@ -114,7 +176,7 @@ export default function DashboardPage() {
   const [pastReviewsOpen, setPastReviewsOpen] = useState(false)
   const [selectedStudent, setSelectedStudent] = useState(null) // student_id for by-student view
   const [myAttendance,      setMyAttendance]      = useState([])
-  const [attendanceOpen,    setAttendanceOpen]    = useState(true)
+  const [attendanceOpen,    setAttendanceOpen]    = useState(false)
   const [showAllAttendance, setShowAllAttendance] = useState(false)
   const [expandedReview,    setExpandedReview]    = useState(null) // session id
   const [showAllUpcoming,   setShowAllUpcoming]   = useState(false)
@@ -123,6 +185,20 @@ export default function DashboardPage() {
   const [ratingHover,       setRatingHover]       = useState(0)
   const [ratingComment,     setRatingComment]     = useState('')
   const [savingRating,      setSavingRating]      = useState(false)
+
+  const [venueHistory,      setVenueHistory]      = useState([])
+  const [venueHistoryOpen,  setVenueHistoryOpen]  = useState(false)
+  const [pastSocialOpen,    setPastSocialOpen]    = useState(false)
+
+  // Extension payment flow
+  const [extStep,         setExtStep]         = useState(null) // null|'select'|'pay'
+  const [extMins,         setExtMins]         = useState(null)
+  const [extClientSecret, setExtClientSecret] = useState(null)
+  const [extIntentId,     setExtIntentId]     = useState(null)
+  const [extAmount,       setExtAmount]       = useState(null)
+  const [extLoading,      setExtLoading]      = useState(false)
+  const [extError,        setExtError]        = useState(null)
+  const [stripePromise,   setStripePromise]   = useState(null)
 
   const todayDow = new Date().getDay() || 7
   const defaultDow = CHECKIN_DOWS.includes(todayDow) ? todayDow : 1
@@ -146,8 +222,10 @@ export default function DashboardPage() {
       coachingAPI.getMyReviews(),
       coachingAPI.getMyHistory(),
       bookingsAPI.getMyBookings(),
+      venueAPI.getHistory(),
+      socialAPI.getMySessions(),
     ])
-      .then(([coachingRes, coachRes, socialRes, checkinRes, hoursRes, myReviewsRes, myHistoryRes, bookingsRes]) => {
+      .then(([coachingRes, coachRes, socialRes, checkinRes, hoursRes, myReviewsRes, myHistoryRes, bookingsRes, venueHistoryRes, mySocialRes]) => {
         if (cancelled) return
         if (coachingRes.status === 'fulfilled')
           setCoachingSessions(coachingRes.value.data.sessions)
@@ -155,6 +233,8 @@ export default function DashboardPage() {
           setCoachSessions(coachRes.value.data.sessions)
         if (socialRes.status === 'fulfilled')
           setSocialSessions(socialRes.value.data.sessions.filter(s => s.joined))
+        if (mySocialRes?.status === 'fulfilled')
+          setAllMySocial(mySocialRes.value.data.sessions ?? [])
         if (bookingsRes.status === 'fulfilled')
           setTableBookings(bookingsRes.value.data.bookings.filter(b => b.status !== 'cancelled'))
         if (checkinRes.status === 'fulfilled')
@@ -167,6 +247,8 @@ export default function DashboardPage() {
           setMyReviews(myReviewsRes.value.data.reviews ?? [])
         if (myHistoryRes?.status === 'fulfilled')
           setMyAttendance(myHistoryRes.value.data.sessions ?? [])
+        if (venueHistoryRes?.status === 'fulfilled')
+          setVenueHistory(venueHistoryRes.value.data.history ?? [])
       })
       .finally(() => { if (!cancelled) setLoadingData(false) })
     return () => { cancelled = true }
@@ -252,6 +334,29 @@ export default function DashboardPage() {
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not cancel spot.')
     } finally { setCancelling(false) }
+  }
+
+  function resetExt() {
+    setExtStep(null); setExtMins(null); setExtClientSecret(null)
+    setExtIntentId(null); setExtAmount(null); setExtLoading(false); setExtError(null)
+  }
+
+  async function handleSelectExtDuration(groupId, mins) {
+    setExtMins(mins); setExtLoading(true); setExtError(null)
+    try {
+      // Lazy-load Stripe only when needed
+      if (!stripePromise) {
+        const configRes = await paymentsAPI.getConfig()
+        setStripePromise(loadStripe(configRes.data.publishableKey))
+      }
+      const res = await paymentsAPI.authorizeExtension({ groupId, extra_minutes: mins })
+      setExtClientSecret(res.data.clientSecret)
+      setExtIntentId(res.data.intentId)
+      setExtAmount(res.data.amount)
+      setExtStep('pay')
+    } catch (err) {
+      setExtError(err.response?.data?.message ?? 'Could not start extension. Please try again.')
+    } finally { setExtLoading(false) }
   }
 
   return (
@@ -374,12 +479,11 @@ export default function DashboardPage() {
             ].sort((a, b) => a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date))
 
             if (!allUpcoming.length) return null
-            const visible = showAllUpcoming ? allUpcoming : allUpcoming.slice(0, 5)
             return (
               <div className="border border-gray-300 rounded-xl overflow-hidden">
                 <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 px-5 pt-5 pb-3">Upcoming</p>
-                <div className="divide-y divide-gray-100">
-                  {visible.map(ev => {
+                <div className="divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: 3 * 64 }}>
+                  {allUpcoming.map(ev => {
                     const dateStr = new Date(ev.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{ weekday:'short', day:'numeric', month:'short' })
                     const clickable = ev.type === 'booking' || ev.type === 'social'
                     return (
@@ -402,10 +506,41 @@ export default function DashboardPage() {
                     )
                   })}
                 </div>
-                {allUpcoming.length > 5 && (
-                  <button onClick={() => setShowAllUpcoming(o => !o)} className="w-full text-xs text-gray-500 hover:text-black py-3 border-t border-gray-100">
-                    {showAllUpcoming ? 'Show less' : `Show all (${allUpcoming.length})`}
-                  </button>
+              </div>
+            )
+          })()}
+
+          {/* Past Sessions (social play + table bookings combined) */}
+          {(() => {
+            const pastSocial   = allMySocial.filter(s => s.date?.slice(0,10) < todayISO)
+              .map(s => ({ key: `sp-${s.id}`, date: s.date, type: 'social', label: s.title || 'Social Play', start: s.start_time, end: s.end_time }))
+            const pastBookings = tableBookings.filter(b => b.date?.slice(0,10) < todayISO)
+              .map(b => ({ key: `tb-${b.booking_group_id}`, date: b.date, type: 'booking', label: 'Table Booking', start: b.start_time, end: b.end_time }))
+            const past = [...pastSocial, ...pastBookings]
+              .sort((a, b) => b.date === a.date ? b.start.localeCompare(a.start) : b.date.localeCompare(a.date))
+            if (!past.length) return null
+            return (
+              <div className="border border-gray-300 rounded-xl p-6">
+                <button onClick={() => setPastSocialOpen(o => !o)} className="flex items-center justify-between w-full">
+                  <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800">Past Sessions</p>
+                  <span className="text-xs text-gray-400">{pastSocialOpen ? '▲' : '▼'}</span>
+                </button>
+                {pastSocialOpen && (
+                  <div className="divide-y divide-gray-200 mt-4 overflow-y-auto" style={{ maxHeight: 5 * 58 }}>
+                    {past.map(ev => {
+                      const dateStr = new Date(ev.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' })
+                      const dot = ev.type === 'social' ? 'bg-violet-400' : 'bg-orange-400'
+                      return (
+                        <div key={ev.key} className="py-2.5 first:pt-0 last:pb-0 flex items-center gap-3">
+                          <div className={`w-2 h-2 rounded-full shrink-0 ${dot}`} />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm text-gray-900 truncate">{ev.label}</p>
+                            <p className="text-xs text-gray-500">{dateStr} · {fmtTime(ev.start)}–{fmtTime(ev.end)}</p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 )}
               </div>
             )
@@ -415,13 +550,13 @@ export default function DashboardPage() {
           {myAttendance.length > 0 && (
             <div className="border border-gray-300 rounded-xl p-6">
               <button onClick={() => setAttendanceOpen(o => !o)} className="flex items-center justify-between w-full">
-                <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800">Attendance</p>
+                <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800">Past Coaching Sessions</p>
                 <span className="text-xs text-gray-400">{attendanceOpen ? '▲' : '▼'}</span>
               </button>
               {attendanceOpen && (
                 <>
-                  <div className="divide-y divide-gray-200 mt-4">
-                    {(showAllAttendance ? myAttendance : myAttendance.slice(0, 10)).map(s => {
+                  <div className="divide-y divide-gray-200 mt-4 overflow-y-auto" style={{ maxHeight: 5 * 62 }}>
+                    {myAttendance.map(s => {
                       const dateStr  = s.date ? new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}) : ''
                       const timeStr  = `${fmtTime(s.start_time)}–${fmtTime(s.end_time)}`
                       const attended = s.checked_in && !s.no_show
@@ -496,12 +631,53 @@ export default function DashboardPage() {
                       )
                     })}
                   </div>
-                  {myAttendance.length > 10 && (
-                    <button onClick={() => setShowAllAttendance(o => !o)} className="mt-3 w-full text-xs text-gray-500 hover:text-black">
-                      {showAllAttendance ? 'Show less' : `Show all (${myAttendance.length})`}
-                    </button>
-                  )}
                 </>
+              )}
+            </div>
+          )}
+
+          {/* Venue Check-in History */}
+          {venueHistory.length > 0 && (
+            <div className="border border-gray-300 rounded-xl p-6">
+              <button onClick={() => setVenueHistoryOpen(o => !o)} className="flex items-center justify-between w-full">
+                <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800">Venue Attendance</p>
+                <span className="text-xs text-gray-400">{venueHistoryOpen ? '▲' : '▼'}</span>
+              </button>
+              {venueHistoryOpen && (
+                <div className="divide-y divide-gray-200 mt-4 overflow-y-auto" style={{ maxHeight: 5 * 52 }}>
+                  {venueHistory.map((row, i) => {
+                    const dateStr = new Date(row.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+                    const inTime  = row.checked_in_at
+                      ? new Date(row.checked_in_at).toLocaleTimeString('en-AU', { timeZone: 'Australia/Sydney', hour: 'numeric', minute: '2-digit', hour12: true })
+                      : null
+                    const outTime = row.checked_out_at
+                      ? new Date(row.checked_out_at).toLocaleTimeString('en-AU', { timeZone: 'Australia/Sydney', hour: 'numeric', minute: '2-digit', hour12: true })
+                      : null
+                    const duration = fmtDuration(row.checked_in_at, row.checked_out_at)
+                    const autoOut  = row.checked_out_at && new Date(row.checked_out_at).toTimeString().startsWith('23:5')
+                    return (
+                      <div key={i} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm text-gray-900">{dateStr}</p>
+                          {inTime && (
+                            <p className="text-xs text-gray-500">
+                              {inTime}{outTime ? ` – ${outTime}` : ' (no check-out)'}
+                            </p>
+                          )}
+                          {autoOut && (
+                            <p className="text-[11px] text-gray-400">Auto check-out at midnight</p>
+                          )}
+                        </div>
+                        <div className="text-right shrink-0">
+                          {duration
+                            ? <span className="text-xs text-gray-500">{duration}</span>
+                            : outTime == null && <span className="text-xs text-emerald-600 font-medium">In venue</span>
+                          }
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               )}
             </div>
           )}
@@ -579,7 +755,7 @@ export default function DashboardPage() {
 
                     {/* Student list */}
                     {!selectedStudent && (
-                      <div className="divide-y divide-gray-200">
+                      <div className="divide-y divide-gray-200 overflow-y-auto" style={{ maxHeight: 5 * 65 }}>
                         {students.map(st => {
                           const unreviewed = st.sessions.filter(s => !s.has_review).length
                           return (
@@ -699,7 +875,8 @@ export default function DashboardPage() {
           </div>
 
           {/* Calendar */}
-          <div className="border border-gray-300 rounded-xl overflow-hidden">
+          <div className="border border-gray-300 rounded-xl overflow-x-auto">
+          <div style={{ minWidth: 492 }}>
             <div className="grid border-b border-gray-300" style={{ gridTemplateColumns: '52px repeat(4, 1fr)' }}>
               <div />
               {CAL_DAYS.map(({ short, dow }) => {
@@ -767,6 +944,7 @@ export default function DashboardPage() {
               })}
             </div>
           </div>
+          </div>
 
           {/* Legend */}
           <div className="flex gap-4 flex-wrap mt-3">
@@ -796,7 +974,7 @@ export default function DashboardPage() {
       const timeStr = `${fmtTime(data.start_time)} – ${fmtTime(data.end_time)}`
 
       return (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setSelectedEvent(null) }}>
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) { setSelectedEvent(null); resetExt() } }}>
           <div className="bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-6 space-y-4">
             <div className="flex items-start justify-between">
               <div>
@@ -805,7 +983,7 @@ export default function DashboardPage() {
                 </p>
                 <p className="text-gray-500 text-xs mt-0.5">{dateStr}</p>
               </div>
-              <button onClick={() => setSelectedEvent(null)} className="text-gray-400 hover:text-black text-xl leading-none">×</button>
+              <button onClick={() => { setSelectedEvent(null); resetExt() }} className="text-gray-400 hover:text-black text-xl leading-none">×</button>
             </div>
 
             <div className="border border-gray-100 rounded-xl overflow-hidden text-sm">
@@ -821,18 +999,71 @@ export default function DashboardPage() {
               ))}
             </div>
 
-            {!isPast && (
+            {/* Extension flow (booking only, not past) */}
+            {!isPast && type === 'booking' && extStep === 'select' && (
+              <div className="space-y-3">
+                <p className="text-xs text-gray-500 text-center">Select extra time ($5 / 30 min)</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[30, 60, 90, 120].map(mins => (
+                    <button
+                      key={mins}
+                      onClick={() => handleSelectExtDuration(data.booking_group_id, mins)}
+                      disabled={extLoading}
+                      className="border border-gray-200 rounded-xl py-2.5 text-sm hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                    >
+                      +{mins} min
+                    </button>
+                  ))}
+                </div>
+                {extLoading && <p className="text-center text-xs text-gray-400">Preparing payment…</p>}
+                {extError  && <p className="text-center text-xs text-red-500">{extError}</p>}
+                <button onClick={resetExt} className="w-full text-xs text-gray-400 hover:text-gray-600">← Back</button>
+              </div>
+            )}
+
+            {!isPast && type === 'booking' && extStep === 'pay' && extClientSecret && stripePromise && (
+              <div className="space-y-3">
+                <p className="text-xs text-gray-500 text-center">
+                  Extend +{extMins} min · AUD ${(extAmount / 100).toFixed(2)}
+                </p>
+                <Elements stripe={stripePromise} options={{ clientSecret: extClientSecret, appearance: { theme: 'stripe' } }}>
+                  <ExtensionPaymentForm
+                    groupId={data.booking_group_id}
+                    extraMins={extMins}
+                    intentId={extIntentId}
+                    amountCents={extAmount}
+                    onSuccess={() => {
+                      resetExt()
+                      setSelectedEvent(null)
+                      bookingsAPI.getMyBookings().then(r => setTableBookings(r.data.bookings.filter(b => b.status !== 'cancelled'))).catch(() => {})
+                    }}
+                    onError={(msg) => setExtError(msg)}
+                  />
+                </Elements>
+                <button onClick={() => setExtStep('select')} className="w-full text-xs text-gray-400 hover:text-gray-600">← Back</button>
+              </div>
+            )}
+
+            {!isPast && extStep == null && (
               type === 'booking' ? (
-                <button
-                  onClick={() => {
-                    if (!window.confirm('Cancel this booking? Your card hold will be released.')) return
-                    handleCancelBooking(data.booking_group_id)
-                  }}
-                  disabled={cancelling}
-                  className="w-full border border-red-200 text-red-600 text-xs tracking-widest uppercase py-3 rounded-full hover:bg-red-50 disabled:opacity-50 transition-colors"
-                >
-                  {cancelling ? 'Cancelling…' : 'Cancel Booking'}
-                </button>
+                <div className="space-y-2">
+                  <button
+                    onClick={() => { resetExt(); setExtStep('select') }}
+                    className="w-full border border-gray-200 text-gray-700 text-xs tracking-widest uppercase py-3 rounded-full hover:bg-gray-50 transition-colors"
+                  >
+                    Extend Booking
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!window.confirm('Cancel this booking? Your card hold will be released.')) return
+                      handleCancelBooking(data.booking_group_id)
+                    }}
+                    disabled={cancelling}
+                    className="w-full border border-red-200 text-red-600 text-xs tracking-widest uppercase py-3 rounded-full hover:bg-red-50 disabled:opacity-50 transition-colors"
+                  >
+                    {cancelling ? 'Cancelling…' : 'Cancel Booking'}
+                  </button>
+                </div>
               ) : (
                 <button
                   onClick={() => {

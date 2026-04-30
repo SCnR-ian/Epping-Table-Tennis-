@@ -139,9 +139,8 @@ router.get('/my', requireAuth, async (req, res) => {
        FROM bookings b
        LEFT JOIN courts c ON c.id = b.court_id
        WHERE b.user_id = $1 AND b.club_id = $2
-         AND b.date >= CURRENT_DATE
        GROUP BY b.booking_group_id, b.court_id, b.date, c.name
-       ORDER BY b.date ASC, MIN(b.start_time) ASC`,
+       ORDER BY b.date DESC, MIN(b.start_time) DESC`,
       [req.user.id, clubId]
     )
     res.json({ bookings: rows })
@@ -271,18 +270,35 @@ router.post('/', requireAuth, async (req, res) => {
 
 // POST /api/bookings/group/:groupId/extend
 router.post('/group/:groupId/extend', requireAuth, async (req, res) => {
-  const extra = Number(req.body.extra_minutes)
+  const { extra_minutes, intentId } = req.body
+  const extra = Number(extra_minutes)
   if (!extra || extra % 30 !== 0 || extra <= 0)
     return res.status(400).json({ message: 'extra_minutes must be a positive multiple of 30.' })
+  if (!intentId)
+    return res.status(400).json({ message: 'intentId is required.' })
 
   const clubId = req.club?.id ?? 1
   try {
+    // Verify the PaymentIntent before touching the DB
+    const stripe = getStripe()
+    const intent = await stripe.paymentIntents.retrieve(intentId)
+    if (intent.status !== 'requires_capture')
+      return res.status(402).json({ message: 'Payment not yet authorised.' })
+    if (intent.metadata.type !== 'booking_extension')
+      return res.status(400).json({ message: 'Invalid payment intent type.' })
+    if (String(intent.metadata.user_id) !== String(req.user.id))
+      return res.status(403).json({ message: 'Payment intent does not belong to you.' })
+    if (Number(intent.metadata.club_id) !== clubId)
+      return res.status(403).json({ message: 'Club mismatch.' })
+    if (intent.metadata.group_id !== req.params.groupId)
+      return res.status(403).json({ message: 'Booking group mismatch.' })
+
     const { rows } = await pool.query(
       `SELECT court_id, date, MAX(end_time) AS end_time, MIN(user_id) AS user_id
        FROM bookings WHERE booking_group_id=$1 AND club_id=$2 GROUP BY court_id, date`,
       [req.params.groupId, clubId]
     )
-    if (!rows[0]) return res.status(404).json({ message: 'Booking not found.' })
+    if (!rows[0]) { await voidIntent(intentId); return res.status(404).json({ message: 'Booking not found.' }) }
     if (rows[0].user_id !== req.user.id && req.user.role !== 'admin')
       return res.status(403).json({ message: 'Forbidden.' })
 
@@ -297,15 +313,18 @@ router.post('/group/:groupId/extend', requireAuth, async (req, res) => {
       await client.query('BEGIN')
       for (const [s, e] of slots) {
         await client.query(
-          `INSERT INTO bookings (user_id, court_id, date, start_time, end_time, booking_group_id, club_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [req.user.id, court_id, date, s, e, req.params.groupId, clubId]
+          `INSERT INTO bookings (user_id, court_id, date, start_time, end_time, booking_group_id, payment_intent_id, club_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [req.user.id, court_id, date, s, e, req.params.groupId, intentId, clubId]
         )
       }
       await client.query('COMMIT')
+      // Capture the hold after DB success
+      await stripe.paymentIntents.capture(intentId)
       res.json({ message: 'Booking extended.' })
     } catch (err) {
-      await client.query('ROLLBACK')
+      await client.query('ROLLBACK').catch(() => {})
+      await voidIntent(intentId)
       if (err.code === '23505') {
         if (err.constraint === 'user_no_double_book')
           return res.status(409).json({ message: 'You already have a booking during that time.' })
@@ -315,7 +334,10 @@ router.post('/group/:groupId/extend', requireAuth, async (req, res) => {
     } finally {
       client.release()
     }
-  } catch { res.status(500).json({ message: 'Server error.' }) }
+  } catch (err) {
+    console.error('[bookings] extend error:', err.message)
+    res.status(500).json({ message: 'Server error.' })
+  }
 })
 
 // DELETE /api/bookings/group/:groupId

@@ -99,7 +99,7 @@ router.get('/products/:id', async (req, res) => {
 router.post('/products', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only.' })
   const clubId = req.club?.id ?? 1
-  const { name, category, price, description, sort_order,
+  const { name, category, price, description, sort_order, stock,
           code, product_type, reaction_property, vibration_property,
           structure, thickness, head_size } = req.body
   if (!name || !category) return res.status(400).json({ message: 'name and category required.' })
@@ -107,11 +107,11 @@ router.post('/products', requireAuth, async (req, res) => {
   try {
     const { rows: [p] } = await pool.query(
       `INSERT INTO products
-         (name, category, price, description, sort_order, club_id,
+         (name, category, price, description, sort_order, stock, club_id,
           code, product_type, reaction_property, vibration_property, structure, thickness, head_size)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING *`,
-      [name, category, price ?? null, description ?? null, sort_order ?? 0, clubId,
+      [name, category, price ?? null, description ?? null, sort_order ?? 0, stock ?? null, clubId,
        code ?? null, product_type ?? null, reaction_property ?? null, vibration_property ?? null,
        structure ?? null, thickness ?? null, head_size ?? null]
     )
@@ -123,18 +123,18 @@ router.post('/products', requireAuth, async (req, res) => {
 router.patch('/products/:id', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only.' })
   const clubId = req.club?.id ?? 1
-  const { name, category, price, description, sort_order, is_active,
+  const { name, category, price, description, sort_order, is_active, stock,
           code, product_type, reaction_property, vibration_property,
           structure, thickness, head_size } = req.body
   try {
     const { rows: [p] } = await pool.query(
       `UPDATE products SET
-         name=$1, category=$2, price=$3, description=$4, sort_order=$5, is_active=$6,
-         code=$7, product_type=$8, reaction_property=$9, vibration_property=$10,
-         structure=$11, thickness=$12, head_size=$13
-       WHERE id=$14 AND club_id=$15
+         name=$1, category=$2, price=$3, description=$4, sort_order=$5, is_active=$6, stock=$7,
+         code=$8, product_type=$9, reaction_property=$10, vibration_property=$11,
+         structure=$12, thickness=$13, head_size=$14
+       WHERE id=$15 AND club_id=$16
        RETURNING *`,
-      [name, category, price ?? null, description ?? null, sort_order ?? 0, is_active ?? true,
+      [name, category, price ?? null, description ?? null, sort_order ?? 0, is_active ?? true, stock ?? null,
        code ?? null, product_type ?? null, reaction_property ?? null, vibration_property ?? null,
        structure ?? null, thickness ?? null, head_size ?? null,
        req.params.id, clubId]
@@ -224,6 +224,111 @@ router.delete('/products/:id/images/:imageId', requireAuth, async (req, res) => 
 // Serve product images (legacy single image_url too)
 router.get('/images/:filename', (req, res) => {
   res.sendFile(path.join(UPLOAD_DIR, req.params.filename))
+})
+
+// ── Orders ────────────────────────────────────────────────────────────────────
+
+// POST /api/shop/orders  — called after Stripe payment succeeds
+// body: { intentId, delivery_type, address }
+router.post('/orders', requireAuth, async (req, res) => {
+  const { intentId, delivery_type, address } = req.body
+  if (!intentId) return res.status(400).json({ message: 'intentId is required.' })
+  const clubId = req.club?.id ?? 1
+  const client = await pool.connect()
+  try {
+    // Prevent double-save
+    const { rows: [existing] } = await client.query(
+      'SELECT id FROM shop_orders WHERE payment_intent_id=$1', [intentId]
+    )
+    if (existing) return res.json({ order_id: existing.id })
+
+    // Retrieve intent from Stripe to verify payment and recover items
+    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
+    const intent = await stripe.paymentIntents.retrieve(intentId)
+    if (intent.status !== 'succeeded')
+      return res.status(402).json({ message: 'Payment not completed.' })
+    if (String(intent.metadata.user_id) !== String(req.user.id))
+      return res.status(403).json({ message: 'Not your payment.' })
+    if (Number(intent.metadata.club_id) !== clubId)
+      return res.status(403).json({ message: 'Club mismatch.' })
+
+    const items = JSON.parse(intent.metadata.items || '[]')
+    const totalCents = intent.amount
+
+    await client.query('BEGIN')
+    const { rows: [order] } = await client.query(
+      `INSERT INTO shop_orders (user_id, club_id, payment_intent_id, status, delivery_type, address, total_cents)
+       VALUES ($1,$2,$3,'paid',$4,$5,$6) RETURNING id`,
+      [req.user.id, clubId, intentId, delivery_type || 'collect', address ? JSON.stringify(address) : null, totalCents]
+    )
+    for (const item of items) {
+      await client.query(
+        `INSERT INTO shop_order_items (order_id, product_id, name, qty, price_cents)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [order.id, item.product_id, item.name, item.qty, item.price_cents]
+      )
+      // Decrement stock if tracked
+      await client.query(
+        `UPDATE products SET stock = stock - $1
+         WHERE id=$2 AND stock IS NOT NULL AND club_id=$3`,
+        [item.qty, item.product_id, clubId]
+      )
+    }
+    await client.query('COMMIT')
+    res.status(201).json({ order_id: order.id })
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    console.error('[shop/orders]', err.message)
+    res.status(500).json({ message: 'Failed to save order.' })
+  } finally {
+    client.release()
+  }
+})
+
+// GET /api/shop/orders  — admin: all orders; member: own orders
+router.get('/orders', requireAuth, async (req, res) => {
+  const clubId  = req.club?.id ?? 1
+  const isAdmin = req.user.role === 'admin'
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         o.id, o.status, o.delivery_type, o.total_cents, o.created_at,
+         o.address,
+         u.name AS user_name, u.email AS user_email,
+         json_agg(
+           json_build_object('name', oi.name, 'qty', oi.qty, 'price_cents', oi.price_cents)
+           ORDER BY oi.id
+         ) AS items
+       FROM shop_orders o
+       JOIN users u ON u.id = o.user_id
+       JOIN shop_order_items oi ON oi.order_id = o.id
+       WHERE o.club_id=$1 ${isAdmin ? '' : 'AND o.user_id=$2'}
+       GROUP BY o.id, u.name, u.email
+       ORDER BY o.created_at DESC`,
+      isAdmin ? [clubId] : [clubId, req.user.id]
+    )
+    res.json({ orders: rows })
+  } catch (err) {
+    console.error('[shop/orders GET]', err.message)
+    res.status(500).json({ message: 'Server error.' })
+  }
+})
+
+// PATCH /api/shop/orders/:id  — admin: update status
+router.patch('/orders/:id', requireAuth, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only.' })
+  const { status } = req.body
+  const clubId = req.club?.id ?? 1
+  const VALID = ['pending','paid','processing','shipped','completed','cancelled']
+  if (!VALID.includes(status)) return res.status(400).json({ message: 'Invalid status.' })
+  try {
+    const { rows: [row] } = await pool.query(
+      'UPDATE shop_orders SET status=$1 WHERE id=$2 AND club_id=$3 RETURNING id',
+      [status, req.params.id, clubId]
+    )
+    if (!row) return res.status(404).json({ message: 'Not found.' })
+    res.json({ message: 'Updated.' })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
 module.exports = router
