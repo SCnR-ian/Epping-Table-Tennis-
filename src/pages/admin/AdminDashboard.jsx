@@ -3081,6 +3081,37 @@ const [sessionForm,      setSessionForm]      = useState({
             ))}
           </div>
 
+          {/* ── Upcoming overview ── */}
+          {coachingSubTab !== 'reviews' && (() => {
+            const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Sydney' })
+            const upcoming = [...allCoachingSessions]
+              .filter(s => s.date?.slice(0,10) >= todayStr)
+              .sort((a, b) => a.date === b.date
+                ? a.start_time.localeCompare(b.start_time)
+                : a.date.localeCompare(b.date))
+            if (!upcoming.length) return null
+            return (
+              <div className="border border-gray-200 rounded-xl overflow-hidden mb-2">
+                <p className="text-[10px] tracking-widest uppercase text-gray-400 px-4 pt-4 pb-2">Upcoming</p>
+                <div className="divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: 3 * 56 }}>
+                  {upcoming.map(s => {
+                    const dateStr = new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{ weekday:'short', day:'numeric', month:'short' })
+                    return (
+                      <div key={s.id}
+                        onClick={() => setCoachingDate(s.date.slice(0,10))}
+                        className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-900 truncate">{s.student_name}</p>
+                          <p className="text-xs text-gray-400">{dateStr} · {s.coach_name} · {s.start_time?.slice(0,5)}–{s.end_time?.slice(0,5)}</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
+
           {/* ── Date picker (sessions only) ── */}
           {coachingSubTab !== 'hours' && coachingSubTab !== 'reviews' && (
             <div className="flex gap-2 overflow-x-auto pb-2 items-center">
