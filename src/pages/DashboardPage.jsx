@@ -719,26 +719,38 @@ export default function DashboardPage() {
 
             return (
               <>
-                {/* Upcoming teaching sessions */}
-                {upcomingSessions.length > 0 && (
-                  <div className="border border-gray-300 rounded-xl overflow-hidden">
-                    <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 px-6 pt-5 pb-3">Upcoming</p>
-                    <div className="divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: 3 * 64 }}>
-                      {upcomingSessions.map(s => {
-                        const dateStr = new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{ weekday:'short', day:'numeric', month:'short' })
-                        return (
-                          <div key={s.id} className="flex items-center gap-3 px-6 py-3.5">
-                            <div className="w-2 h-2 rounded-full shrink-0 bg-sky-400" />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-gray-900 truncate">{s.student_name}</p>
-                              <p className="text-xs text-gray-400">{dateStr} · {fmtTime(s.start_time)}–{fmtTime(s.end_time)}</p>
+                {/* Upcoming teaching sessions — grouped by date */}
+                {upcomingSessions.length > 0 && (() => {
+                  const grouped = {}
+                  upcomingSessions.forEach(s => {
+                    const d = s.date.slice(0,10)
+                    if (!grouped[d]) grouped[d] = []
+                    grouped[d].push(s)
+                  })
+                  const days = Object.keys(grouped).sort()
+                  return (
+                    <div className="border border-gray-300 rounded-xl overflow-hidden">
+                      <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 px-6 pt-5 pb-3">Upcoming</p>
+                      <div className="divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: 3 * 52 }}>
+                        {days.map(d => {
+                          const sessions = grouped[d]
+                          const dateStr = new Date(d+'T12:00:00').toLocaleDateString('en-AU',{ weekday:'short', day:'numeric', month:'short' })
+                          return (
+                            <div key={d} className="flex items-center justify-between px-6 py-3">
+                              <div>
+                                <p className="text-sm text-gray-900">{dateStr}</p>
+                                <p className="text-xs text-gray-400">{sessions.map(s => s.student_name).join(', ')}</p>
+                              </div>
+                              <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full shrink-0 ml-3">
+                                {sessions.length} session{sessions.length !== 1 ? 's' : ''}
+                              </span>
                             </div>
-                          </div>
-                        )
-                      })}
+                          )
+                        })}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )
+                })()}
 
                 {/* Today's sessions */}
                 <div className="border border-gray-300 rounded-xl p-6">
