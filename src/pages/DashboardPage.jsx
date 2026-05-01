@@ -719,31 +719,36 @@ export default function DashboardPage() {
 
             return (
               <>
-                {/* Upcoming teaching sessions — grouped by date */}
+                {/* Upcoming teaching sessions — grouped by date+time slot */}
                 {upcomingSessions.length > 0 && (() => {
-                  const grouped = {}
+                  const slots = {}
                   upcomingSessions.forEach(s => {
-                    const d = s.date.slice(0,10)
-                    if (!grouped[d]) grouped[d] = []
-                    grouped[d].push(s)
+                    const key = s.date.slice(0,10) + '|' + s.start_time
+                    if (!slots[key]) slots[key] = { date: s.date.slice(0,10), start: s.start_time, end: s.end_time, students: [] }
+                    slots[key].students.push(s.student_name)
                   })
-                  const days = Object.keys(grouped).sort()
+                  const sorted = Object.values(slots).sort((a, b) =>
+                    a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)
+                  )
                   return (
                     <div className="border border-gray-300 rounded-xl overflow-hidden">
                       <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 px-6 pt-5 pb-3">Upcoming</p>
-                      <div className="divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: 3 * 52 }}>
-                        {days.map(d => {
-                          const sessions = grouped[d]
-                          const dateStr = new Date(d+'T12:00:00').toLocaleDateString('en-AU',{ weekday:'short', day:'numeric', month:'short' })
+                      <div className="divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: 3 * 58 }}>
+                        {sorted.map((slot, i) => {
+                          const dateStr = new Date(slot.date+'T12:00:00').toLocaleDateString('en-AU',{ weekday:'short', day:'numeric', month:'short' })
+                          const isGroup = slot.students.length > 1
                           return (
-                            <div key={d} className="flex items-center justify-between px-6 py-3">
-                              <div>
-                                <p className="text-sm text-gray-900">{dateStr}</p>
-                                <p className="text-xs text-gray-400">{sessions.map(s => s.student_name).join(', ')}</p>
+                            <div key={i} className="flex items-center justify-between px-6 py-3.5 gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm text-gray-900">{dateStr}</p>
+                                  <p className="text-xs text-gray-500">{fmtTime(slot.start)}–{fmtTime(slot.end)}</p>
+                                </div>
+                                <p className="text-xs text-gray-600 truncate mt-0.5">{slot.students.join(', ')}</p>
                               </div>
-                              <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full shrink-0 ml-3">
-                                {sessions.length} session{sessions.length !== 1 ? 's' : ''}
-                              </span>
+                              {isGroup && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-50 text-teal-600 shrink-0">Group</span>
+                              )}
                             </div>
                           )
                         })}
