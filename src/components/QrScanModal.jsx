@@ -14,6 +14,7 @@ function fmtTime(iso) {
 
 export default function QrScanModal({ onClose }) {
   const scannerRef = useRef(null)
+  const stoppedRef  = useRef(false)
   const [phase, setPhase]   = useState('scanning')  // scanning | confirming | done | error
   const [token, setToken]   = useState(null)
   const [status, setStatus] = useState(null)         // venue status
@@ -30,6 +31,9 @@ export default function QrScanModal({ onClose }) {
       { facingMode: 'environment' },
       { fps: 10, qrbox: { width: 220, height: 220 }, aspectRatio: 1 },
       (decoded) => {
+        if (stoppedRef.current) return   // already handled a scan
+        stoppedRef.current = true
+
         // Extract token from URL or use raw value
         let t = decoded
         try {
@@ -47,7 +51,12 @@ export default function QrScanModal({ onClose }) {
       setPhase('error')
     })
 
-    return () => { try { qr.stop().catch(() => {}) } catch (_) {} }
+    return () => {
+      if (!stoppedRef.current) {
+        stoppedRef.current = true
+        try { qr.stop().catch(() => {}) } catch (_) {}
+      }
+    }
   }, [])
 
   async function loadStatusThenAction(t) {
