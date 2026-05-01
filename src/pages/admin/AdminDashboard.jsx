@@ -3081,30 +3081,38 @@ const [sessionForm,      setSessionForm]      = useState({
             ))}
           </div>
 
-          {/* ── Upcoming overview ── */}
+          {/* ── Upcoming overview (grouped by date) ── */}
           {coachingSubTab !== 'reviews' && (() => {
             const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Sydney' })
-            const upcoming = [...allCoachingSessions]
+            const grouped = {}
+            allCoachingSessions
               .filter(s => s.date?.slice(0,10) >= todayStr)
-              .sort((a, b) => a.date === b.date
-                ? a.start_time.localeCompare(b.start_time)
-                : a.date.localeCompare(b.date))
-            if (!upcoming.length) return null
+              .forEach(s => {
+                const d = s.date.slice(0,10)
+                if (!grouped[d]) grouped[d] = []
+                grouped[d].push(s)
+              })
+            const days = Object.keys(grouped).sort()
+            if (!days.length) return null
             return (
               <div className="border border-gray-200 rounded-xl overflow-hidden mb-2">
                 <p className="text-[10px] tracking-widest uppercase text-gray-400 px-4 pt-4 pb-2">Upcoming</p>
-                <div className="divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: 3 * 56 }}>
-                  {upcoming.map(s => {
-                    const dateStr = new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{ weekday:'short', day:'numeric', month:'short' })
+                <div className="divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: 3 * 48 }}>
+                  {days.map(d => {
+                    const sessions = grouped[d]
+                    const dateStr = new Date(d+'T12:00:00').toLocaleDateString('en-AU',{ weekday:'short', day:'numeric', month:'short' })
+                    const coaches = [...new Set(sessions.map(s => s.coach_name))].join(', ')
                     return (
-                      <div key={s.id}
-                        onClick={() => setCoachingDate(s.date.slice(0,10))}
-                        className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-gray-900 truncate">{s.student_name}</p>
-                          <p className="text-xs text-gray-400">{dateStr} · {s.coach_name} · {s.start_time?.slice(0,5)}–{s.end_time?.slice(0,5)}</p>
+                      <button key={d} onClick={() => setCoachingDate(d)}
+                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 text-left">
+                        <div>
+                          <p className="text-sm text-gray-900">{dateStr}</p>
+                          <p className="text-xs text-gray-400">{coaches}</p>
                         </div>
-                      </div>
+                        <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">
+                          {sessions.length} session{sessions.length !== 1 ? 's' : ''}
+                        </span>
+                      </button>
                     )
                   })}
                 </div>
