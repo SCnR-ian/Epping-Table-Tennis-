@@ -37,7 +37,7 @@ export default function QrScanModal({ onClose }) {
           t = url.searchParams.get('t') || decoded
         } catch (_) { /* not a URL, use raw */ }
 
-        qr.stop().catch(() => {})
+        try { qr.stop().catch(() => {}) } catch (_) {}
         setToken(t)
         loadStatusThenAction(t)
       },
@@ -47,7 +47,7 @@ export default function QrScanModal({ onClose }) {
       setPhase('error')
     })
 
-    return () => { qr.stop().catch(() => {}) }
+    return () => { try { qr.stop().catch(() => {}) } catch (_) {} }
   }, [])
 
   async function loadStatusThenAction(t) {
