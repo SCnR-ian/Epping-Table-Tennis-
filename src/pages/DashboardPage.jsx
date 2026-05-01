@@ -713,8 +713,33 @@ export default function DashboardPage() {
             }
             const students = Object.values(studentMap).sort((a, b) => a.name.localeCompare(b.name))
 
+            const upcomingSessions = coachSessions
+              .filter(s => s.date?.slice(0,10) > todayISO_)
+              .sort((a, b) => a.date === b.date ? a.start_time.localeCompare(b.start_time) : a.date.localeCompare(b.date))
+
             return (
               <>
+                {/* Upcoming teaching sessions */}
+                {upcomingSessions.length > 0 && (
+                  <div className="border border-gray-300 rounded-xl overflow-hidden">
+                    <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 px-6 pt-5 pb-3">Upcoming</p>
+                    <div className="divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: 3 * 64 }}>
+                      {upcomingSessions.map(s => {
+                        const dateStr = new Date(s.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU',{ weekday:'short', day:'numeric', month:'short' })
+                        return (
+                          <div key={s.id} className="flex items-center gap-3 px-6 py-3.5">
+                            <div className="w-2 h-2 rounded-full shrink-0 bg-sky-400" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-gray-900 truncate">{s.student_name}</p>
+                              <p className="text-xs text-gray-400">{dateStr} · {fmtTime(s.start_time)}–{fmtTime(s.end_time)}</p>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* Today's sessions */}
                 <div className="border border-gray-300 rounded-xl p-6">
                   <p className="text-[10px] tracking-[0.3em] uppercase text-gray-800 mb-4">Today's Sessions</p>
