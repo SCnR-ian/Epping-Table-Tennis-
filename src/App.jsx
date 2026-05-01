@@ -17,6 +17,7 @@ import BookingPage         from '@/pages/BookingPage'
 import SocialPlayPage      from '@/pages/SocialPlayPage'
 import ProfilePage         from '@/pages/ProfilePage'
 import AdminDashboard      from '@/pages/admin/AdminDashboard'
+import FinanceReportPage   from '@/pages/admin/FinanceReportPage'
 import CoachingPage        from '@/pages/CoachingPage'
 import NotFoundPage        from '@/pages/NotFoundPage'
 import OAuthCallbackPage   from '@/pages/OAuthCallbackPage'
@@ -66,10 +67,14 @@ const router = createBrowserRouter([
         path: '/profile',
         element: <ProtectedRoute><ProfilePage /></ProtectedRoute>,
       },
-      // ── Admin-only route ──────────────────────────────────────
+      // ── Admin-only routes ─────────────────────────────────────
       {
         path: '/admin',
         element: <AdminRoute><AdminDashboard /></AdminRoute>,
+      },
+      {
+        path: '/admin/finance',
+        element: <AdminRoute><FinanceReportPage /></AdminRoute>,
       },
 
       // ── 404 ──────────────────────────────────────────────────

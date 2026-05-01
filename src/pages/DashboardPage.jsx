@@ -529,14 +529,15 @@ export default function DashboardPage() {
                   <div className="divide-y divide-gray-200 mt-4 overflow-y-auto" style={{ maxHeight: 5 * 58 }}>
                     {past.map(ev => {
                       const dateStr = new Date(ev.date.slice(0,10)+'T12:00:00').toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' })
-                      const dot = ev.type === 'social' ? 'bg-violet-400' : 'bg-orange-400'
                       return (
-                        <div key={ev.key} className="py-2.5 first:pt-0 last:pb-0 flex items-center gap-3">
-                          <div className={`w-2 h-2 rounded-full shrink-0 ${dot}`} />
-                          <div className="min-w-0 flex-1">
+                        <div key={ev.key} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
                             <p className="text-sm text-gray-900 truncate">{ev.label}</p>
                             <p className="text-xs text-gray-500">{dateStr} · {fmtTime(ev.start)}–{fmtTime(ev.end)}</p>
                           </div>
+                          <span className="text-xs text-gray-400 shrink-0">
+                            {ev.type === 'social' ? 'Social Play' : 'Table Booking'}
+                          </span>
                         </div>
                       )
                     })}

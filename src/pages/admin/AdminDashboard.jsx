@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Camera, Plus, Trash2 } from 'lucide-react'
-import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, venueAPI, articlesAPI, announcementsAPI, scheduleAPI, paymentsAPI } from '@/api/api'
-import ShopManager from './ShopManager'
+import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, venueAPI, articlesAPI, paymentsAPI } from '@/api/api'
+import ShopManager       from './ShopManager'
+import FinanceReportPage from './FinanceReportPage'
 import QRCode from 'react-qr-code'
 import { useClub } from '@/context/ClubContext'
 import {
@@ -126,7 +127,7 @@ function groupByWeek(sessions) {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 
-const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Analytics', 'QR-Code', 'Shop', 'Articles', 'Announcements', 'Schedule']
+const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Analytics', 'QR-Code', 'Shop', 'Finance', 'Articles']
 
 const BOOKABLE_COURTS = [
   { id: 1, label: 'Court 1' },
@@ -420,233 +421,6 @@ function ArticlesManager() {
   )
 }
 
-// ── Schedule Manager ──────────────────────────────────────────────────────────
-const DAY_OPTIONS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-
-function ScheduleManager() {
-  const [rows,    setRows]    = useState([])
-  const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState(null) // row id being edited
-  const [draft,   setDraft]   = useState({})
-  const [showAdd, setShowAdd] = useState(false)
-  const [newRow,  setNewRow]  = useState({ day: 'Mon', start_time: '09:00', end_time: '17:00', label: '' })
-  const [saving,  setSaving]  = useState(false)
-
-  const load = () => {
-    setLoading(true)
-    scheduleAPI.getAdmin().then(r => setRows(r.data.schedule ?? [])).catch(() => {}).finally(() => setLoading(false))
-  }
-  useEffect(load, [])
-
-  const startEdit = (row) => { setEditing(row.id); setDraft({ day: row.day, start_time: row.start_time.slice(0,5), end_time: row.end_time.slice(0,5), label: row.label, is_active: row.is_active }) }
-  const cancelEdit = () => { setEditing(null); setDraft({}) }
-
-  const save = async (id) => {
-    setSaving(true)
-    try { await scheduleAPI.update(id, draft); cancelEdit(); load() }
-    catch { alert('Failed to save.') } finally { setSaving(false) }
-  }
-
-  const toggle = async (row) => {
-    try { await scheduleAPI.update(row.id, { is_active: !row.is_active }); load() }
-    catch { alert('Failed to update.') }
-  }
-
-  const remove = async (id) => {
-    if (!window.confirm('Delete this schedule row?')) return
-    try { await scheduleAPI.remove(id); load() } catch { alert('Failed to delete.') }
-  }
-
-  const addRow = async () => {
-    if (!newRow.label.trim()) return
-    setSaving(true)
-    try { await scheduleAPI.create(newRow); setShowAdd(false); setNewRow({ day: 'Mon', start_time: '09:00', end_time: '17:00', label: '' }); load() }
-    catch { alert('Failed to add.') } finally { setSaving(false) }
-  }
-
-  return (
-    <div className="animate-fade-in space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-widest">Open Hours Schedule</h3>
-        <button onClick={() => setShowAdd(s => !s)} className="flex items-center gap-1.5 text-sm font-medium bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors">
-          <Plus size={14} /> Add Row
-        </button>
-      </div>
-      <p className="text-xs text-gray-400">These rows control when members can make bookings. Inactive rows are hidden from members but kept for reference.</p>
-
-      {showAdd && (
-        <div className="card border border-gray-200 space-y-3">
-          <h4 className="text-sm font-semibold">New Schedule Row</h4>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Day</label>
-              <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={newRow.day} onChange={e => setNewRow(r => ({...r, day: e.target.value}))}>
-                {DAY_OPTIONS.map(d => <option key={d}>{d}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Label</label>
-              <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder="e.g. Open Practice" value={newRow.label} onChange={e => setNewRow(r => ({...r, label: e.target.value}))} />
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Open</label>
-              <input type="time" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={newRow.start_time} onChange={e => setNewRow(r => ({...r, start_time: e.target.value}))} />
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Close</label>
-              <input type="time" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={newRow.end_time} onChange={e => setNewRow(r => ({...r, end_time: e.target.value}))} />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={addRow} disabled={saving} className="btn-primary text-sm px-4 py-2">{saving ? 'Saving…' : 'Add'}</button>
-            <button onClick={() => setShowAdd(false)} className="btn-secondary text-sm px-4 py-2">Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {loading ? <p className="text-sm text-gray-500">Loading…</p> : (
-        <div className="space-y-2">
-          {rows.map(row => editing === row.id ? (
-            <div key={row.id} className="card border border-black/10 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Day</label>
-                  <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={draft.day} onChange={e => setDraft(d => ({...d, day: e.target.value}))}>
-                    {DAY_OPTIONS.map(d => <option key={d}>{d}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Label</label>
-                  <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={draft.label} onChange={e => setDraft(d => ({...d, label: e.target.value}))} />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Open</label>
-                  <input type="time" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={draft.start_time} onChange={e => setDraft(d => ({...d, start_time: e.target.value}))} />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Close</label>
-                  <input type="time" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={draft.end_time} onChange={e => setDraft(d => ({...d, end_time: e.target.value}))} />
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => save(row.id)} disabled={saving} className="btn-primary text-sm px-4 py-2">{saving ? 'Saving…' : 'Save'}</button>
-                <button onClick={cancelEdit} className="btn-secondary text-sm px-4 py-2">Cancel</button>
-              </div>
-            </div>
-          ) : (
-            <div key={row.id} className={`card border flex items-center gap-4 ${row.is_active ? 'border-gray-100' : 'border-gray-100 opacity-50'}`}>
-              <div className="w-10 text-sm font-semibold text-gray-700">{row.day}</div>
-              <div className="flex-1">
-                <p className="text-sm text-gray-900">{row.label}</p>
-                <p className="text-xs text-gray-400">{row.start_time?.slice(0,5)} – {row.end_time?.slice(0,5)}</p>
-              </div>
-              <span className={`text-xs px-2 py-0.5 rounded-full ${row.is_active ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
-                {row.is_active ? 'Active' : 'Inactive'}
-              </span>
-              <div className="flex gap-3 flex-shrink-0">
-                <button onClick={() => toggle(row)} className="text-xs text-gray-400 hover:text-black transition-colors">{row.is_active ? 'Disable' : 'Enable'}</button>
-                <button onClick={() => startEdit(row)} className="text-xs text-gray-500 hover:text-black transition-colors">Edit</button>
-                <button onClick={() => remove(row.id)} className="text-xs text-red-400 hover:text-red-600 transition-colors">Delete</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Announcements Manager ─────────────────────────────────────────────────────
-function AnnouncementsManager() {
-  const [announcements, setAnnouncements] = useState([])
-  const [loading,  setLoading]  = useState(true)
-  const [showForm, setShowForm] = useState(false)
-  const [editing,  setEditing]  = useState(null)
-  const [saving,   setSaving]   = useState(false)
-  const empty = { title: '', body: '' }
-  const [form, setForm] = useState(empty)
-
-  const load = () => {
-    setLoading(true)
-    announcementsAPI.getAll().then(r => setAnnouncements(r.data.announcements ?? [])).catch(() => {}).finally(() => setLoading(false))
-  }
-  useEffect(load, [])
-
-  const openNew  = () => { setEditing(null); setForm(empty); setShowForm(true) }
-  const openEdit = (a) => { setEditing(a); setForm({ title: a.title, body: a.body }); setShowForm(true) }
-  const cancel   = () => { setShowForm(false); setEditing(null); setForm(empty) }
-
-  const save = async () => {
-    if (!form.title.trim() || !form.body.trim()) return
-    setSaving(true)
-    try {
-      if (editing) await announcementsAPI.update(editing.id, form)
-      else         await announcementsAPI.create(form)
-      cancel(); load()
-    } catch { alert('Failed to save.') } finally { setSaving(false) }
-  }
-
-  const remove = async (id) => {
-    if (!window.confirm('Delete this announcement?')) return
-    try { await announcementsAPI.remove(id); load() } catch { alert('Failed to delete.') }
-  }
-
-  return (
-    <div className="animate-fade-in space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-widest">Announcements</h3>
-        <button onClick={openNew} className="flex items-center gap-1.5 text-sm font-medium bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors">
-          <Plus size={14} /> New
-        </button>
-      </div>
-
-      {showForm && (
-        <div className="card space-y-3 border border-gray-200">
-          <h4 className="text-sm font-semibold">{editing ? 'Edit Announcement' : 'New Announcement'}</h4>
-          <input
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
-            placeholder="Title"
-            value={form.title}
-            onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-          />
-          <textarea
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10 resize-none"
-            rows={4}
-            placeholder="Body"
-            value={form.body}
-            onChange={e => setForm(f => ({ ...f, body: e.target.value }))}
-          />
-          <div className="flex gap-2">
-            <button onClick={save} disabled={saving} className="btn-primary text-sm px-4 py-2">{saving ? 'Saving…' : 'Save'}</button>
-            <button onClick={cancel} className="btn-secondary text-sm px-4 py-2">Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {loading ? <p className="text-sm text-gray-500">Loading…</p> : announcements.length === 0 ? (
-        <p className="text-sm text-gray-400">No announcements yet.</p>
-      ) : (
-        <div className="space-y-3">
-          {announcements.map(a => (
-            <div key={a.id} className="card border border-gray-100 space-y-1">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="font-medium text-sm text-gray-900">{a.title}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{new Date(a.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
-                </div>
-                <div className="flex gap-2 flex-shrink-0">
-                  <button onClick={() => openEdit(a)} className="text-xs text-gray-500 hover:text-black transition-colors">Edit</button>
-                  <button onClick={() => remove(a.id)} className="text-xs text-red-400 hover:text-red-600 transition-colors">Delete</button>
-                </div>
-              </div>
-              <p className="text-sm text-gray-600 whitespace-pre-wrap">{a.body}</p>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
 
 export default function AdminDashboard() {
   const [activeTab,    setActiveTab]    = useState('Bookings')
@@ -780,12 +554,6 @@ const [sessionForm,      setSessionForm]      = useState({
   const [coachViewSelectedDate, setCoachViewSelectedDate] = useState({})        // groupId → selected date string
   const [expandedCoachMemberId, setExpandedCoachMemberId] = useState(null) // member id of expanded coach row
   const [coachRowExpanded,      setCoachRowExpanded]      = useState(new Set()) // student_ids expanded inside inline coach row
-  // Coaching hours
-  const [hoursStudentSearch, setHoursStudentSearch] = useState('')
-  const [hoursTarget,        setHoursTarget]        = useState(null)  // { user_id, name, balance, ledger, soloPrice, groupPrice }
-  const [hoursLoading,       setHoursLoading]       = useState(false)
-  const [hoursForm,          setHoursForm]          = useState({ delta: '', note: '' })
-  const [hoursPricingForm,   setHoursPricingForm]   = useState({ solo: '', group: '', saving: false })
   // Hours balance shown inline when scheduling sessions
   const [sessionStudentBalance, setSessionStudentBalance] = useState(null)   // number | null
   const [groupStudentBalances,  setGroupStudentBalances]  = useState({})     // { [userId]: number }
@@ -1006,6 +774,15 @@ const [sessionForm,      setSessionForm]      = useState({
       }
     } catch (err) {
       alert(err.response?.data?.message ?? 'Could not remove member. Please try again.')
+    }
+  }
+
+  const handleSetMemberStatus = async (id, is_active) => {
+    try {
+      const { data } = await adminAPI.setMemberStatus(id, is_active)
+      setMembers(prev => prev.map(m => m.id === id ? { ...m, is_active: data.member.is_active } : m))
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Could not update status.')
     }
   }
 
@@ -2870,12 +2647,17 @@ const [sessionForm,      setSessionForm]      = useState({
                               ) : m.email}
                             </td>
                             <td className="px-5 py-3 w-[15%]">
-                              <span className={`badge border rounded-full ${
-                                m.role === 'admin' ? 'bg-blue-100 text-blue-800 border-blue-300'
-                                : m.role === 'coach' ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                : 'bg-gray-100 text-gray-600 border-gray-300'}`}>
-                                {m.role}
-                              </span>
+                              <div className="flex gap-1 flex-wrap">
+                                <span className={`badge border rounded-full ${
+                                  m.role === 'admin' ? 'bg-blue-100 text-blue-800 border-blue-300'
+                                  : m.role === 'coach' ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                  : 'bg-gray-100 text-gray-600 border-gray-300'}`}>
+                                  {m.role}
+                                </span>
+                                {m.is_active === false && (
+                                  <span className="badge border rounded-full bg-red-100 text-red-600 border-red-300">inactive</span>
+                                )}
+                              </div>
                             </td>
                             <td className="px-5 py-3 text-gray-800 w-[20%]">{fmtDate(m.created_at)}</td>
                             <td className="px-5 py-3 w-[15%]">
@@ -2898,7 +2680,11 @@ const [sessionForm,      setSessionForm]      = useState({
                                         <button onClick={() => { setCoachModal({ id: m.id, name: m.name }); setCoachForm({ availability_start: '', availability_end: '', bio: '', resume: null }) }} className="text-xs text-emerald-600 hover:text-emerald-800 font-medium">Make Coach</button>
                                       </>
                                     )}
-                                    <button onClick={() => handleRemoveMember(m.id, m.name, m.role)} className="text-xs text-red-600 hover:text-red-800 font-medium">Remove</button>
+                                    {m.is_active === false ? (
+                                      <button onClick={() => handleSetMemberStatus(m.id, true)} className="text-xs text-emerald-600 hover:text-emerald-800 font-medium">Activate</button>
+                                    ) : (
+                                      <button onClick={() => handleSetMemberStatus(m.id, false)} className="text-xs text-orange-600 hover:text-orange-800 font-medium">Deactivate</button>
+                                    )}
                                   </>
                                 )}
                               </div>
@@ -3287,7 +3073,7 @@ const [sessionForm,      setSessionForm]      = useState({
 
           {/* ── Sub-tab bar ── */}
           <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
-            {[['Sessions', 'one-on-one'], ['Hours', 'hours'], ['Reviews', 'reviews']].map(([label, key]) => (
+            {[['Sessions', 'one-on-one'], ['Reviews', 'reviews']].map(([label, key]) => (
               <button key={key} onClick={() => setCoachingSubTab(key)}
                 className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${coachingSubTab === key ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>
                 {label}
@@ -3985,212 +3771,6 @@ const [sessionForm,      setSessionForm]      = useState({
               })()}
 
 
-          {/* ── Hours sub-tab ── */}
-          {coachingSubTab === 'hours' && (
-            <div className="space-y-6">
-              {/* Student search */}
-              <div className="card space-y-4">
-                <h3 className="text-sm font-normal text-gray-800">Student Hours Balance</h3>
-                <div className="flex gap-2">
-                  <input
-                    className="input flex-1"
-                    placeholder="Search member by name…"
-                    value={hoursStudentSearch}
-                    onChange={e => setHoursStudentSearch(e.target.value)}
-                  />
-                  <button
-                    className="btn-primary"
-                    disabled={hoursLoading}
-                    onClick={async () => {
-                      const q = hoursStudentSearch.trim().toLowerCase()
-                      const match = members.find(m => m.name?.toLowerCase().includes(q))
-                      if (!match) return
-                      setHoursLoading(true)
-                      try {
-                        const [{ data }, { data: pd }] = await Promise.all([
-                          coachingAPI.getHoursBalance(match.id),
-                          coachingAPI.getStudentPrices(match.id),
-                        ])
-                        setHoursTarget({ user_id: match.id, name: match.name, balance: data.balance, ledger: data.ledger, soloPrice: pd.solo_price, groupPrice: pd.group_price })
-                        setHoursForm({ delta: '', note: '' })
-                        setHoursPricingForm({ solo: String(pd.solo_price ?? ''), group: String(pd.group_price ?? ''), saving: false })
-                      } finally { setHoursLoading(false) }
-                    }}
-                  >
-                    Look Up
-                  </button>
-                </div>
-
-                {/* Suggestions */}
-                {hoursStudentSearch && (
-                  <ul className="divide-y divide-court-light max-h-40 overflow-y-auto rounded-lg border border-gray-200">
-                    {members
-                      .filter(m => m.name?.toLowerCase().includes(hoursStudentSearch.toLowerCase()))
-                      .slice(0, 8)
-                      .map(m => (
-                        <li key={m.id}>
-                          <button
-                            className="w-full text-left px-3 py-2 text-sm text-gray-800 hover:bg-gray-100 transition-colors"
-                            onClick={async () => {
-                              setHoursStudentSearch(m.name)
-                              setHoursLoading(true)
-                              try {
-                                const [{ data }, { data: pd }] = await Promise.all([
-                                  coachingAPI.getHoursBalance(m.id),
-                                  coachingAPI.getStudentPrices(m.id),
-                                ])
-                                setHoursTarget({ user_id: m.id, name: m.name, balance: data.balance, ledger: data.ledger, soloPrice: pd.solo_price, groupPrice: pd.group_price })
-                                setHoursForm({ delta: '', note: '' })
-                                setHoursPricingForm({ solo: String(pd.solo_price ?? ''), group: String(pd.group_price ?? ''), saving: false })
-                              } finally { setHoursLoading(false) }
-                            }}
-                          >
-                            {m.name}
-                          </button>
-                        </li>
-                      ))}
-                  </ul>
-                )}
-              </div>
-
-              {/* Balance display + manual adjustment */}
-              {hoursTarget && (
-                <div className="card space-y-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-normal text-gray-900">{hoursTarget.name}</p>
-                  </div>
-                  {/* Balance display */}
-                  <div className="bg-court rounded-lg p-4 text-center">
-                    <p className="text-[10px] text-gray-800 uppercase tracking-wide mb-1">Balance</p>
-                    <p className={`text-3xl font-normal ${(hoursTarget.balance ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      ${(hoursTarget.balance ?? 0).toFixed(2)}
-                    </p>
-                  </div>
-
-                  {/* Per-student pricing */}
-                  <div className="border-t border-gray-200 pt-4 space-y-2">
-                    <p className="text-xs text-gray-800">Session pricing</p>
-                    <div className="flex gap-2 items-center">
-                      <div className="flex items-center gap-1.5 flex-1">
-                        <span className="text-xs text-gray-500 whitespace-nowrap">1-on-1 $</span>
-                        <input
-                          type="number" min="0" step="0.01"
-                          className="input text-sm py-1 w-full"
-                          placeholder="e.g. 70"
-                          value={hoursPricingForm.solo}
-                          onChange={e => setHoursPricingForm(f => ({ ...f, solo: e.target.value }))}
-                        />
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-1">
-                        <span className="text-xs text-gray-500 whitespace-nowrap">Group $</span>
-                        <input
-                          type="number" min="0" step="0.01"
-                          className="input text-sm py-1 w-full"
-                          placeholder="e.g. 50"
-                          value={hoursPricingForm.group}
-                          onChange={e => setHoursPricingForm(f => ({ ...f, group: e.target.value }))}
-                        />
-                      </div>
-                      <button
-                        className="btn-primary text-sm py-1 px-3 whitespace-nowrap"
-                        disabled={hoursPricingForm.saving || !hoursPricingForm.solo || !hoursPricingForm.group}
-                        onClick={async () => {
-                          setHoursPricingForm(f => ({ ...f, saving: true }))
-                          try {
-                            const { data: pd } = await coachingAPI.updateStudentPrices(hoursTarget.user_id, {
-                              solo_price: parseFloat(hoursPricingForm.solo),
-                              group_price: parseFloat(hoursPricingForm.group),
-                            })
-                            setHoursTarget(t => ({ ...t, soloPrice: pd.solo_price, groupPrice: pd.group_price }))
-                          } finally {
-                            setHoursPricingForm(f => ({ ...f, saving: false }))
-                          }
-                        }}
-                      >
-                        {hoursPricingForm.saving ? 'Saving…' : 'Save'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Manual adjustment form */}
-                  <div className="border-t border-gray-200 pt-4 space-y-2">
-                    <p className="text-xs text-gray-800">Manual adjustment</p>
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        step="1"
-                        className="input w-28"
-                        placeholder="e.g. 500"
-                        value={hoursForm.delta}
-                        onChange={e => setHoursForm(f => ({ ...f, delta: e.target.value }))}
-                      />
-                      <input
-                        className="input flex-1"
-                        placeholder="Note (optional)"
-                        value={hoursForm.note}
-                        onChange={e => setHoursForm(f => ({ ...f, note: e.target.value }))}
-                      />
-                      <button
-                        className="btn-primary"
-                        disabled={hoursLoading || !hoursForm.delta || hoursForm.delta === '0'}
-                        onClick={async () => {
-                          setHoursLoading(true)
-                          try {
-                            await coachingAPI.addHours(hoursTarget.user_id, {
-                              delta: parseFloat(hoursForm.delta),
-                              note: hoursForm.note || null,
-                            })
-                            const { data } = await coachingAPI.getHoursBalance(hoursTarget.user_id)
-                            setHoursTarget(prev => ({ ...prev, balance: data.balance, ledger: data.ledger }))
-                            setHoursForm({ delta: '', note: '' })
-                          } finally { setHoursLoading(false) }
-                        }}
-                      >
-                        Apply
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Ledger */}
-                  {hoursTarget.ledger?.length > 0 && (
-                    <div className="border-t border-gray-200 pt-4">
-                      <p className="text-xs text-gray-800 mb-2">Recent transactions</p>
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-xs text-gray-800 text-left">
-                            <th className="py-1 pr-4">Date</th>
-                            <th className="py-1 pr-3">Type</th>
-                            <th className="py-1 pr-4">Amount</th>
-                            <th className="py-1">Note</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-court-light">
-                          {hoursTarget.ledger.map(entry => (
-                            <tr key={entry.id}>
-                              <td className="py-1.5 pr-4 text-gray-800 whitespace-nowrap">
-                                {new Date(entry.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
-                              </td>
-                              <td className="py-1.5 pr-3">
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${entry.session_type === 'group' ? 'bg-teal-500/15 text-teal-600' : entry.session_type === 'credit' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                  {entry.session_type === 'group' ? 'Group' : entry.session_type === 'credit' ? 'Credit' : '1-on-1'}
-                                </span>
-                              </td>
-                              <td className={`py-1.5 pr-4 font-mono font-medium ${parseFloat(entry.delta) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                {parseFloat(entry.delta) >= 0 ? '+' : ''}${Math.abs(parseFloat(entry.delta)).toFixed(2)}
-                              </td>
-                              <td className="py-1.5 text-gray-800">{entry.note || '—'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
-
-            </div>
-          )}
-
           {/* ── Reviews sub-tab ── */}
           {coachingSubTab === 'reviews' && (
             <div className="space-y-4">
@@ -4756,7 +4336,7 @@ const [sessionForm,      setSessionForm]      = useState({
               return (
                 <div className="border-b border-gray-100 last:border-0">
                   {/* Main row */}
-                  <div className="flex items-center gap-4 py-3 px-1">
+                  <div className="flex items-center gap-4 py-3 px-1 min-w-[600px]">
                     {/* Date */}
                     <div className="w-28 flex-shrink-0">
                       <p className="text-xs font-medium text-gray-900">
@@ -5343,14 +4923,12 @@ const [sessionForm,      setSessionForm]      = useState({
       {/* ── Shop Tab ──────────────────────────────────────────────────────── */}
       {activeTab === 'Shop' && <ShopManager />}
 
+      {/* ── Finance Tab ───────────────────────────────────────────────────── */}
+      {activeTab === 'Finance' && <FinanceReportPage />}
+
       {/* ── Articles Tab ──────────────────────────────────────────────────── */}
       {activeTab === 'Articles' && <ArticlesManager />}
 
-      {/* ── Announcements Tab ─────────────────────────────────────────────── */}
-      {activeTab === 'Announcements' && <AnnouncementsManager />}
-
-      {/* ── Schedule Tab ──────────────────────────────────────────────────── */}
-      {activeTab === 'Schedule' && <ScheduleManager />}
 
       {/* ── Cancel Series Selection Modal ─────────────────────────────────── */}
       {cancelSeriesModal && (

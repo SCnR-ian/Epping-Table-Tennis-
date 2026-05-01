@@ -67,6 +67,9 @@ router.post('/login', async (req, res) => {
     if (!user || !user.password_hash)
       return res.status(401).json({ message: 'Invalid email/phone or password.' })
 
+    if (user.is_active === false)
+      return res.status(403).json({ message: 'This account has been deactivated. Please contact the club.' })
+
     const ok = await bcrypt.compare(password, user.password_hash)
     if (!ok) return res.status(401).json({ message: 'Invalid email/phone or password.' })
 
@@ -188,9 +191,9 @@ router.get('/google', (req, res, next) => {
 router.get('/google/callback',
   passport.authenticate('google', { failureRedirect: `${process.env.FRONTEND_URL}/login?error=oauth_failed`, session: false }),
   (req, res) => {
+    if (req.user?.is_active === false)
+      return res.redirect(`${process.env.FRONTEND_URL}/login?error=account_deactivated`)
     const token = sign(req.user)
-    // Pass only the token — frontend fetches user data via /auth/me to avoid
-    // exposing PII in the URL (browser history, server logs, Referer headers)
     res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${token}`)
   }
 )

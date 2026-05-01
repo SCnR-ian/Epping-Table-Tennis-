@@ -69,6 +69,7 @@ app.use('/api/super-admin', require('./routes/superAdmin'))
 app.use('/api/venue',        require('./routes/venue'))
 app.use('/api/shop',         require('./routes/shop'))
 app.use('/api/ai',           require('./routes/ai'))
+app.use('/api/finance',      require('./routes/finance'))
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }))
@@ -406,6 +407,18 @@ async function runMigrations() {
     `CREATE INDEX IF NOT EXISTS idx_shop_orders_club ON shop_orders(club_id)`,
     `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(10) DEFAULT 'hold'`,
     `ALTER TABLE social_play_participants ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(10) DEFAULT 'immediate'`,
+    // ── Cash transactions ────────────────────────────────────────────────────
+    `CREATE TABLE IF NOT EXISTS cash_transactions (
+       id          SERIAL PRIMARY KEY,
+       club_id     INTEGER NOT NULL DEFAULT 1 REFERENCES clubs(id),
+       amount      DECIMAL(8,2) NOT NULL,
+       category    VARCHAR(30)  NOT NULL DEFAULT 'other',
+       description TEXT,
+       member_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+       recorded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_cash_transactions_club ON cash_transactions(club_id, created_at DESC)`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }

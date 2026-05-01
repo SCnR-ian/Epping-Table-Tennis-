@@ -164,6 +164,22 @@ router.post('/members/:id/make-coach', upload.single('resume'), async (req, res)
   } finally { client.release() }
 })
 
+// PATCH /api/admin/coaches/:id/status  — activate or deactivate a coach
+router.patch('/coaches/:id/status', async (req, res) => {
+  const { is_active } = req.body
+  if (typeof is_active !== 'boolean')
+    return res.status(400).json({ message: 'is_active (boolean) required.' })
+  try {
+    const clubId = req.club?.id ?? 1
+    const { rows } = await pool.query(
+      'UPDATE coaches SET is_active=$1 WHERE id=$2 AND club_id=$3 RETURNING id, name, is_active',
+      [is_active, req.params.id, clubId]
+    )
+    if (!rows[0]) return res.status(404).json({ message: 'Coach not found.' })
+    res.json({ coach: rows[0] })
+  } catch (err) { res.status(500).json({ message: 'Server error.' }) }
+})
+
 // GET /api/admin/coaches/:id/resume
 router.get('/coaches/:id/resume', async (req, res) => {
   try {
@@ -178,6 +194,24 @@ router.get('/coaches/:id/resume', async (req, res) => {
     res.setHeader('Content-Disposition', `inline; filename="${rows[0].resume_filename || 'resume.pdf'}"`)
     res.send(buf)
   } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
+// PATCH /api/admin/members/:id/status  — activate or deactivate
+router.patch('/members/:id/status', async (req, res) => {
+  if (String(req.params.id) === String(req.user.id))
+    return res.status(400).json({ message: 'You cannot deactivate your own account.' })
+  const { is_active } = req.body
+  if (typeof is_active !== 'boolean')
+    return res.status(400).json({ message: 'is_active (boolean) required.' })
+  try {
+    const clubId = req.club?.id ?? 1
+    const { rows } = await pool.query(
+      'UPDATE users SET is_active=$1, updated_at=NOW() WHERE id=$2 AND club_id=$3 RETURNING *',
+      [is_active, req.params.id, clubId]
+    )
+    if (!rows[0]) return res.status(404).json({ message: 'Member not found.' })
+    res.json({ member: safeUser(rows[0]) })
+  } catch (err) { res.status(500).json({ message: 'Server error.' }) }
 })
 
 // DELETE /api/admin/members/:id

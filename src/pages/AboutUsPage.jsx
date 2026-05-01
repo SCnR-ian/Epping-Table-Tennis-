@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Camera, Upload, X, Loader2 } from "lucide-react";
-import { homepageAPI, pagesAPI } from "@/api/api";
+import { homepageAPI, pagesAPI, coachingAPI } from "@/api/api";
 import { useEditMode } from "@/context/EditModeContext";
 import EditableText from "@/components/cms/EditableText";
 
@@ -175,6 +175,7 @@ export default function AboutUsPage() {
   const [story, setStory] = useState(DEFAULT_STORY)
   const [coaching, setCoaching] = useState(DEFAULT_COACHING)
   const [coaches, setCoaches] = useState(DEFAULT_COACHES)
+  const [coachRatings, setCoachRatings] = useState([])
   const [cta, setCta] = useState(DEFAULT_CTA)
   const [bannerSlots, setBannerSlots] = useState(Array(6).fill(null))
   const [imgTs, setImgTs] = useState({}) // per-key timestamps for cache-busting
@@ -201,6 +202,7 @@ export default function AboutUsPage() {
       if (c.about_cta)     setCta(s => ({ ...s, ...c.about_cta }))
       setImgTs({ about_story: Date.now(), about_coaching: Date.now(), ...Object.fromEntries(DEFAULT_COACHES.map((_, i) => [`about_coach_${i}`, Date.now()])) })
     }).catch(() => {})
+    coachingAPI.getPublicCoaches().then(r => setCoachRatings(r.data.coaches ?? [])).catch(() => {})
     loadBannerSlots()
   }, [])
 
@@ -409,6 +411,23 @@ export default function AboutUsPage() {
                 multiline
                 className="text-gray-500 leading-relaxed text-sm"
               />
+              {(() => {
+                const r = coachRatings.find(c => c.name.toLowerCase() === coach.name?.toLowerCase())
+                if (!r || r.rating_count === 0) return null
+                const avg = parseFloat(r.avg_rating)
+                return (
+                  <div className="flex items-center gap-2 mt-3">
+                    <div className="flex items-center gap-0.5">
+                      {[1,2,3,4,5].map(n => (
+                        <svg key={n} className={`w-4 h-4 ${n <= Math.round(avg) ? 'text-amber-400' : 'text-gray-200'}`} viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                        </svg>
+                      ))}
+                    </div>
+                    <span className="text-xs text-gray-500">{avg.toFixed(1)} · {r.rating_count} rating{r.rating_count !== 1 ? 's' : ''}</span>
+                  </div>
+                )
+              })()}
             </div>
           ))}
         </div>

@@ -103,6 +103,8 @@ export const adminAPI = {
   updateMemberRole: (id, d) => api.put(`/admin/members/${id}/role`, d),
   updateMember: (id, d) => api.patch(`/admin/members/${id}`, d),
   deleteMember: (id) => api.delete(`/admin/members/${id}`),
+  setMemberStatus: (id, is_active) => api.patch(`/admin/members/${id}/status`, { is_active }),
+  setCoachStatus:  (id, is_active) => api.patch(`/admin/coaches/${id}/status`, { is_active }),
   makeCoach: (id, formData) => api.post(`/admin/members/${id}/make-coach`, formData),
   getCoachResume: (coachId) => `${api.defaults.baseURL}/admin/coaches/${coachId}/resume`,
   getMemberActivities: (id) => api.get(`/admin/members/${id}/activities`),
@@ -113,7 +115,8 @@ export const adminAPI = {
 // ---------------------------------------------------------------------------
 export const coachingAPI = {
   // Coach management (admin)
-  getCoaches:       ()       => api.get('/coaching/coaches'),
+  getCoaches:          ()       => api.get('/coaching/coaches'),
+  getPublicCoaches:    ()       => api.get('/coaching/coaches/public'),
   createCoach:      (data)   => api.post('/coaching/coaches', data),
   deleteCoach:      (id)     => api.delete(`/coaching/coaches/${id}`),
   deleteCoachByUserId: (uid) => api.delete(`/coaching/coaches/by-user/${uid}`),
@@ -321,6 +324,24 @@ export const venueAPI = {
   getQR:        ()        => api.get('/venue/qr'),
   regenerateQR: ()        => api.post('/venue/qr/regenerate'),
   getHistory:   ()        => api.get('/venue/history'),
+}
+
+// ---------------------------------------------------------------------------
+// Finance
+// ---------------------------------------------------------------------------
+export const financeAPI = {
+  getReport:          (from, to)   => api.get('/finance/report', { params: { from, to } }),
+  getCash:            (from, to)   => api.get('/finance/cash', { params: { from, to } }),
+  addCash:            (data)       => api.post('/finance/cash', data),
+  deleteCash:         (id)         => api.delete(`/finance/cash/${id}`),
+  getRecurring:       ()           => api.get('/finance/recurring'),
+  addRecurring:       (data)       => api.post('/finance/recurring', data),
+  updateRecurring:    (id, data)   => api.put(`/finance/recurring/${id}`, data),
+  deleteRecurring:    (id)         => api.delete(`/finance/recurring/${id}`),
+  getCoachRates:      ()           => api.get('/finance/coach-rates'),
+  updateCoachRate:    (id, rate)   => api.put(`/finance/coach-rates/${id}`, { pay_rate_per_session: rate }),
+  getWallet:          (userId)     => api.get(`/finance/wallet/${userId}`),
+  topUpWallet:        (userId, data) => api.post(`/finance/wallet/${userId}/topup`, data),
 }
 
 // ---------------------------------------------------------------------------

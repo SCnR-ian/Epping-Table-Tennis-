@@ -88,6 +88,26 @@ function fmtTime(t) {
 
 // ─── COACH CRUD (admin only) ──────────────────────────────────────────────────
 
+// GET /api/coaching/coaches/public — no auth, returns name + avg rating per coach
+router.get('/coaches/public', async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  try {
+    const { rows } = await pool.query(
+      `SELECT c.id, c.name,
+              ROUND(AVG(r.student_rating), 1)  AS avg_rating,
+              COUNT(r.student_rating)::int      AS rating_count
+       FROM coaches c
+       LEFT JOIN coaching_reviews r
+         ON r.coach_id = c.id AND r.student_rating IS NOT NULL
+       WHERE c.club_id = $1 AND c.is_active = TRUE
+       GROUP BY c.id, c.name
+       ORDER BY c.name ASC`,
+      [clubId]
+    )
+    res.json({ coaches: rows })
+  } catch { res.status(500).json({ message: 'Server error.' }) }
+})
+
 // GET /api/coaching/coaches
 router.get('/coaches', requireAuth, requireAdmin, async (req, res) => {
   const clubId = req.club?.id ?? 1
