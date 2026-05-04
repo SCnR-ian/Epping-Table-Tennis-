@@ -21,7 +21,7 @@ function BannerSlideshow({ className = "", slots }) {
   const srcs = (() => {
     if (slots === null) return [] // still loading — show nothing yet
     const filled = slots.filter(Boolean).map(s => typeof s === 'string' ? s : s.url)
-    return filled.length ? filled : FALLBACK_BANNER_IMAGES
+    return filled
   })()
   const [current, setCurrent] = useState(0)
   useEffect(() => { setCurrent(0) }, [srcs.length])
@@ -225,9 +225,11 @@ export default function HomePage() {
   const [cardTimestamps, setCardTimestamps] = useState({})
   const cardInputRefs = useRef({})
   // Each banner: fixed array of 6 slots — null | { id, url }
-  // Initialise from sessionStorage so the default image shows instantly on reload
+  // Initialise from sessionStorage so the default image shows instantly on reload.
+  // Key is namespaced by club subdomain so different clubs don't share the cache.
+  const clubKey = import.meta.env.VITE_CLUB_SUBDOMAIN || 'default'
   const initSlots = (prefix) => {
-    const cached = sessionStorage.getItem(`${prefix}0`)
+    const cached = sessionStorage.getItem(`${clubKey}_${prefix}0`)
     if (!cached) return null
     const slots = Array(6).fill(null)
     slots[0] = { id: `${prefix}0`, url: cached }
@@ -255,12 +257,15 @@ export default function HomePage() {
       const slots = Array(6).fill(null)
       ;(r.data.ids ?? []).forEach(id => {
         const i = parseInt(id.slice(prefix.length), 10)
-        if (!isNaN(i) && i >= 0 && i < 6)
-          slots[i] = { id, url: `${pagesAPI.getImageUrl(id)}?t=${Date.now()}` }
+        if (!isNaN(i) && i >= 0 && i < 6) {
+          const base = pagesAPI.getImageUrl(id)
+          const sep = base.includes('?') ? '&' : '?'
+          slots[i] = { id, url: `${base}${sep}t=${Date.now()}` }
+        }
       })
-      // Cache slot-0 URL so next page load shows it instantly
-      if (slots[0]?.url) sessionStorage.setItem(`${prefix}0`, slots[0].url)
-      else sessionStorage.removeItem(`${prefix}0`)
+      // Cache slot-0 URL (namespaced by club) so next page load shows it instantly
+      if (slots[0]?.url) sessionStorage.setItem(`${clubKey}_${prefix}0`, slots[0].url)
+      else sessionStorage.removeItem(`${clubKey}_${prefix}0`)
       setSlots(slots)
     }).catch(() => {})
   }

@@ -5,6 +5,8 @@ import { homepageAPI, pagesAPI, coachingAPI } from "@/api/api";
 import { useEditMode } from "@/context/EditModeContext";
 import EditableText from "@/components/cms/EditableText";
 
+const imgSrc = (id, ts) => { const b = pagesAPI.getImageUrl(id); return `${b}${b.includes('?') ? '&' : '?'}t=${ts ?? 0}` }
+
 // ── Banner components (same pattern as HomePage) ──────────────────────────
 
 const FALLBACK_BANNER_IMAGES = [
@@ -15,7 +17,7 @@ const FALLBACK_BANNER_IMAGES = [
 function BannerSlideshow({ className = "", slots }) {
   const srcs = (() => {
     const filled = (slots ?? []).filter(Boolean).map(s => s.url)
-    return filled.length ? filled : FALLBACK_BANNER_IMAGES
+    return filled
   })()
   const [current, setCurrent] = useState(0)
   useEffect(() => { setCurrent(0) }, [srcs.length])
@@ -185,7 +187,7 @@ export default function AboutUsPage() {
       const slots = Array(6).fill(null)
       ;(r.data.ids ?? []).forEach(id => {
         const i = parseInt(id.slice('about_banner_'.length), 10)
-        if (!isNaN(i) && i < 6) slots[i] = { id, url: `${pagesAPI.getImageUrl(id)}?t=${Date.now()}` }
+        if (!isNaN(i) && i < 6) { const base = pagesAPI.getImageUrl(id); const sep = base.includes('?') ? '&' : '?'; slots[i] = { id, url: `${base}${sep}t=${Date.now()}` } }
       })
       setBannerSlots(slots)
     }).catch(() => {})
@@ -316,7 +318,7 @@ export default function AboutUsPage() {
         </div>
         <div className="overflow-hidden h-[560px] lg:h-auto">
           <EditableImage
-            src={`${pagesAPI.getImageUrl('about_story')}?t=${imgTs.about_story ?? 0}`}
+            src={imgSrc('about_story', imgTs.about_story)}
             alt="Club"
             className="w-full h-full object-cover"
             fallback="/images/banner2.jpg"
@@ -329,7 +331,7 @@ export default function AboutUsPage() {
       <section className="grid grid-cols-1 lg:grid-cols-2 min-h-[560px]">
         <div className="overflow-hidden h-[560px] lg:h-auto order-2 lg:order-1">
           <EditableImage
-            src={`${pagesAPI.getImageUrl('about_coaching')}?t=${imgTs.about_coaching ?? 0}`}
+            src={imgSrc('about_coaching', imgTs.about_coaching)}
             alt="Coaching"
             className="w-full h-full object-cover"
             fallback="/images/training/group.png"
@@ -382,7 +384,7 @@ export default function AboutUsPage() {
               {/* Portrait photo */}
               <div className="aspect-[3/4] overflow-hidden mb-6">
                 <EditableImage
-                  src={`${pagesAPI.getImageUrl(`about_coach_${idx}`)}?t=${imgTs[`about_coach_${idx}`] ?? 0}`}
+                  src={imgSrc(`about_coach_${idx}`, imgTs[`about_coach_${idx}`])}
                   alt={coach.name}
                   className="w-full h-full object-cover object-top transition-transform duration-500 hover:scale-105"
                   fallback={coach.fallbackImage || '/images/coach-4.jpg'}
