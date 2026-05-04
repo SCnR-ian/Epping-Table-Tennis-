@@ -4,6 +4,7 @@ import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/context/AuthContext'
+import { useClub } from '@/context/ClubContext'
 import { paymentsAPI, shopAPI } from '@/api/api'
 
 const BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').replace('/api', '')
@@ -105,6 +106,7 @@ function Select({ value, onChange, children, className = '', error }) {
 export default function CheckoutPage() {
   const { items, totalPrice, clearCart } = useCart()
   const { user } = useAuth()
+  const { club } = useClub()
   const navigate = useNavigate()
 
   const [delivery, setDelivery] = useState('home') // 'home' | 'collect'
@@ -327,7 +329,7 @@ export default function CheckoutPage() {
 
             {delivery === 'collect' && (
               <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-sm font-medium text-gray-900 mb-1">Epping Table Tennis Club</p>
+                <p className="text-sm font-medium text-gray-900 mb-1">{club?.name ?? 'Table Tennis Club'}</p>
                 <p className="text-sm text-gray-500">You will be contacted to arrange a pick-up time.</p>
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <Field label="First Name" required>

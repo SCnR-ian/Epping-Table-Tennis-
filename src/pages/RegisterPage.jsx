@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import { useClub } from '@/context/ClubContext'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
@@ -9,6 +10,7 @@ const isInstalled = () => window.matchMedia('(display-mode: standalone)').matche
 
 export default function RegisterPage() {
   const { register, loading, error, clearError } = useAuth()
+  const { club } = useClub()
   const navigate = useNavigate()
 
   const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '', phone: '' })
@@ -70,7 +72,7 @@ export default function RegisterPage() {
       {/* Top bar */}
       <div className="border-b border-gray-200 px-8 py-4 flex items-center gap-4">
         <Link to="/" className="text-xs tracking-[0.3em] uppercase text-black font-normal">
-          Epping Table Tennis
+          {club?.name ?? 'Table Tennis Club'}
         </Link>
         <span className="text-gray-300">|</span>
         <span className="text-xs tracking-[0.3em] uppercase text-gray-500">Account Creation</span>

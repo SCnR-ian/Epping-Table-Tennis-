@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { NavLink, Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useEditMode } from "@/context/EditModeContext";
 import { useCart } from "@/context/CartContext";
+import { useClub } from "@/context/ClubContext";
 import { pagesAPI } from "@/api/api";
 import EditableText from "@/components/cms/EditableText";
 import ShoppingBag from "@/components/layout/ShoppingBag";
@@ -22,7 +23,7 @@ function ClubLogo() {
     <div className="w-12 h-12 rounded-full overflow-hidden shrink-0">
       <img
         src="/images/logo.jpg"
-        alt="Epping Table Tennis Club"
+        alt="Club logo"
         className="w-full h-full object-cover"
       />
     </div>
@@ -370,15 +371,17 @@ export default function Navbar() {
   const { isAuthenticated, isAdmin } = useAuth();
   const { isEditing } = useEditMode();
   const { totalItems } = useCart();
+  const { club } = useClub();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [bagOpen, setBagOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [hovered, setHovered] = useState(false);
-  const [brandName, setBrandName] = useState("Epping Table Tennis");
+  const [brandName, setBrandName] = useState("");
   const [navLabels, setNavLabels] = useState(DEFAULT_NAV_LINKS.map(l => l.label));
   const [navOrder, setNavOrder] = useState(DEFAULT_NAV_LINKS.map((_, i) => i));
+  const cmsNameSet = useRef(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
@@ -386,10 +389,18 @@ export default function Navbar() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // Use club.name from DB as default; CMS headline (set below) takes priority
+  useEffect(() => {
+    if (club?.name && !cmsNameSet.current) setBrandName(club.name);
+  }, [club?.name]);
+
   useEffect(() => {
     pagesAPI.getContent().then(r => {
       const c = r.data.content
-      if (c.home_hero?.headline) setBrandName(c.home_hero.headline)
+      if (c.home_hero?.headline) {
+        cmsNameSet.current = true;
+        setBrandName(c.home_hero.headline);
+      }
       if (Array.isArray(c.nav_links?.labels)) setNavLabels(c.nav_links.labels)
       if (Array.isArray(c.nav_links?.order)) setNavOrder(c.nav_links.order)
     }).catch(() => {})

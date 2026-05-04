@@ -11,6 +11,24 @@ const api = axios.create({
   timeout: 10_000,
 });
 
+// Detect which club subdomain this frontend belongs to and attach it on every request.
+// Priority: real subdomain from hostname > VITE_CLUB_SUBDOMAIN env var.
+// Platform/deploy domains (vercel.app, etc.) are excluded so staging builds still work.
+;(function setClubHeader() {
+  const PLATFORM = ['vercel.app','netlify.app','onrender.com','railway.app','fly.dev','github.io']
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : ''
+  let subdomain = null
+  if (hostname && hostname !== 'localhost' && !hostname.match(/^\d/)) {
+    const isPlatform = PLATFORM.some(d => hostname.endsWith('.' + d) || hostname === d)
+    if (!isPlatform) {
+      const parts = hostname.split('.')
+      if (parts.length >= 3) subdomain = parts[0]
+    }
+  }
+  subdomain = subdomain || import.meta.env.VITE_CLUB_SUBDOMAIN || null
+  if (subdomain) api.defaults.headers.common['X-Club-Subdomain'] = subdomain
+})()
+
 // Attach JWT on every request if present
 // Also strip Content-Type for FormData so the browser sets it (with boundary)
 api.interceptors.request.use((config) => {
