@@ -663,7 +663,7 @@ export default function HomePage() {
           <div className="overflow-hidden h-[420px]">
             <iframe
               title="Club location"
-              src="https://maps.google.com/maps?q=Epping+NSW+2121+Australia&output=embed"
+              src={`https://maps.google.com/maps?q=${encodeURIComponent(club?.settings?.address || contact.address || 'Epping NSW 2121 Australia')}&output=embed`}
               width="100%" height="100%"
               style={{ border: 0 }}
               allowFullScreen loading="lazy"
