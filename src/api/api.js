@@ -267,7 +267,7 @@ export const analyticsAPI = {
 export const homepageAPI = {
   getStats:      ()           => api.get('/homepage/stats'),
   getCards:      ()           => api.get('/homepage/cards'),
-  getImageUrl:   (id)         => `${api.defaults.baseURL}/homepage/cards/${id}/image`,
+  getImageUrl:   (id)         => { const s = api.defaults.headers.common['X-Club-Subdomain']; return `${api.defaults.baseURL}/homepage/cards/${id}/image${s ? `?club=${s}` : ''}` },
   uploadImage:   (id, formData) => api.post(`/homepage/admin/cards/${id}/image`, formData, { headers: { 'Content-Type': undefined } }),
   deleteImage:   (id)         => api.delete(`/homepage/admin/cards/${id}/image`),
 }
@@ -281,7 +281,7 @@ export const homepageAPI = {
 export const pagesAPI = {
   getContent:    ()              => api.get('/pages/content'),
   updateContent: (id, content)   => api.put(`/pages/content/${id}`, { content }),
-  getImageUrl:   (id)            => `${api.defaults.baseURL}/pages/images/${id}`,
+  getImageUrl:   (id)            => { const s = api.defaults.headers.common['X-Club-Subdomain']; return `${api.defaults.baseURL}/pages/images/${id}${s ? `?club=${s}` : ''}` },
   getImageIds:   (prefix)        => api.get('/pages/image-ids', { params: prefix ? { prefix } : {} }),
   uploadImage:   (id, formData)  => api.post(`/pages/images/${id}`, formData, { headers: { 'Content-Type': undefined } }),
   deleteImage:   (id)            => api.delete(`/pages/images/${id}`),

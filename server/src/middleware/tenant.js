@@ -31,9 +31,11 @@ async function tenantMiddleware(req, res, next) {
 
   let subdomain = null
 
-  // Check for explicit override header first (useful for curl / tests)
+  // Check for explicit override header or query param first (header for API calls, query param for <img> tag URLs)
   if (req.headers['x-club-subdomain']) {
     subdomain = req.headers['x-club-subdomain']
+  } else if (req.query?.club) {
+    subdomain = req.query.club
   } else {
     const parts = hostname.split('.')
     const isPlatformDomain = PLATFORM_DOMAINS.some(d => hostname.endsWith('.' + d) || hostname === d)
