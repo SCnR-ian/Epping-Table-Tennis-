@@ -468,8 +468,10 @@ export default function HomePage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
             {cards.map((card) => {
               const title = programs.cardTitles?.[card.id] ?? card.title
+              const cardBase = homepageAPI.getImageUrl(card.id)
+              const cardSep = cardBase.includes('?') ? '&' : '?'
               const imgSrc = card.hasImage
-                ? `${homepageAPI.getImageUrl(card.id)}${cardTimestamps[card.id] ? `?t=${cardTimestamps[card.id]}` : ''}`
+                ? `${cardBase}${cardTimestamps[card.id] ? `${cardSep}t=${cardTimestamps[card.id]}` : ''}`
                 : CARD_FALLBACKS[card.id]
               return (
                 <div key={card.id} className="flex flex-col">
@@ -477,6 +479,7 @@ export default function HomePage() {
                     <img
                       src={imgSrc}
                       alt={title}
+                      onError={e => { e.currentTarget.src = CARD_FALLBACKS[card.id] }}
                       className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
                     />
                     {isEditing && (
