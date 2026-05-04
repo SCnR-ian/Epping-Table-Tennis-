@@ -68,16 +68,16 @@ router.post('/clubs', async (req, res) => {
 
     // 3. Create default weekly schedule
     const defaultSchedule = [
-      { day: 'Mon', start: '16:00', end: '20:30' },
-      { day: 'Tue', start: '16:00', end: '20:30' },
-      { day: 'Wed', start: '16:00', end: '20:30' },
-      { day: 'Sat', start: '13:00', end: '18:30' },
+      { day: 'Mon', label: 'Monday',   start: '16:00', end: '20:30' },
+      { day: 'Tue', label: 'Tuesday',  start: '16:00', end: '20:30' },
+      { day: 'Wed', label: 'Wednesday',start: '16:00', end: '20:30' },
+      { day: 'Sat', label: 'Saturday', start: '13:00', end: '18:30' },
     ]
     for (const s of defaultSchedule) {
       await client.query(
-        `INSERT INTO schedule (day, start_time, end_time, is_active, club_id)
-         VALUES ($1, $2, $3, TRUE, $4)`,
-        [s.day, s.start, s.end, clubId]
+        `INSERT INTO schedule (day, label, start_time, end_time, is_active, club_id)
+         VALUES ($1, $2, $3, $4, TRUE, $5)`,
+        [s.day, s.label, s.start, s.end, clubId]
       )
     }
 

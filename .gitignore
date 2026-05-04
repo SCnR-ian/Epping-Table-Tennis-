@@ -7,3 +7,4 @@ dist
 *.pem
 local_dump.sql
 Picture/
+.vercel

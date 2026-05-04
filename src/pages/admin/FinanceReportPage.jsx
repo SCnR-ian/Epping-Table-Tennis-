@@ -628,9 +628,11 @@ export default function FinanceReportPage() {
 
       {/* Transactions table */}
       <div className="border border-gray-200 rounded-xl overflow-hidden">
-        <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-4 py-2 bg-gray-50 border-b border-gray-200">
-          <span className="text-[10px] tracking-widest uppercase text-gray-400">Details</span>
-          <span className="text-[10px] tracking-widest uppercase text-gray-400">Type</span>
+        {/* Header */}
+        <div className="grid grid-cols-[120px_1fr_72px_96px_20px] gap-x-3 px-4 py-2 bg-gray-50 border-b border-gray-200">
+          <span className="text-[10px] tracking-widest uppercase text-gray-400">Category</span>
+          <span className="text-[10px] tracking-widest uppercase text-gray-400">Member / Note</span>
+          <span className="text-[10px] tracking-widest uppercase text-gray-400 text-center">Type</span>
           <span className="text-[10px] tracking-widest uppercase text-gray-400 text-right">Amount</span>
           <span />
         </div>
@@ -646,32 +648,41 @@ export default function FinanceReportPage() {
         {!loading && rows.map((r, i) => {
           const isExpense = r.type === 'expense'
           return (
-            <div key={i} className={`grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center px-4 py-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 ${isExpense ? 'bg-red-50/40' : ''}`}>
+            <div key={i} className={`grid grid-cols-[120px_1fr_72px_96px_20px] gap-x-3 items-center px-4 py-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 ${isExpense ? 'bg-red-50/40' : ''}`}>
+              {/* Category + date */}
               <div className="min-w-0">
-                <p className="text-sm text-gray-900 truncate">
-                  {isExpense
-                    ? <span className="text-red-600">{CAT_LABEL[r.category] ?? r.category}</span>
-                    : (CAT_LABEL[r.category] ?? r.category)}
-                  {r.member_name && r.member_name !== 'N/A' && (
-                    <span className="text-gray-400"> · {r.member_name}</span>
-                  )}
+                <p className={`text-sm font-medium truncate ${isExpense ? 'text-red-600' : 'text-gray-900'}`}>
+                  {CAT_LABEL[r.category] ?? r.category}
                 </p>
-                <p className="text-xs text-gray-400 truncate">
+                <p className="text-xs text-gray-400">
                   {new Date(r.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
-                  {r.reference && ` · ${r.reference}`}
                 </p>
               </div>
-              <span className={`text-xs px-2 py-0.5 rounded-full ${
-                r.payment_type === 'cash'   ? 'bg-amber-100 text-amber-700' :
-                r.payment_type === 'auto'   ? 'bg-purple-100 text-purple-700' :
-                'bg-sky-100 text-sky-700'}`}>
-                {r.payment_type === 'cash' ? 'Cash' : r.payment_type === 'auto' ? 'Auto' : 'Online'}
-              </span>
-              <span className={`text-sm font-medium text-right ${isExpense ? 'text-red-500' : 'text-gray-900'}`}>
+              {/* Member / reference */}
+              <p className="text-sm text-gray-600 truncate">
+                {r.member_name && r.member_name !== 'N/A' ? r.member_name : ''}
+                {r.reference && r.member_name && r.member_name !== 'N/A'
+                  ? <span className="text-gray-400 text-xs"> · {r.reference}</span>
+                  : r.reference
+                    ? <span className="text-gray-400 text-xs">{r.reference}</span>
+                    : null}
+              </p>
+              {/* Type badge */}
+              <div className="flex justify-center">
+                <span className={`text-xs px-2 py-0.5 rounded-full ${
+                  r.payment_type === 'cash' ? 'bg-amber-100 text-amber-700' :
+                  r.payment_type === 'auto' ? 'bg-purple-100 text-purple-700' :
+                  'bg-sky-100 text-sky-700'}`}>
+                  {r.payment_type === 'cash' ? 'Cash' : r.payment_type === 'auto' ? 'Auto' : 'Online'}
+                </span>
+              </div>
+              {/* Amount */}
+              <span className={`text-sm font-medium text-right tabular-nums ${isExpense ? 'text-red-500' : 'text-gray-900'}`}>
                 {isExpense ? '−' : ''}{fmt(r.amount)}
               </span>
+              {/* Delete */}
               {r.payment_type === 'cash' && r.id ? (
-                <button onClick={() => handleDeleteCash(r.id)} className="text-gray-300 hover:text-red-500 transition-colors text-xs pl-1">✕</button>
+                <button onClick={() => handleDeleteCash(r.id)} className="text-gray-300 hover:text-red-500 transition-colors text-xs">✕</button>
               ) : <span />}
             </div>
           )

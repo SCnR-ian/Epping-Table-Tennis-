@@ -534,21 +534,88 @@ router.delete('/:id/join', requireAuth, async (req, res) => {
   } catch { res.status(500).json({ message: 'Server error.' }) }
 })
 
+// GET /api/social/:id/busy-members  (admin) — user IDs that have a conflicting activity
+router.get('/:id/busy-members', requireAuth, requireAdmin, async (req, res) => {
+  const clubId = req.club?.id ?? 1
+  try {
+    const { rows: sess } = await pool.query(
+      'SELECT date, start_time, end_time FROM social_play_sessions WHERE id=$1 AND club_id=$2',
+      [req.params.id, clubId]
+    )
+    if (!sess[0]) return res.status(404).json({ message: 'Session not found.' })
+    const { date, start_time, end_time } = sess[0]
+    const { rows } = await pool.query(
+      `SELECT DISTINCT u.id FROM users u WHERE u.club_id=$5 AND (
+         EXISTS (
+           SELECT 1 FROM coaching_sessions cs
+           WHERE cs.student_id=u.id AND cs.date=$1 AND cs.status='confirmed' AND cs.club_id=$5
+             AND cs.start_time < $3::time AND cs.end_time > $2::time
+         ) OR EXISTS (
+           SELECT 1 FROM bookings b
+           WHERE b.user_id=u.id AND b.date=$1 AND b.status='confirmed' AND b.club_id=$5
+             AND b.start_time < $3::time AND b.end_time > $2::time
+         ) OR EXISTS (
+           SELECT 1 FROM social_play_sessions sps
+           JOIN social_play_participants spp ON spp.session_id=sps.id
+           WHERE spp.user_id=u.id AND sps.date=$1 AND sps.club_id=$5
+             AND sps.start_time < $3::time AND sps.end_time > $2::time
+             AND sps.id != $4
+         )
+       )`,
+      [date, start_time, end_time, req.params.id, clubId]
+    )
+    res.json({ busy_ids: rows.map(r => r.id) })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ message: 'Server error.' })
+  }
+})
+
 // POST /api/social/:id/participants  (admin)
 router.post('/:id/participants', requireAuth, requireAdmin, async (req, res) => {
   const { user_id } = req.body
+  const clubId = req.club?.id ?? 1
   if (!user_id) return res.status(400).json({ message: 'user_id is required.' })
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
     const { rows } = await client.query(
-      `SELECT id, max_players,
+      `SELECT id, date, start_time, end_time, max_players,
          (SELECT COUNT(*)::int FROM social_play_participants WHERE session_id=$1) AS count
        FROM social_play_sessions WHERE id=$1 FOR UPDATE`,
       [req.params.id]
     )
     if (!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ message: 'Session not found.' }) }
     if (rows[0].count >= rows[0].max_players) { await client.query('ROLLBACK'); return res.status(409).json({ message: 'Session is full.' }) }
+
+    const { date, start_time, end_time } = rows[0]
+
+    const { rows: coachConflict } = await client.query(
+      `SELECT 1 FROM coaching_sessions
+       WHERE student_id=$1 AND date=$2 AND status='confirmed' AND club_id=$5
+         AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
+      [user_id, date, start_time, end_time, clubId]
+    )
+    if (coachConflict.length) { await client.query('ROLLBACK'); return res.status(409).json({ message: 'Member has a coaching session during that time.' }) }
+
+    const { rows: socialConflict } = await client.query(
+      `SELECT 1 FROM social_play_sessions sps
+       JOIN social_play_participants spp ON spp.session_id = sps.id
+       WHERE spp.user_id=$1 AND sps.date=$2 AND sps.club_id=$6
+         AND sps.start_time < $4::time AND sps.end_time > $3::time
+         AND sps.id != $5 LIMIT 1`,
+      [user_id, date, start_time, end_time, req.params.id, clubId]
+    )
+    if (socialConflict.length) { await client.query('ROLLBACK'); return res.status(409).json({ message: 'Member is already in another social play session during that time.' }) }
+
+    const { rows: bookConflict } = await client.query(
+      `SELECT 1 FROM bookings
+       WHERE user_id=$1 AND date=$2 AND status='confirmed' AND club_id=$5
+         AND start_time < $4::time AND end_time > $3::time LIMIT 1`,
+      [user_id, date, start_time, end_time, clubId]
+    )
+    if (bookConflict.length) { await client.query('ROLLBACK'); return res.status(409).json({ message: 'Member has a court booking during that time.' }) }
+
     await client.query(
       'INSERT INTO social_play_participants (session_id, user_id) VALUES ($1,$2)',
       [req.params.id, user_id]

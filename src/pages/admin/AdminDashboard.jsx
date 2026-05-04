@@ -156,12 +156,11 @@ const OPEN_DAYS = [
 
 // Assigns each event a lane (column index).
 // Coaching: one dedicated column per coach, sorted by session count desc (most → left).
-// Social play: overlap-detected columns placed to the right of all coaching columns.
-// Other (bookings): overlap-detected columns placed to the right of social.
+// Social + booking share the same pool of lanes to the right of coaching columns,
+// so a booking that doesn't overlap a social session sits in the same column below it.
 function layoutEvents(events) {
-  const coaching = events.filter(e => e.type === 'coaching' || e.type === 'coaching_group')
-  const social   = events.filter(e => e.type === 'social')
-  const other    = events.filter(e => e.type !== 'coaching' && e.type !== 'coaching_group' && e.type !== 'social')
+  const coaching    = events.filter(e => e.type === 'coaching' || e.type === 'coaching_group')
+  const nonCoaching = events.filter(e => e.type !== 'coaching' && e.type !== 'coaching_group')
 
   // Count sessions per coach and assign lanes (most sessions = lane 0)
   const coachCounts = {}
@@ -174,33 +173,25 @@ function layoutEvents(events) {
     ...ev, lane: coachLane[ev.coach_id ?? ev.coach_name ?? 'x'] ?? 0,
   }))
 
-  // Social: overlap detection starting at numCoachLanes
-  const socialSorted = [...social].sort((a, b) => toMins(a.start_time) - toMins(b.start_time))
-  const socialLaneEnd = []
-  const socialPlaced = socialSorted.map(ev => {
+  // Social + booking: shared overlap-detected lanes (social gets priority = placed first)
+  const nonCoachSorted = [...nonCoaching].sort((a, b) => {
+    const dt = toMins(a.start_time) - toMins(b.start_time)
+    if (dt !== 0) return dt
+    const order = { social: 0, booking: 1 }
+    return (order[a.type] ?? 2) - (order[b.type] ?? 2)
+  })
+  const ncLaneEnd = []
+  const nonCoachPlaced = nonCoachSorted.map(ev => {
     const s = toMins(ev.start_time)
-    let lane = socialLaneEnd.findIndex(e => e <= s)
-    if (lane === -1) { lane = socialLaneEnd.length; socialLaneEnd.push(0) }
-    socialLaneEnd[lane] = toMins(ev.end_time)
+    let lane = ncLaneEnd.findIndex(e => e <= s)
+    if (lane === -1) { lane = ncLaneEnd.length; ncLaneEnd.push(0) }
+    ncLaneEnd[lane] = toMins(ev.end_time)
     return { ...ev, lane: numCoachLanes + lane }
   })
-  const numSocialLanes = social.length > 0 ? Math.max(socialLaneEnd.length, 1) : 0
+  const numNonCoachLanes = ncLaneEnd.length
 
-  // Other (bookings etc): overlap detection after social
-  const otherSorted = [...other].sort((a, b) => toMins(a.start_time) - toMins(b.start_time))
-  const otherLaneEnd = []
-  const otherBase = numCoachLanes + numSocialLanes
-  const otherPlaced = otherSorted.map(ev => {
-    const s = toMins(ev.start_time)
-    let lane = otherLaneEnd.findIndex(e => e <= s)
-    if (lane === -1) { lane = otherLaneEnd.length; otherLaneEnd.push(0) }
-    otherLaneEnd[lane] = toMins(ev.end_time)
-    return { ...ev, lane: otherBase + lane }
-  })
-  const numOtherLanes = otherLaneEnd.length
-
-  const totalLanes = Math.max(numCoachLanes + numSocialLanes + numOtherLanes, 1)
-  return [...coachPlaced, ...socialPlaced, ...otherPlaced].map(ev => ({ ...ev, totalLanes }))
+  const totalLanes = Math.max(numCoachLanes + numNonCoachLanes, 1)
+  return [...coachPlaced, ...nonCoachPlaced].map(ev => ({ ...ev, totalLanes }))
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -218,7 +209,7 @@ function ArticlesManager() {
   const [saving,   setSaving]     = useState(false)
   const [filterType, setFilterType] = useState('')
 
-  const emptyForm = { type: 'news', title: '', subtitle: '', body: '', image_data: '', image_type: '', is_pinned: false, published_at: new Date().toISOString().slice(0,16) }
+  const emptyForm = { type: 'news', title: '', subtitle: '', body: '', image_data: '', image_type: '', gallery_images: [], is_pinned: false, published_at: new Date().toISOString().slice(0,16) }
   const [form, setForm] = useState(emptyForm)
 
   const load = () => {
@@ -235,6 +226,7 @@ function ArticlesManager() {
   const openEdit = (a) => {
     setForm({ type: a.type, title: a.title, subtitle: a.subtitle||'', body: a.body||'',
               image_data: a.image_data||'', image_type: a.image_type||'',
+              gallery_images: a.gallery_images || [],
               is_pinned: a.is_pinned, published_at: new Date(a.published_at).toISOString().slice(0,16) })
     setEditing(a)
     setShowForm(true)
@@ -247,6 +239,23 @@ function ArticlesManager() {
     reader.onload = ev => setForm(f => ({ ...f, image_data: ev.target.result, image_type: file.type }))
     reader.readAsDataURL(file)
   }
+
+  const handleGalleryImage = (e, idx) => {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => setForm(f => {
+      const updated = [...f.gallery_images]
+      if (idx === updated.length) updated.push({ data: ev.target.result, type: file.type })
+      else updated[idx] = { data: ev.target.result, type: file.type }
+      return { ...f, gallery_images: updated }
+    })
+    reader.readAsDataURL(file)
+  }
+
+  const removeGalleryImage = (idx) => setForm(f => ({
+    ...f, gallery_images: f.gallery_images.filter((_, i) => i !== idx)
+  }))
 
   const handleSave = async () => {
     if (!form.title.trim()) return alert('Title is required.')
@@ -366,23 +375,56 @@ function ArticlesManager() {
                 placeholder="Full article content…" value={form.body} onChange={e => setForm(f=>({...f,body:e.target.value}))} />
             </div>
 
-            {/* Image upload */}
+            {/* Images — cover + up to 5 gallery (6 total) */}
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Cover Image</label>
-              {form.image_data && (
-                <div className="relative mb-2">
-                  <img src={form.image_data} alt="" className="w-full h-40 object-cover rounded-lg" />
-                  <button onClick={() => setForm(f=>({...f,image_data:'',image_type:''}))}
-                    className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1 hover:bg-black">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+              <label className="block text-xs text-gray-500 mb-2">Photos <span className="text-gray-400">(max 6)</span></label>
+              <div className="grid grid-cols-3 gap-2">
+                {/* Slot 0 — cover */}
+                <div className="relative aspect-square">
+                  {form.image_data ? (
+                    <>
+                      <img src={form.image_data} alt="" className="w-full h-full object-cover rounded-lg" />
+                      <button onClick={() => setForm(f=>({...f,image_data:'',image_type:''}))}
+                        className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-0.5 hover:bg-black">
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                      <span className="absolute bottom-1 left-1 text-[9px] bg-black/50 text-white rounded px-1">Cover</span>
+                    </>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center w-full h-full border-2 border-dashed border-gray-200 rounded-lg cursor-pointer hover:border-gray-400 transition-colors">
+                      <Camera className="w-5 h-5 text-gray-300 mb-1" />
+                      <span className="text-[10px] text-gray-400">Cover</span>
+                      <input type="file" accept="image/*" className="hidden" onChange={handleImage} />
+                    </label>
+                  )}
                 </div>
-              )}
-              <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-500 hover:text-black border border-dashed border-gray-300 rounded-lg px-4 py-3 transition-colors">
-                <Camera className="w-4 h-4" />
-                <span>{form.image_data ? 'Change image' : 'Upload image'}</span>
-                <input type="file" accept="image/*" className="hidden" onChange={handleImage} />
-              </label>
+                {/* Slots 1–5 — gallery */}
+                {Array.from({ length: 5 }).map((_, i) => {
+                  const img = form.gallery_images[i]
+                  const canAdd = !img && form.gallery_images.length === i && (form.image_data || i > 0 ? true : false)
+                  return (
+                    <div key={i} className="relative aspect-square">
+                      {img ? (
+                        <>
+                          <img src={img.data} alt="" className="w-full h-full object-cover rounded-lg" />
+                          <button onClick={() => removeGalleryImage(i)}
+                            className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-0.5 hover:bg-black">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </>
+                      ) : (
+                        <label className={`flex flex-col items-center justify-center w-full h-full border-2 border-dashed rounded-lg transition-colors ${
+                          form.gallery_images.length >= i ? 'border-gray-200 cursor-pointer hover:border-gray-400' : 'border-gray-100 opacity-30 pointer-events-none'
+                        }`}>
+                          <span className="text-xl text-gray-300">+</span>
+                          <input type="file" accept="image/*" className="hidden"
+                            onChange={e => handleGalleryImage(e, i)} />
+                        </label>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
 
             <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
@@ -616,6 +658,8 @@ const [sessionForm,      setSessionForm]      = useState({
   const [managingSession, setManagingSession] = useState(null) // session id with open participant panel
   // { [sessionId]: { query: '', userId: '' } } — add-member state per session
   const [addingMember, setAddingMember] = useState({})
+  // { [sessionId]: Set<userId> } — users with conflicting activities, fetched on picker open
+  const [busyMembers, setBusyMembers] = useState({})
   const [editingMember, setEditingMember] = useState(null) // { id, name, email }
 
   // Default selected date = first upcoming open day
@@ -1235,6 +1279,14 @@ const [sessionForm,      setSessionForm]      = useState({
       ))
       alert(err.response?.data?.message ?? 'Could not add walk-in.')
     }
+  }
+
+  const fetchBusyMembers = async (sessionId) => {
+    if (busyMembers[sessionId]) return // already loaded
+    try {
+      const { data } = await socialAPI.getBusyMembers(sessionId)
+      setBusyMembers(prev => ({ ...prev, [sessionId]: new Set(data.busy_ids) }))
+    } catch { /* ignore */ }
   }
 
   const handleSocialAddMember = async (sessionId, userId) => {
@@ -4199,8 +4251,9 @@ const [sessionForm,      setSessionForm]      = useState({
               const closeEdit = () => setEditingSocial(prev => { const n = { ...prev }; delete n[s.id]; return n })
               const picker = addingMember[s.id] ?? { query: '', userId: '' }
               const existingIds = new Set(s.participants.map(p => p.id))
+              const busy = busyMembers[s.id] ?? new Set()
               const suggestions = picker.query.length > 0
-                ? members.filter(m => !existingIds.has(m.id) && !m.is_walkin && m.name.toLowerCase().includes(picker.query.toLowerCase())).slice(0, 6)
+                ? members.filter(m => !existingIds.has(m.id) && !busy.has(m.id) && !m.is_walkin && m.name.toLowerCase().includes(picker.query.toLowerCase())).slice(0, 6)
                 : []
               const isManaging = managingSession === s.id
               const filled = s.online_count ?? s.participant_count
@@ -4279,7 +4332,7 @@ const [sessionForm,      setSessionForm]      = useState({
                             <div className="flex items-center gap-2">
                               <input type="text" placeholder="Type name to add…" className="input text-xs py-1 px-2 flex-1"
                                 value={picker.query}
-                                onChange={ev => setAddingMember(prev => ({ ...prev, [s.id]: { query: ev.target.value, userId: '' } }))}
+                                onChange={ev => { fetchBusyMembers(s.id); setAddingMember(prev => ({ ...prev, [s.id]: { query: ev.target.value, userId: '' } })) }}
                               />
                               {picker.userId && <button onClick={() => handleSocialAddMember(s.id, picker.userId)} className="text-xs text-emerald-400 font-medium whitespace-nowrap">Add</button>}
                               <button onClick={() => handleSocialAddWalkin(s.id)} className="text-xs text-gray-800 font-medium whitespace-nowrap border border-slate-600 hover:border-slate-400 rounded px-2 py-1 transition-colors">+ Walk-in</button>
@@ -4326,8 +4379,9 @@ const [sessionForm,      setSessionForm]      = useState({
               const closeEdit = () => setEditingSocial(prev => { const n = { ...prev }; delete n[s.id]; return n })
               const picker = addingMember[s.id] ?? { query: '', userId: '' }
               const existingIds = new Set(s.participants.map(p => p.id))
+              const busy = busyMembers[s.id] ?? new Set()
               const suggestions = picker.query.length > 0
-                ? members.filter(m => !existingIds.has(m.id) && !m.is_walkin && m.name.toLowerCase().includes(picker.query.toLowerCase())).slice(0, 6)
+                ? members.filter(m => !existingIds.has(m.id) && !busy.has(m.id) && !m.is_walkin && m.name.toLowerCase().includes(picker.query.toLowerCase())).slice(0, 6)
                 : []
               const isManaging = managingSession === s.id
               const filled = s.online_count ?? s.participant_count
@@ -4422,7 +4476,7 @@ const [sessionForm,      setSessionForm]      = useState({
                           <div className="flex items-center gap-2">
                             <input type="text" placeholder="Type name to add…" className="input text-xs py-1 px-2 flex-1"
                               value={picker.query}
-                              onChange={ev => setAddingMember(prev => ({ ...prev, [s.id]: { query: ev.target.value, userId: '' } }))}
+                              onChange={ev => { fetchBusyMembers(s.id); setAddingMember(prev => ({ ...prev, [s.id]: { query: ev.target.value, userId: '' } })) }}
                             />
                             {picker.userId && <button onClick={() => handleSocialAddMember(s.id, picker.userId)} className="text-xs text-emerald-400 font-medium whitespace-nowrap">Add</button>}
                             <button onClick={() => handleSocialAddWalkin(s.id)} className="text-xs text-gray-800 font-medium whitespace-nowrap border border-slate-600 hover:border-slate-400 rounded px-2 py-1 transition-colors">+ Walk-in</button>

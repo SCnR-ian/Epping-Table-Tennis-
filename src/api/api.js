@@ -207,6 +207,7 @@ export const socialAPI = {
   join:             (id)       => api.post(`/social/${id}/join`),
   leave:            (id)       => api.delete(`/social/${id}/join`),
   adminAddMember:         (id, userId)       => api.post(`/social/${id}/participants`, { user_id: userId }),
+  getBusyMembers:         (id)               => api.get(`/social/${id}/busy-members`),
   adminRemoveMember:      (id, userId)       => api.delete(`/social/${id}/participants/${userId}`),
   adminAddWalkin:         (id)               => api.post(`/social/${id}/walkin`),
   updateSeries:           (recurrenceId, data) => api.patch(`/social/recurrence/${recurrenceId}`, data),
