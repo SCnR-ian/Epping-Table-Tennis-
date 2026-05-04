@@ -19,12 +19,15 @@ const DEFAULT_NAV_LINKS = [
 
 // ── Club Logo ─────────────────────────────────────────────────────────────
 function ClubLogo() {
+  const { club } = useClub() ?? {}
+  const logoUrl = club?.settings?.theme?.logoUrl || '/images/logo.jpg'
   return (
     <div className="w-12 h-12 rounded-full overflow-hidden shrink-0">
       <img
-        src="/images/logo.jpg"
+        src={logoUrl}
         alt="Club logo"
         className="w-full h-full object-cover"
+        onError={e => { e.currentTarget.src = '/images/logo.jpg' }}
       />
     </div>
   )
