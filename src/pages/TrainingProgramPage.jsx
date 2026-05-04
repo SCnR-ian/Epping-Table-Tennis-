@@ -152,8 +152,12 @@ export default function TrainingProgramPage() {
   const uploadProgramImage = async (id, file) => {
     const fd = new FormData()
     fd.append('image', file)
-    await homepageAPI.uploadImage(id, fd).catch(() => {})
-    setImgTs(prev => ({ ...prev, [id]: Date.now() }))
+    try {
+      await homepageAPI.uploadImage(id, fd)
+      setImgTs(prev => ({ ...prev, [id]: Date.now() }))
+    } catch (err) {
+      alert(err?.response?.data?.message || 'Upload failed. Make sure you are logged in as admin.')
+    }
   }
 
   // ── Contact buttons (reads from home_contact) ─────────────────────────────
@@ -199,7 +203,7 @@ export default function TrainingProgramPage() {
           {/* Image */}
           <div className={`w-full md:w-1/2 overflow-hidden ${idx % 2 === 1 ? "md:order-2" : ""}`} style={{ height: '50vh' }}>
             <EditableImage
-              src={`${homepageAPI.getImageUrl(prog.id)}${imgTs[prog.id] ? `?t=${imgTs[prog.id]}` : ''}`}
+              src={(() => { const b = homepageAPI.getImageUrl(prog.id); const s = b.includes('?') ? '&' : '?'; return `${b}${imgTs[prog.id] ? `${s}t=${imgTs[prog.id]}` : ''}` })()}
               alt={prog.label}
               className="w-full h-full object-cover hover:scale-105 transition-transform duration-700"
               fallback={prog.image}

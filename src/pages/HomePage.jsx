@@ -327,9 +327,13 @@ export default function HomePage() {
     e.target.value = ''
     const fd = new FormData()
     fd.append('image', file)
-    await homepageAPI.uploadImage(cardId, fd).catch(() => {})
-    setCards(prev => prev.map(c => c.id === cardId ? { ...c, hasImage: true } : c))
-    setCardTimestamps(prev => ({ ...prev, [cardId]: Date.now() }))
+    try {
+      await homepageAPI.uploadImage(cardId, fd)
+      setCards(prev => prev.map(c => c.id === cardId ? { ...c, hasImage: true } : c))
+      setCardTimestamps(prev => ({ ...prev, [cardId]: Date.now() }))
+    } catch (err) {
+      alert(err?.response?.data?.message || 'Upload failed. Make sure you are logged in as admin.')
+    }
   }
 
   const uploadOneSlot = async (slotKey, file) => {
