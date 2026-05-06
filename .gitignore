@@ -8,3 +8,9 @@ dist
 local_dump.sql
 Picture/
 .vercel
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
