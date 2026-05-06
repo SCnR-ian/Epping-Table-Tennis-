@@ -71,8 +71,13 @@ export default function OnboardingPage() {
       if (form.logo) fd.append('logo', form.logo)
 
       await api.post('/clubs/register', fd)
-      // Redirect to the new club
-      window.location.href = `https://${form.subdomain}.flinther.com/admin`
+      // In production redirect to the real subdomain; locally show instructions
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      if (isLocal) {
+        setStep('done')
+      } else {
+        window.location.href = `https://${form.subdomain}.flinther.com/admin`
+      }
     } catch (e) {
       setError(e?.response?.data?.message || 'Something went wrong. Please try again.')
       setSaving(false)
@@ -90,7 +95,7 @@ export default function OnboardingPage() {
       <div className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between">
         <span className="font-bold text-lg tracking-tight" style={{ fontFamily: '"Kanit", sans-serif' }}>Flinther</span>
         <div className="flex items-center gap-2">
-          {[1,2,3].map(n => (
+          {step !== 'done' && [1,2,3].map(n => (
             <div key={n} className="flex items-center gap-2">
               <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
                 step > n ? 'bg-gray-900 text-white' : step === n ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-400'
@@ -245,6 +250,25 @@ export default function OnboardingPage() {
                   Continue →
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* ── Done (local dev only) ── */}
+          {step === 'done' && (
+            <div className="text-center">
+              <div className="text-5xl mb-6">🎉</div>
+              <h1 className="text-3xl font-black text-gray-900 mb-3" style={{ fontFamily: '"Kanit", sans-serif' }}>
+                Your club is live!
+              </h1>
+              <p className="text-gray-500 text-sm mb-8">
+                In production this would open{' '}
+                <span className="text-gray-900 font-medium">{form.subdomain}.flinther.com/admin</span>.
+                <br/>To access it locally, update your frontend <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">.env</code>:
+              </p>
+              <div className="bg-gray-900 text-green-400 text-sm font-mono rounded-xl px-6 py-4 text-left mb-8">
+                VITE_CLUB_SUBDOMAIN={form.subdomain}
+              </div>
+              <p className="text-xs text-gray-400">Then save the file — Vite will reload automatically.</p>
             </div>
           )}
 

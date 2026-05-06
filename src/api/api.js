@@ -26,7 +26,9 @@ const api = axios.create({
     }
   }
   subdomain = subdomain || import.meta.env.VITE_CLUB_SUBDOMAIN || null
-  if (subdomain) api.defaults.headers.common['X-Club-Subdomain'] = subdomain
+  // Always send the header: a real subdomain for club mode, '_platform' for landing mode.
+  // The server uses '_platform' to skip the DEV_SUBDOMAIN fallback.
+  api.defaults.headers.common['X-Club-Subdomain'] = subdomain || '_platform'
 })()
 
 // Attach JWT on every request if present

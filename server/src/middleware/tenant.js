@@ -32,7 +32,11 @@ async function tenantMiddleware(req, res, next) {
   let subdomain = null
 
   // Check for explicit override header or query param first (header for API calls, query param for <img> tag URLs)
-  if (req.headers['x-club-subdomain']) {
+  if (req.headers['x-club-subdomain'] === '_platform') {
+    // Explicit platform/landing mode — no club context, skip DEV_SUBDOMAIN fallback
+    req.club = null
+    return next()
+  } else if (req.headers['x-club-subdomain']) {
     subdomain = req.headers['x-club-subdomain']
   } else if (req.query?.club) {
     subdomain = req.query.club

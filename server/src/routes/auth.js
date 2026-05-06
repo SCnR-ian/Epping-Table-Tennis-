@@ -26,18 +26,18 @@ const safeUser = (u) => ({
 
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
-  if (!req.club) return res.status(400).json({ message: 'Club not found.' })
-
   const { name, password, phone } = req.body
   const email = req.body.email?.toLowerCase().trim()
   if (!name || !email || !password)
     return res.status(400).json({ message: 'Name, email and password are required.' })
 
+  const clubId = req.club?.id ?? null
+
   try {
     const hash = await bcrypt.hash(password, 12)
     const { rows } = await pool.query(
       'INSERT INTO users (name, email, password_hash, phone, club_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-      [name, email, hash, phone || null, req.club.id]
+      [name, email, hash, phone || null, clubId]
     )
     const user = rows[0]
     res.status(201).json({ token: sign(user), user: safeUser(user) })
@@ -52,17 +52,25 @@ router.post('/register', async (req, res) => {
 // POST /api/auth/login
 // `identifier` accepts either an email address or a phone number
 router.post('/login', async (req, res) => {
-  if (!req.club) return res.status(400).json({ message: 'Club not found.' })
-
   const { identifier, password } = req.body
   if (!identifier || !password)
     return res.status(400).json({ message: 'Email/phone and password are required.' })
 
   try {
-    const { rows } = await pool.query(
-      'SELECT * FROM users WHERE (email=$1 OR phone=$1) AND club_id=$2',
-      [identifier.toLowerCase().trim(), req.club.id]
-    )
+    let rows
+    if (req.club) {
+      // Club-scoped login: look up by email/phone within this club
+      ;({ rows } = await pool.query(
+        'SELECT * FROM users WHERE (email=$1 OR phone=$1) AND club_id=$2',
+        [identifier.toLowerCase().trim(), req.club.id]
+      ))
+    } else {
+      // Platform login: look up platform users (no club assigned yet)
+      ;({ rows } = await pool.query(
+        'SELECT * FROM users WHERE (email=$1 OR phone=$1) AND club_id IS NULL',
+        [identifier.toLowerCase().trim()]
+      ))
+    }
     const user = rows[0]
     if (!user || !user.password_hash)
       return res.status(401).json({ message: 'Invalid email/phone or password.' })

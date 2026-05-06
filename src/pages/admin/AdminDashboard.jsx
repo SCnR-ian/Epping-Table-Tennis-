@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Camera, Plus, Trash2 } from 'lucide-react'
-import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, venueAPI, articlesAPI, paymentsAPI, courtsAPI } from '@/api/api'
+import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, venueAPI, articlesAPI, paymentsAPI, courtsAPI } from '@/api/api'
 import ShopManager       from './ShopManager'
 import FinanceReportPage from './FinanceReportPage'
 import QRCode from 'react-qr-code'
 import { useClub } from '@/context/ClubContext'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
-  LineChart, Line, CartesianGrid, Legend,
 } from 'recharts'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -127,7 +126,7 @@ function groupByWeek(sessions) {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 
-const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Analytics', 'QR-Code', 'Shop', 'Finance', 'Articles']
+const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'QR-Code', 'Shop', 'Finance', 'Articles']
 
 // Height in px of each 30-minute slot row in the calendar view.
 const SLOT_H = 48
@@ -623,12 +622,6 @@ const [sessionForm,      setSessionForm]      = useState({
   const [todayLoading,    setTodayLoading]    = useState(false)
   const [todayError,      setTodayError]      = useState(null)
 
-  // Analytics state
-  const [analyticsData,    setAnalyticsData]    = useState(null)
-  const [analyticsLoading, setAnalyticsLoading] = useState(false)
-  const [attendanceFilter, setAttendanceFilter] = useState('all') // 'all' | 'active' | 'inactive'
-  const [attendanceSearch, setAttendanceSearch] = useState('')
-
   // Social Play state
   const [socialSessions,    setSocialSessions]    = useState([])
   const [showSocialForm,    setShowSocialForm]    = useState(false)
@@ -1032,25 +1025,6 @@ const [sessionForm,      setSessionForm]      = useState({
     if (activeTab !== 'Today') return
     loadTodaySummary(todayDate)
   }, [activeTab, todayDate])
-
-  // Fetch analytics when Analytics tab is active
-  useEffect(() => {
-    if (activeTab !== 'Analytics' || !payReport) return
-    // Auto-refresh pay report when admin returns to Analytics tab
-    coachingAPI.getPaymentReport(payFrom, payTo)
-      .then(({ data }) => setPayReport(data.coaches))
-      .catch(() => {})
-  }, [activeTab]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (activeTab !== 'Analytics') return
-    if (analyticsData) return  // already loaded
-    setAnalyticsLoading(true)
-    analyticsAPI.getOverview()
-      .then(({ data }) => setAnalyticsData(data))
-      .catch(() => {})
-      .finally(() => setAnalyticsLoading(false))
-  }, [activeTab])
 
   useEffect(() => {
     if (activeTab !== 'QR-Code') return
@@ -2205,7 +2179,7 @@ const [sessionForm,      setSessionForm]      = useState({
             <div className="fixed inset-0 z-30" onClick={() => setShowMoreMenu(false)} />
             <div className="absolute bottom-full inset-x-0 bg-white border-t border-gray-200 shadow-2xl z-40">
               <div className="grid grid-cols-4 divide-x divide-gray-100">
-                {['Analytics', 'QR-Code', 'Shop', 'Articles'].map(tab => (
+                {['QR-Code', 'Shop', 'Articles'].map(tab => (
                   <button
                     key={tab}
                     onClick={() => { setActiveTab(tab); setShowMoreMenu(false) }}
@@ -2213,11 +2187,6 @@ const [sessionForm,      setSessionForm]      = useState({
                       activeTab === tab ? 'text-black font-semibold bg-gray-50' : 'text-gray-500'
                     }`}
                   >
-                    {tab === 'Analytics' && (
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zm9.75-4.5c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zm-9.75 4.5a1.125 1.125 0 00-1.125 1.125v4.5c0 .621.504 1.125 1.125 1.125h2.25c.621 0 1.125-.504 1.125-1.125v-4.5a1.125 1.125 0 00-1.125-1.125H3z" />
-                      </svg>
-                    )}
                     {tab === 'QR-Code' && (
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
@@ -2290,7 +2259,7 @@ const [sessionForm,      setSessionForm]      = useState({
           {/* More */}
           <button
             onClick={() => setShowMoreMenu(v => !v)}
-            className={`flex flex-col items-center justify-center gap-1.5 transition-colors ${['Analytics','QR-Code','Shop','Articles'].includes(activeTab) ? 'text-black' : showMoreMenu ? 'text-black' : 'text-gray-400'}`}
+            className={`flex flex-col items-center justify-center gap-1.5 transition-colors ${['QR-Code','Shop','Articles'].includes(activeTab) ? 'text-black' : showMoreMenu ? 'text-black' : 'text-gray-400'}`}
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM18.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
@@ -3926,129 +3895,6 @@ const [sessionForm,      setSessionForm]      = useState({
         </div>
       )}
 
-      {/* ── Pay Report section (inside Analytics) ────────────────────────── */}
-      {activeTab === 'Analytics' && (
-        <div className="animate-fade-in space-y-6 mb-10">
-          <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-widest border-b border-gray-100 pb-2">Pay Report</h3>
-          <p className="text-xs text-gray-800">
-            Sessions count only when <span className="text-gray-900">an admin checks in</span> the student. Self check-ins by students or coaches do not count toward pay.
-          </p>
-
-          {/* Date range picker */}
-          <div className="card">
-            <div className="flex flex-col sm:flex-row sm:items-end gap-3 flex-wrap">
-              <div>
-                <label className="block text-xs text-gray-800 mb-1">From</label>
-                <input type="date" className="input" value={payFrom}
-                  onChange={e => setPayFrom(e.target.value)} />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-800 mb-1">To</label>
-                <input type="date" className="input" value={payTo}
-                  onChange={e => setPayTo(e.target.value)} />
-              </div>
-              <button
-                onClick={handleLoadPayReport}
-                disabled={payLoading}
-                className="btn-primary text-sm disabled:opacity-50"
-              >
-                {payLoading ? 'Loading…' : 'Generate Report'}
-              </button>
-            </div>
-          </div>
-
-          {/* Report results */}
-          {payReport !== null && (
-            payReport.length === 0 ? (
-              <p className="text-gray-800 text-sm">No confirmed coaching sessions in this period.</p>
-            ) : (
-              <div className="space-y-6">
-                {payReport.map(coach => {
-                  const weeks = groupByWeek(coach.sessions)
-                  const isExpanded = expandedCoaches[coach.coach_id] === true
-                  return (
-                    <div key={coach.coach_id} className="card p-0 overflow-hidden">
-                      <button
-                        onClick={() => setExpandedCoaches(prev => ({ ...prev, [coach.coach_id]: !isExpanded }))}
-                        className="w-full flex items-center justify-between px-5 py-3 border-b border-gray-200 bg-gray-100/20 text-left"
-                      >
-                        <div>
-                          <p className="text-gray-900 flex items-center gap-2">
-                            {coach.coach_name}
-                            <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </p>
-                          {!coach.has_account && (
-                            <p className="text-[10px] text-yellow-500 mt-0.5">
-                              No linked account — coach check-in unavailable; sessions will not count
-                            </p>
-                          )}
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm text-emerald-400">{coach.counted} counted</p>
-                          <p className="text-xs text-gray-800">{coach.total} total sessions</p>
-                        </div>
-                      </button>
-                      {isExpanded && weeks.map(week => (
-                        <div key={week.weekStart}>
-                          <div className="flex items-center justify-between px-5 py-2 bg-gray-100/10 border-b border-gray-200/40">
-                            <p className="text-xs text-gray-800">
-                              Week of {new Date(week.weekStart + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
-                            </p>
-                            <p className="text-xs text-gray-800">
-                              <span className="text-emerald-400">{week.counted}</span>{' '}/ {week.total} counted
-                            </p>
-                          </div>
-                          <div className="overflow-x-auto">
-                          <table className="w-full text-sm table-fixed">
-                            <colgroup>
-                              <col className="w-[22%]" />
-                              <col className="w-[30%]" />
-                              <col className="w-[24%]" />
-                              <col className="w-[14%]" />
-                              <col className="w-[10%]" />
-                            </colgroup>
-                            <tbody>
-                              {week.sessions.map(s => (
-                                <tr key={s.session_id} className={`border-b border-gray-200/30 last:border-0 ${s.counted ? '' : 'opacity-50'}`}>
-                                  <td className="px-5 py-3 text-gray-800 text-xs whitespace-nowrap">
-                                    {new Date(s.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
-                                  </td>
-                                  <td className="px-5 py-3 text-gray-900 text-xs">
-                                    <span className="block truncate">
-                                      {s.student_name}
-                                      {s.is_group && <span className="ml-1.5 text-[10px] bg-teal-500/15 text-teal-600 px-1.5 py-0.5 rounded-full">Group</span>}
-                                    </span>
-                                  </td>
-                                  <td className="px-5 py-3 text-gray-800 text-xs font-mono whitespace-nowrap">
-                                    {fmtTime(s.start_time)} – {fmtTime(s.end_time)}
-                                  </td>
-                                  <td className="px-3 py-3 text-xs whitespace-nowrap">
-                                    {s.admin_checked_in
-                                      ? <span className="text-sky-400">Admin ✓</span>
-                                      : <span className="text-gray-800">Not checked in</span>
-                                    }
-                                  </td>
-                                  <td className="px-3 py-3 text-xs">
-                                    {s.counted ? <span className="text-emerald-400">Counted</span> : <span className="text-gray-800">Not counted</span>}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                })}
-              </div>
-            )
-          )}
-        </div>
-      )}
-
       {/* ── Social Play tab ──────────────────────────────────────────────── */}
       {activeTab === 'Social Play' && (
         <div className="animate-fade-in space-y-8">
@@ -4642,192 +4488,6 @@ const [sessionForm,      setSessionForm]      = useState({
 
         </div>
       )}
-
-      {/* ── Analytics section ────────────────────────────────────────────── */}
-      {activeTab === 'Analytics' && (
-        <div className="animate-fade-in space-y-8">
-          <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-widest border-b border-gray-100 pb-2">Analytics</h3>
-          {analyticsLoading ? (
-            <p className="text-gray-800 text-sm">Loading analytics…</p>
-          ) : !analyticsData ? null : (() => {
-            const { memberGrowth, slotPopularity, attendance } = analyticsData
-
-            // ── Slot heatmap ─────────────────────────────────────────────────
-            const DAYS_ORDER = [1,2,3,4,5,6,0]
-            const DAY_LABELS  = { 0:'Sun',1:'Mon',2:'Tue',3:'Wed',4:'Thu',5:'Fri',6:'Sat' }
-            const allSlots = [...new Set(slotPopularity.map(r => r.slot))].sort()
-            const heatmapMax = Math.max(...slotPopularity.map(r => r.count), 1)
-
-            // ── Attendance filtered list ─────────────────────────────────────
-            const filteredAttendance = attendance
-              .filter(m => {
-                if (attendanceFilter === 'active')   return m.total_activities > 0
-                if (attendanceFilter === 'inactive') return m.total_activities === 0
-                return true
-              })
-              .filter(m => !attendanceSearch || m.name.toLowerCase().includes(attendanceSearch.toLowerCase()) || m.email.toLowerCase().includes(attendanceSearch.toLowerCase()))
-
-            const popularSlot  = [...slotPopularity].sort((a,b) => b.count - a.count)[0]
-            const unpopularSlot = [...slotPopularity].filter(r => r.count > 0).sort((a,b) => a.count - b.count)[0]
-            const totalMembers = attendance.length
-            const activeCount  = attendance.filter(m => m.total_activities > 0).length
-
-            return (
-              <>
-                {/* ── Summary cards ─────────────────────────────────────── */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {[
-                    { label: 'Total Members', value: totalMembers, color: 'text-brand-400' },
-                    { label: 'Active Members', value: activeCount, color: 'text-emerald-400' },
-                    { label: 'Never Active', value: totalMembers - activeCount, color: 'text-red-400' },
-                    { label: 'Busiest Slot', value: popularSlot ? `${DAY_LABELS[popularSlot.dow]} ${fmtTime(popularSlot.slot + ':00')}` : '—', color: 'text-yellow-400' },
-                  ].map(c => (
-                    <div key={c.label} className="card text-center py-5">
-                      <p className={`text-2xl font-normal ${c.color}`}>{c.value}</p>
-                      <p className="text-xs text-gray-800 mt-1">{c.label}</p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* ── Member growth chart ────────────────────────────────── */}
-                <div className="card">
-                  <p className="text-sm text-gray-900 mb-4">New Members — Last 12 Weeks</p>
-                  {memberGrowth.length === 0 ? (
-                    <p className="text-gray-800 text-xs">No data yet.</p>
-                  ) : (
-                    <ResponsiveContainer width="100%" height={200}>
-                      <LineChart data={memberGrowth} margin={{ top: 4, right: 8, bottom: 4, left: -20 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                        <XAxis dataKey="week" tickFormatter={w => w.slice(5)} tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                        <YAxis allowDecimals={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                        <Tooltip
-                          contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
-                          labelFormatter={w => `Week of ${w}`}
-                          formatter={v => [v, 'New members']}
-                        />
-                        <Line type="monotone" dataKey="new_members" stroke="#6366f1" strokeWidth={2} dot={{ fill: '#6366f1', r: 3 }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-
-                {/* ── Slot popularity heatmap ────────────────────────────── */}
-                <div className="card overflow-x-auto">
-                  <p className="text-sm text-gray-900 mb-4">Activity by Day &amp; Time Slot</p>
-                  {slotPopularity.length === 0 ? (
-                    <p className="text-gray-800 text-xs">No activity data yet.</p>
-                  ) : (
-                    <table className="text-xs w-full min-w-[400px]">
-                      <thead>
-                        <tr>
-                          <th className="text-left text-gray-800 pr-3 py-1 font-normal w-12">Time</th>
-                          {DAYS_ORDER.map(d => (
-                            <th key={d} className="text-gray-800 font-normal py-1 text-center w-12">{DAY_LABELS[d]}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {allSlots.map(slot => (
-                          <tr key={slot}>
-                            <td className="text-gray-800 pr-3 py-0.5 font-mono">{fmtTime(slot + ':00')}</td>
-                            {DAYS_ORDER.map(d => {
-                              const cell = slotPopularity.find(r => r.dow === d && r.slot === slot)
-                              const count = cell?.count ?? 0
-                              const intensity = count / heatmapMax
-                              const bg = count === 0
-                                ? 'bg-gray-100'
-                                : intensity > 0.66 ? 'bg-brand-500'
-                                : intensity > 0.33 ? 'bg-brand-500/50'
-                                : 'bg-brand-500/20'
-                              return (
-                                <td key={d} className="py-0.5 text-center">
-                                  <div
-                                    className={`mx-auto w-9 h-7 rounded flex items-center justify-center text-[10px] font-medium ${bg} ${count > 0 ? 'text-gray-900' : 'text-gray-800'}`}
-                                    title={count > 0 ? `${DAY_LABELS[d]} ${slot} — ${count} activities` : ''}
-                                  >
-                                    {count > 0 ? count : ''}
-                                  </div>
-                                </td>
-                              )
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-
-                {/* ── Member attendance ──────────────────────────────────── */}
-                <div className="card">
-                  <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
-                    <p className="text-sm text-gray-900">Member Attendance</p>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        placeholder="Search name or email…"
-                        className="input text-xs py-1.5 px-3 w-48"
-                        value={attendanceSearch}
-                        onChange={e => setAttendanceSearch(e.target.value)}
-                      />
-                      {['all', 'active', 'inactive'].map(f => (
-                        <button
-                          key={f}
-                          onClick={() => setAttendanceFilter(f)}
-                          className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${attendanceFilter === f ? 'border-brand-500 text-brand-400 bg-brand-500/10' : 'border-gray-200 text-gray-800 hover:text-gray-900'}`}
-                        >
-                          {f.charAt(0).toUpperCase() + f.slice(1)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-gray-200">
-                          {['Member', 'Joined', 'Activities', 'Last Active', 'Status'].map(h => (
-                            <th key={h} className="text-left px-3 py-2 text-xs text-gray-800 uppercase tracking-wider">{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredAttendance.length === 0 ? (
-                          <tr><td colSpan={5} className="text-center text-gray-800 text-xs py-6">No members found.</td></tr>
-                        ) : filteredAttendance.map(m => (
-                          <tr key={m.id} className="border-b border-gray-200/30 last:border-0 hover:bg-gray-100/10 transition-colors">
-                            <td className="px-3 py-3">
-                              <p className="text-gray-900 text-xs font-medium">{m.name}</p>
-                              <p className="text-gray-800 text-[10px]">{m.email}</p>
-                            </td>
-                            <td className="px-3 py-3 text-gray-800 text-xs whitespace-nowrap">
-                              {new Date(m.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}
-                            </td>
-                            <td className="px-3 py-3">
-                              <span className={`text-sm font-normal ${m.total_activities > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                {m.total_activities}
-                              </span>
-                            </td>
-                            <td className="px-3 py-3 text-gray-800 text-xs whitespace-nowrap">
-                              {m.last_active
-                                ? new Date(m.last_active + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
-                                : '—'}
-                            </td>
-                            <td className="px-3 py-3">
-                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${m.total_activities > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-500/15 text-red-400'}`}>
-                                {m.total_activities > 0 ? 'Active' : 'Never Active'}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </>
-            )
-          })()}
-        </div>
-      )}
-
 
       {/* ── QR-Code tab ──────────────────────────────────────────────────── */}
       {activeTab === 'QR-Code' && (

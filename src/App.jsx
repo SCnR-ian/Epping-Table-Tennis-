@@ -40,8 +40,14 @@ const subdomain = import.meta.env.VITE_CLUB_SUBDOMAIN ||
 const isLanding = !subdomain || subdomain === 'www'
 
 const router = createBrowserRouter(isLanding ? [
-  { path: '/',  element: <LandingPage /> },
-  { path: '*',  element: <LandingPage /> },
+  { path: '/',                element: <LandingPage /> },
+  { path: '/login',           element: <LoginPage /> },
+  { path: '/register',        element: <RegisterPage /> },
+  { path: '/forgot-password', element: <ForgotPasswordPage /> },
+  { path: '/reset-password',  element: <ResetPasswordPage /> },
+  { path: '/auth/callback',   element: <OAuthCallbackPage /> },
+  { path: '/onboarding',      element: <ProtectedRoute><OnboardingPage /></ProtectedRoute> },
+  { path: '*',                element: <LandingPage /> },
 ] : [
   {
     element: <RootLayout />,
