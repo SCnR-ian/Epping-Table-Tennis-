@@ -30,7 +30,19 @@ import CartPage            from '@/pages/CartPage'
 import CheckoutPage           from '@/pages/CheckoutPage'
 import ForgotPasswordPage    from '@/pages/ForgotPasswordPage'
 import ResetPasswordPage     from '@/pages/ResetPasswordPage'
-const router = createBrowserRouter([
+import LandingPage           from '@/pages/LandingPage'
+import OnboardingPage        from '@/pages/OnboardingPage'
+
+// Show landing page when running on the platform root (flinther.com) with no club subdomain
+const hostname  = window.location.hostname
+const subdomain = import.meta.env.VITE_CLUB_SUBDOMAIN ||
+  (hostname.endsWith('.flinther.com') ? hostname.replace('.flinther.com', '') : null)
+const isLanding = !subdomain || subdomain === 'www'
+
+const router = createBrowserRouter(isLanding ? [
+  { path: '/',  element: <LandingPage /> },
+  { path: '*',  element: <LandingPage /> },
+] : [
   {
     element: <RootLayout />,
     children: [
@@ -75,6 +87,12 @@ const router = createBrowserRouter([
       {
         path: '/admin/finance',
         element: <AdminRoute><FinanceReportPage /></AdminRoute>,
+      },
+
+      // ── Onboarding (new club registration) ───────────────────
+      {
+        path: '/onboarding',
+        element: <ProtectedRoute><OnboardingPage /></ProtectedRoute>,
       },
 
       // ── 404 ──────────────────────────────────────────────────

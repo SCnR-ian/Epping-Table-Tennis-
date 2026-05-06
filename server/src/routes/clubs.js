@@ -1,12 +1,18 @@
 // ─── Clubs Route ──────────────────────────────────────────────────────────────
-// GET  /api/clubs/current  → returns current club info (name, subdomain, settings)
-// PATCH /api/clubs/current → admin only: update name / settings
+// GET  /api/clubs/current    → returns current club info
+// PATCH /api/clubs/current   → admin only: update name / settings
+// POST /api/clubs/register   → authenticated user self-registers a new club
 // ─────────────────────────────────────────────────────────────────────────────
 
-const router = require('express').Router()
-const pool   = require('../db')
+const router  = require('express').Router()
+const pool    = require('../db')
+const multer  = require('multer')
+const path    = require('path')
+const fs      = require('fs')
 const { requireAuth } = require('../middleware/auth')
 const { bustClubCache } = require('../middleware/tenant')
+
+const upload = multer({ dest: 'uploads/logos/', limits: { fileSize: 5 * 1024 * 1024 } })
 
 function requireAdmin(req, res, next) {
   if (req.user?.role !== 'admin') return res.status(403).json({ message: 'Admin only.' })
@@ -49,6 +55,97 @@ router.patch('/current', requireAuth, requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('[clubs] patch error:', err.message)
     res.status(500).json({ message: 'Server error.' })
+  }
+})
+
+// ── POST /api/clubs/register ─────────────────────────────────────────────────
+// Self-service club registration. The authenticated user becomes the club admin.
+router.post('/register', requireAuth, upload.single('logo'), async (req, res) => {
+  const { name, subdomain, address, phone, email, color, courts, open_days, open_from, open_to } = req.body
+
+  if (!name || !subdomain)
+    return res.status(400).json({ message: 'Club name and subdomain are required.' })
+
+  const numCourts  = Math.max(1, parseInt(courts, 10) || 4)
+  const openDays   = (() => { try { return JSON.parse(open_days) } catch { return ['Mon','Tue','Wed','Thu','Fri','Sat'] } })()
+  const from       = open_from || '14:00'
+  const to         = open_to   || '22:00'
+
+  const DAY_LABELS = { Mon:'Monday', Tue:'Tuesday', Wed:'Wednesday', Thu:'Thursday', Fri:'Friday', Sat:'Saturday', Sun:'Sunday' }
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // 1. Club row
+    const settings = {
+      address:      address || '',
+      contactPhone: phone   || '',
+      contactEmail: email   || '',
+      theme: { primaryColor: color || '#c0392b' },
+    }
+    const { rows: [club] } = await client.query(
+      `INSERT INTO clubs (name, subdomain, settings) VALUES ($1, $2, $3) RETURNING *`,
+      [name, subdomain, settings]
+    )
+    const clubId = club.id
+
+    // 2. Courts
+    for (let i = 1; i <= numCourts; i++) {
+      await client.query(`INSERT INTO courts (name, club_id) VALUES ($1, $2)`, [`Court ${i}`, clubId])
+    }
+
+    // 3. Schedule
+    for (const day of openDays) {
+      await client.query(
+        `INSERT INTO schedule (day, label, start_time, end_time, is_active, club_id)
+         VALUES ($1, $2, $3, $4, TRUE, $5)`,
+        [day, DAY_LABELS[day] || day, from, to, clubId]
+      )
+    }
+
+    // 4. Walk-in user
+    await client.query(
+      `INSERT INTO users (name, email, password_hash, role, is_walkin, club_id)
+       VALUES ($1, $2, 'walkin', 'member', TRUE, $3)`,
+      [`${name} Walk-in`, `walkin@${subdomain}.internal`, clubId]
+    )
+
+    // 5. Coaching prices
+    await client.query(
+      `INSERT INTO coaching_prices (session_type, price, club_id) VALUES ('solo',70,$1),('group',50,$1)`,
+      [clubId]
+    )
+
+    // 6. Promote the requesting user to admin of this club
+    await client.query(
+      `UPDATE users SET role='admin', club_id=$1 WHERE id=$2`,
+      [clubId, req.user.id]
+    )
+
+    // 7. Handle logo upload
+    if (req.file) {
+      const ext     = path.extname(req.file.originalname) || '.png'
+      const dest    = path.join('uploads', 'logos', `club-${clubId}${ext}`)
+      fs.renameSync(req.file.path, dest)
+      const logoUrl = `/uploads/logos/club-${clubId}${ext}`
+      await client.query(
+        `UPDATE clubs SET settings = jsonb_set(settings, '{theme,logoUrl}', $1) WHERE id=$2`,
+        [JSON.stringify(logoUrl), clubId]
+      )
+    }
+
+    await client.query('COMMIT')
+    res.status(201).json({ club: { id: clubId, name, subdomain } })
+  } catch (err) {
+    await client.query('ROLLBACK')
+    if (req.file) fs.unlink(req.file.path, () => {})
+    console.error('[clubs/register]', err.message)
+    if (err.code === '23505')
+      return res.status(409).json({ message: 'That URL is already taken. Please choose another.' })
+    res.status(500).json({ message: 'Server error.' })
+  } finally {
+    client.release()
   }
 })
 
