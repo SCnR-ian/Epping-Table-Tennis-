@@ -107,14 +107,14 @@ router.post("/authorize", requireAuth, async (req, res) => {
       if (scheduleError)
         return res.status(409).json({ message: scheduleError });
 
-      const { maxUsed } = await maxConcurrentCourts(
+      const { maxUsed, totalCourts } = await maxConcurrentCourts(
         pool,
         date,
         start_time,
         end_time,
         clubId,
       );
-      if (maxUsed >= 6)
+      if (maxUsed >= totalCourts)
         return res
           .status(409)
           .json({
@@ -226,14 +226,14 @@ router.post("/confirm-authorize", requireAuth, async (req, res) => {
     await client.query("BEGIN");
 
     if (type === "booking") {
-      const { maxUsed } = await maxConcurrentCourts(
+      const { maxUsed, totalCourts } = await maxConcurrentCourts(
         client,
         date,
         start_time,
         end_time,
         clubId,
       );
-      if (maxUsed >= 6) {
+      if (maxUsed >= totalCourts) {
         await client.query("ROLLBACK");
         await stripe.paymentIntents.cancel(intentId).catch(() => {});
         return res

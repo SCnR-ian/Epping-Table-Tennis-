@@ -868,8 +868,8 @@ async function executeTool(name, input, clubId, adminId) {
       )
       if (stdSocial.length) return `❌ Student is signed up for social play at that time on ${fmtDate(input.date)}.`
       // Court availability (peak concurrent per 30-min sub-slot)
-      const { maxUsed: csMax } = await maxConcurrentCourts(pool, input.date, input.start_time, input.end_time, clubId)
-      if (csMax >= 6) return `❌ All 6 courts are fully booked at ${fmtTime(input.start_time)}–${fmtTime(input.end_time)} on ${fmtDate(input.date)}.`
+      const { maxUsed: csMax, totalCourts: csTotalCourts } = await maxConcurrentCourts(pool, input.date, input.start_time, input.end_time, clubId)
+      if (csMax >= csTotalCourts) return `❌ All ${csTotalCourts} courts are fully booked at ${fmtTime(input.start_time)}–${fmtTime(input.end_time)} on ${fmtDate(input.date)}.`
       const { rows: inserted } = await pool.query(
         `INSERT INTO coaching_sessions (coach_id, student_id, date, start_time, end_time, status, club_id)
          VALUES ($1,$2,$3,$4,$5,'confirmed',$6) RETURNING id`,
@@ -965,8 +965,8 @@ async function executeTool(name, input, clubId, adminId) {
       )
       if (stdSocialR.length) return `❌ ${sess.student_name} is signed up for social play at that time on ${fmtDate(newDate)}.`
       // Court availability (peak concurrent per 30-min sub-slot, exclude all sessions being moved)
-      const { maxUsed: rsMax } = await maxConcurrentCourts(pool, newDate, input.start_time, input.end_time, clubId, excludeIds)
-      if (rsMax >= 6) return `❌ All 6 courts are fully booked at ${fmtDate(newDate)} ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}.`
+      const { maxUsed: rsMax, totalCourts: rsTotalCourts } = await maxConcurrentCourts(pool, newDate, input.start_time, input.end_time, clubId, excludeIds)
+      if (rsMax >= rsTotalCourts) return `❌ All ${rsTotalCourts} courts are fully booked at ${fmtDate(newDate)} ${fmtTime(input.start_time)}–${fmtTime(input.end_time)}.`
       // Update — for group sessions update all members on the same original date
       if (sess.group_id) {
         await pool.query(
@@ -1054,9 +1054,9 @@ async function executeTool(name, input, clubId, adminId) {
     case 'check_court_availability': {
       const { date, start_time, end_time } = input
       // Peak concurrent courts across each 30-min sub-slot
-      const { maxUsed } = await maxConcurrentCourts(pool, date, start_time, end_time, clubId)
+      const { maxUsed, totalCourts: aiTotalCourts } = await maxConcurrentCourts(pool, date, start_time, end_time, clubId)
       const used = maxUsed
-      const free = Math.max(0, 6 - used)
+      const free = Math.max(0, aiTotalCourts - used)
       // Fetch breakdown
       const { rows: coaching } = await pool.query(
         `SELECT COALESCE(group_id::text, id::text) AS key,
@@ -1087,7 +1087,7 @@ async function executeTool(name, input, clubId, adminId) {
         [date, start_time, end_time, clubId]
       )
       const lines = [
-        `${fmtDate(date)} ${fmtTime(start_time)}–${fmtTime(end_time)}: ${used}/6 courts used, ${free}/6 free.`,
+        `${fmtDate(date)} ${fmtTime(start_time)}–${fmtTime(end_time)}: ${used}/${aiTotalCourts} courts used, ${free}/${aiTotalCourts} free.`,
       ]
       if (coaching.length) {
         lines.push('Coaching sessions:')
@@ -1168,8 +1168,8 @@ async function executeTool(name, input, clubId, adminId) {
       if (schedErrBk) return `❌ ${schedErrBk}`
 
       // Court availability (exclude the booking being moved)
-      const { maxUsed: bkMax } = await maxConcurrentCourts(pool, newDate, newStart, newEnd, clubId)
-      if (bkMax >= 6) return `❌ All 6 courts are fully booked at ${fmtDate(newDate)} ${fmtTime(newStart)}–${fmtTime(newEnd)}.`
+      const { maxUsed: bkMax, totalCourts: bkTotalCourts } = await maxConcurrentCourts(pool, newDate, newStart, newEnd, clubId)
+      if (bkMax >= bkTotalCourts) return `❌ All ${bkTotalCourts} courts are fully booked at ${fmtDate(newDate)} ${fmtTime(newStart)}–${fmtTime(newEnd)}.`
 
       // Update all slots: cancel old, insert new 30-min slots
       const { randomUUID } = require('crypto')

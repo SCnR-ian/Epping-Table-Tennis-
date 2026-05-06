@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Camera, Plus, Trash2 } from 'lucide-react'
-import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, venueAPI, articlesAPI, paymentsAPI } from '@/api/api'
+import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, analyticsAPI, venueAPI, articlesAPI, paymentsAPI, courtsAPI } from '@/api/api'
 import ShopManager       from './ShopManager'
 import FinanceReportPage from './FinanceReportPage'
 import QRCode from 'react-qr-code'
@@ -65,8 +65,8 @@ function getUpcomingOpenDates(count = 7) {
   return dates
 }
 
-// Count how many of the 6 courts are free during a given time slot.
-function countFreeAtSlot(bookings, sessions, socialSessions, slotTime) {
+// Count how many courts are free during a given time slot.
+function countFreeAtSlot(bookings, sessions, socialSessions, slotTime, totalCourts) {
   const slotMins = toMins(slotTime)
   const inSlot = ({ start_time, end_time }) => slotMins >= toMins(start_time) && slotMins < toMins(end_time)
   const bookingCourts  = bookings.filter(inSlot).length
@@ -75,7 +75,7 @@ function countFreeAtSlot(bookings, sessions, socialSessions, slotTime) {
     sessions.filter(inSlot).map(s => s.group_id ?? String(s.id))
   ).size
   const socialCourts   = socialSessions.filter(inSlot).reduce((sum, s) => sum + (s.num_courts ?? 0), 0)
-  return Math.max(0, BOOKABLE_COURTS.length - bookingCourts - coachingCourts - socialCourts)
+  return Math.max(0, totalCourts - bookingCourts - coachingCourts - socialCourts)
 }
 
 // Get social play sessions that are in progress during a given time slot.
@@ -128,15 +128,6 @@ function groupByWeek(sessions) {
 
 
 const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'Analytics', 'QR-Code', 'Shop', 'Finance', 'Articles']
-
-const BOOKABLE_COURTS = [
-  { id: 1, label: 'Court 1' },
-  { id: 2, label: 'Court 2' },
-  { id: 3, label: 'Court 3' },
-  { id: 4, label: 'Court 4' },
-  { id: 5, label: 'Court 5' },
-  { id: 6, label: 'Court 6' },
-]
 
 // Height in px of each 30-minute slot row in the calendar view.
 const SLOT_H = 48
@@ -512,6 +503,7 @@ const [members,      setMembers]      = useState([])
   const [bookings,                setBookings]                = useState([])
   const [bookingViewSessions,     setBookingViewSessions]     = useState([])
   const [bookingViewSocialSessions, setBookingViewSocialSessions] = useState([])
+  const [totalCourts,             setTotalCourts]             = useState(6)
   const [adminCheckIns,           setAdminCheckIns]           = useState([]) // { type, reference_id, user_id }
   const [memberSearch,       setMemberSearch]       = useState('')
   const [memberListSearch,   setMemberListSearch]   = useState('')
@@ -727,13 +719,15 @@ const [sessionForm,      setSessionForm]      = useState({
       coachingAPI.getSessions({ date: selectedDate }),
       socialAPI.getAdminSessions({ date: selectedDate }),
       checkinAPI.getByDate(selectedDate),
+      courtsAPI.getAll(),
     ])
-      .then(([{ data: bd }, { data: cd }, { data: sd }, { data: kid }]) => {
+      .then(([{ data: bd }, { data: cd }, { data: sd }, { data: kid }, { data: ctd }]) => {
         if (!cancelled) {
           setBookings(bd.bookings)
           setBookingViewSessions(cd.sessions)
           setBookingViewSocialSessions(sd.sessions)
           setAdminCheckIns(kid.checkIns)
+          setTotalCourts(ctd.courts?.length || 6)
         }
       })
       .catch(() => {})
@@ -1393,16 +1387,18 @@ const [sessionForm,      setSessionForm]      = useState({
 
   const refreshBookingView = async () => {
     if (!selectedDate) return
-    const [{ data: bd }, { data: cd }, { data: sd }, { data: kid }] = await Promise.all([
+    const [{ data: bd }, { data: cd }, { data: sd }, { data: kid }, { data: ctd }] = await Promise.all([
       adminAPI.getAllBookings({ date: selectedDate }),
       coachingAPI.getSessions({ date: selectedDate }),
       socialAPI.getAdminSessions({ date: selectedDate }),
       checkinAPI.getByDate(selectedDate),
+      courtsAPI.getAll(),
     ])
     setBookings(bd.bookings)
     setBookingViewSessions(cd.sessions)
     setBookingViewSocialSessions(sd.sessions)
     setAdminCheckIns(kid.checkIns)
+    setTotalCourts(ctd.courts?.length || 6)
   }
 
   const refreshAll = async () => {
@@ -2919,7 +2915,7 @@ const [sessionForm,      setSessionForm]      = useState({
                   {/* Left: time axis + free-court count */}
                   <div className="flex-shrink-0 w-28 border-r border-gray-200">
                     {slotsForDay.map(slot => {
-                      const free      = countFreeAtSlot(bookings, bookingViewSessions, bookingViewSocialSessions, slot)
+                      const free      = countFreeAtSlot(bookings, bookingViewSessions, bookingViewSocialSessions, slot, totalCourts)
                       const freeColor = free === 0 ? 'text-red-600' : free <= 2 ? 'text-amber-600' : 'text-emerald-600'
                       return (
                         <div
@@ -2928,7 +2924,7 @@ const [sessionForm,      setSessionForm]      = useState({
                           className="flex items-start pt-2.5 px-3 border-b border-gray-200/30 last:border-0 gap-1"
                         >
                           <span className="text-[11px] text-gray-800 font-mono leading-none">{fmtTime(slot)}</span>
-                          <span className={`ml-auto text-[11px] leading-none ${freeColor}`}>{free}/6</span>
+                          <span className={`ml-auto text-[11px] leading-none ${freeColor}`}>{free}/{totalCourts}</span>
                         </div>
                       )
                     })}

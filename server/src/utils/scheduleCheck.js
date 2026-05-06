@@ -37,6 +37,14 @@ function _minsToTime(mins) {
   return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}:00`
 }
 
+async function getCourtCount(db, clubId) {
+  const { rows: [{ total }] } = await db.query(
+    'SELECT COUNT(*)::int AS total FROM courts WHERE club_id=$1 AND is_active=TRUE',
+    [clubId]
+  )
+  return total || 1
+}
+
 /**
  * Returns the maximum concurrent court usage across each 30-min sub-slot
  * within [start_time, end_time] on the given date.
@@ -51,9 +59,10 @@ function _minsToTime(mins) {
  * @param {string}   end_time    - HH:MM or HH:MM:SS
  * @param {number}   clubId
  * @param {number[]} excludeIds  - coaching_session IDs to exclude (being rescheduled)
- * @returns {{ maxUsed, detail }} maxUsed = peak concurrent courts in window
+ * @returns {{ maxUsed, totalCourts, detail }} maxUsed = peak concurrent courts in window
  */
 async function maxConcurrentCourts(db, date, start_time, end_time, clubId = 1, excludeIds = []) {
+  const totalCourts = await getCourtCount(db, clubId)
   const startMins = _toMins(start_time)
   const endMins   = _toMins(end_time)
   let maxUsed = 0
@@ -79,10 +88,10 @@ async function maxConcurrentCourts(db, date, start_time, end_time, clubId = 1, e
     const total = Number(u.coaching) + Number(u.booking) + Number(u.social)
     if (total > maxUsed) {
       maxUsed = total
-      worstDetail = `(${u.coaching} coaching + ${u.booking} bookings + ${u.social} social = ${total}/6 at ${slotStart.slice(0,5)})`
+      worstDetail = `(${u.coaching} coaching + ${u.booking} bookings + ${u.social} social = ${total}/${totalCourts} at ${slotStart.slice(0,5)})`
     }
   }
-  return { maxUsed, detail: worstDetail }
+  return { maxUsed, totalCourts, detail: worstDetail }
 }
 
-module.exports = { checkOpenHours, maxConcurrentCourts }
+module.exports = { checkOpenHours, getCourtCount, maxConcurrentCourts }

@@ -240,8 +240,8 @@ router.post('/', requireAuth, async (req, res) => {
     }
 
     // Court availability: check peak concurrent usage per 30-min sub-slot
-    const { maxUsed } = await maxConcurrentCourts(client, date, start_time, end_time, clubId)
-    if (maxUsed >= 6) {
+    const { maxUsed, totalCourts } = await maxConcurrentCourts(client, date, start_time, end_time, clubId)
+    if (maxUsed >= totalCourts) {
       await client.query('ROLLBACK')
       return res.status(409).json({ message: 'Sorry, all courts are fully booked at that time.' })
     }

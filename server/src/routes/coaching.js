@@ -2,7 +2,7 @@ const router         = require('express').Router()
 const pool           = require('../db')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
 const { randomUUID } = require('crypto')
-const { checkOpenHours } = require('../utils/scheduleCheck')
+const { checkOpenHours, getCourtCount } = require('../utils/scheduleCheck')
 const { sendCoachingScheduled } = require('../utils/email')
 
 // ─── Time helpers ─────────────────────────────────────────────────────────────
@@ -1238,6 +1238,7 @@ async function checkAndAssignCourt(client, session, sessionDate, newStart, newEn
   // Checking the whole window at once overcounts: sessions in the first half
   // and sessions in the second half both get included even though they never
   // overlap with each other, making the total exceed 6 when it shouldn't.
+  const totalCourts = await getCourtCount(client, clubId)
   const startM = toMins(newStart)
   const endM   = toMins(newEnd)
   for (let t = startM; t < endM; t += 30) {
@@ -1259,8 +1260,8 @@ async function checkAndAssignCourt(client, session, sessionDate, newStart, newEn
       [sessionDate, slotStart, slotEnd, clubId, excludeIds, groupId ?? null]
     )
     const totalUsed = Number(usage.coaching_used) + Number(usage.booking_used) + Number(usage.social_used)
-    if (totalUsed >= 6) {
-      const detail = `(${usage.coaching_used} coaching + ${usage.booking_used} bookings + ${usage.social_used} social = ${totalUsed}/6 at ${slotStart.slice(0,5)})`
+    if (totalUsed >= totalCourts) {
+      const detail = `(${usage.coaching_used} coaching + ${usage.booking_used} bookings + ${usage.social_used} social = ${totalUsed}/${totalCourts} at ${slotStart.slice(0,5)})`
       throw Object.assign(new Error('no_court'), { sessionDate, detail })
     }
   }
