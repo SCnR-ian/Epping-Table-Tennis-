@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Camera, Upload, X, Loader2 } from "lucide-react";
 import { homepageAPI, pagesAPI, coachingAPI } from "@/api/api";
 import { useEditMode } from "@/context/EditModeContext";
+import { useClub } from "@/context/ClubContext";
 import EditableText from "@/components/cms/EditableText";
 
 const imgSrc = (id, ts) => { const b = pagesAPI.getImageUrl(id); return `${b}${b.includes('?') ? '&' : '?'}t=${ts ?? 0}` }
@@ -143,35 +144,36 @@ function EditableImage({ src, alt, className, onUpload, fallback }) {
 // ── Defaults ───────────────────────────────────────────────────────────────
 
 const DEFAULT_INTRO = {
-  headline: 'Epping Table Tennis Club',
-  subtext: "Sydney's premier table tennis club — built by players, for players, since 2015.",
+  headline: '',
+  subtext: '',
 }
 const DEFAULT_STORY = {
   label: 'Who We Are',
-  headline: 'More Than Just a Club',
-  body1: "Founded in 2025 and located at 33 Oxford St, Epping NSW, Epping Table Tennis Club was born out of a shared passion for the sport and a vision to create a home for players of every level in Sydney's north-west. From our first session, we have welcomed beginners picking up a paddle for the very first time alongside seasoned competitors chasing their next ranking point.",
-  body2: 'Situated just two minutes from Epping Station, our fully air-conditioned venue houses six competition-grade courts, professional coaching programs, weekly social play nights, and a growing tournament calendar. Whether you are here to compete, improve, or simply enjoy the game in great company, you will find your place at Epping Table Tennis Club.',
+  headline: '',
+  body1: '',
+  body2: '',
 }
 const DEFAULT_COACHING = {
   label: 'Expert Guidance',
-  headline: 'World-Class Coaching',
-  body1: 'Our nationally accredited coaches bring decades of competitive and teaching experience to every session. From complete beginners to competitive players, we have a program tailored for you.',
-  body2: 'One-on-one, group, school, and holiday programs are available across the week, led by coaches with national team experience.',
+  headline: '',
+  body1: '',
+  body2: '',
 }
 const DEFAULT_COACHES = [
-  { name: "David Chen", title: "Head Coach", bio: "A two-time national champion turned elite coach, David has spent over 15 years shaping Australia's top table tennis talent. His precision-focused training philosophy and deep technical knowledge have produced five Australian national representatives under his direct guidance.", fallbackImage: "/images/coach-4.jpg" },
-  { name: "Sarah Kim", title: "Junior Development Coach", bio: "Former Australian U21 representative and three-time NSW State Women's Champion, Sarah brings world-class experience to every junior session. Her engaging teaching style has made her one of the most sought-after development coaches in the country.", fallbackImage: "/images/coach-4.jpg" },
-  { name: "Marcus Liu", title: "Fitness & Strategy Coach", bio: "Armed with a Bachelor of Sports Science and a former top-50 NSW ranking, Marcus bridges physical athleticism with tactical intelligence. His data-driven training programs form the backbone of the club's competitive conditioning system.", fallbackImage: "/images/coach-4.jpg" },
+  { name: '', title: '', bio: '', fallbackImage: '/images/coach-4.jpg' },
+  { name: '', title: '', bio: '', fallbackImage: '/images/coach-4.jpg' },
+  { name: '', title: '', bio: '', fallbackImage: '/images/coach-4.jpg' },
 ]
 const DEFAULT_CTA = {
   headline: 'Ready to Play?',
-  body: "Become part of Epping Table Tennis Club — Sydney's most welcoming competitive table tennis community.",
+  body: '',
 }
 
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function AboutUsPage() {
   const { isEditing } = useEditMode()
+  const { club } = useClub() ?? {}
   const [stats, setStats] = useState({ membersDisplay: "—", coachingSessions: "—", socialSessions: "—" })
   const [intro, setIntro] = useState(DEFAULT_INTRO)
   const [story, setStory] = useState(DEFAULT_STORY)
@@ -192,6 +194,11 @@ export default function AboutUsPage() {
       setBannerSlots(slots)
     }).catch(() => {})
   }
+
+  useEffect(() => {
+    if (!club) return
+    setIntro(s => ({ ...s, headline: s.headline || club.name }))
+  }, [club])
 
   useEffect(() => {
     homepageAPI.getStats().then(r => setStats(r.data)).catch(() => {})
@@ -243,6 +250,7 @@ export default function AboutUsPage() {
           as="h1"
           value={intro.headline}
           onSave={v => saveIntro({ headline: v })}
+          placeholder="Your club name"
           className="font-display text-2xl md:text-3xl font-normal text-black mb-4 leading-snug"
         />
         <EditableText
@@ -250,6 +258,7 @@ export default function AboutUsPage() {
           value={intro.subtext}
           onSave={v => saveIntro({ subtext: v })}
           multiline
+          placeholder="A short tagline about your club"
           className="text-gray-500 text-sm max-w-md mx-auto leading-relaxed mb-6"
         />
         <Link to="/register" className="text-sm text-black border-b border-black pb-0.5 hover:text-gray-500 hover:border-gray-500 transition-colors">
@@ -287,6 +296,7 @@ export default function AboutUsPage() {
             as="h2"
             value={story.headline}
             onSave={v => saveStory({ headline: v })}
+            placeholder="Your story headline"
             className="font-display text-4xl md:text-5xl font-normal text-black mb-6 leading-tight"
           />
           <EditableText
@@ -294,6 +304,7 @@ export default function AboutUsPage() {
             value={story.body1}
             onSave={v => saveStory({ body1: v })}
             multiline
+            placeholder="Tell your club's story..."
             className="text-gray-600 leading-relaxed mb-4"
           />
           <EditableText
@@ -301,6 +312,7 @@ export default function AboutUsPage() {
             value={story.body2}
             onSave={v => saveStory({ body2: v })}
             multiline
+            placeholder="Continue your story here..."
             className="text-gray-600 leading-relaxed mb-8"
           />
           <div className="grid grid-cols-3 gap-6 border-t border-gray-100 pt-8">
