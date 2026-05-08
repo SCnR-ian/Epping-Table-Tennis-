@@ -32,12 +32,13 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ message: 'Name, email and password are required.' })
 
   const clubId = req.club?.id ?? null
+  const isPlatformOwner = clubId === null
 
   try {
     const hash = await bcrypt.hash(password, 12)
     const { rows } = await pool.query(
-      'INSERT INTO users (name, email, password_hash, phone, club_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-      [name, email, hash, phone || null, clubId]
+      'INSERT INTO users (name, email, password_hash, phone, club_id, platform_owner) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+      [name, email, hash, phone || null, clubId, isPlatformOwner]
     )
     const user = rows[0]
     res.status(201).json({ token: sign(user), user: safeUser(user) })
@@ -65,9 +66,9 @@ router.post('/login', async (req, res) => {
         [identifier.toLowerCase().trim(), req.club.id]
       ))
     } else {
-      // Platform login: look up platform users (no club assigned yet)
+      // Platform login: look up by platform_owner flag (survives onboarding club_id update)
       ;({ rows } = await pool.query(
-        'SELECT * FROM users WHERE (email=$1 OR phone=$1) AND club_id IS NULL',
+        'SELECT * FROM users WHERE (email=$1 OR phone=$1) AND platform_owner = TRUE',
         [identifier.toLowerCase().trim()]
       ))
     }

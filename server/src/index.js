@@ -421,6 +421,7 @@ async function runMigrations() {
     `CREATE INDEX IF NOT EXISTS idx_cash_transactions_club ON cash_transactions(club_id, created_at DESC)`,
     `ALTER TABLE club_articles ADD COLUMN IF NOT EXISTS gallery_images JSONB DEFAULT '[]'::jsonb`,
     `ALTER TABLE users ALTER COLUMN club_id DROP NOT NULL`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS platform_owner BOOLEAN NOT NULL DEFAULT FALSE`,
   ]
   for (const sql of patches) {
     try { await pool.query(sql) } catch (e) { console.error('Migration warning:', e.message) }
