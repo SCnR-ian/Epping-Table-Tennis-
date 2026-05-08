@@ -33,7 +33,7 @@ export default function NewsPage() {
 
   const activeTab = searchParams.get("type") || "";
   const activeLabel = TABS.find((t) => t.key === activeTab)?.label ?? "All";
-  const clubName = club?.name ?? "Epping Table Tennis Club";
+  const clubName = club?.name ?? "";
 
   useEffect(() => {
     setLoading(true);

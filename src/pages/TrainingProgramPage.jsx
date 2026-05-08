@@ -170,11 +170,7 @@ export default function TrainingProgramPage() {
     contact.instagram&& { label: 'Instagram', href: `https://instagram.com/${contact.instagram}`,             icon: <InstagramIcon />, external: true },
   ].filter(Boolean)
 
-  // Fall back to defaults if home_contact not filled
-  const displayButtons = contactButtons.length ? contactButtons : [
-    { label: 'Phone',    href: 'tel:0298765432',                  icon: <PhoneIcon /> },
-    { label: 'Email',    href: 'mailto:info@eppingttclub.com.au', icon: <EmailIcon /> },
-  ]
+  const displayButtons = contactButtons
 
   return (
     <div className="bg-white">

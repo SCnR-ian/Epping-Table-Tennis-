@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { useClub } from '@/context/ClubContext'
 
 const PROGRAMS = [
   {
@@ -58,6 +59,8 @@ const PROGRAMS = [
 ]
 
 export default function CoachingPage() {
+  const { club } = useClub() ?? {}
+  const contactEmail = club?.settings?.contactEmail
   return (
     <div className="page-wrapper">
       {/* ── Hero ────────────────────────────────────────────────────────── */}
@@ -137,7 +140,7 @@ export default function CoachingPage() {
           Contact us and we'll help you find the right fit for your goals and experience level.
         </p>
         <a
-          href="mailto:coaching@eppingttclub.com.au"
+          href={contactEmail ? `mailto:${contactEmail}` : '/about'}
           className="btn-secondary inline-block text-sm"
         >
           Get in Touch
