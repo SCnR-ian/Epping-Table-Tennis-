@@ -66,9 +66,9 @@ router.post('/login', async (req, res) => {
         [identifier.toLowerCase().trim(), req.club.id]
       ))
     } else {
-      // Platform login: accept platform owners OR club admins
+      // Platform login: accept platform owners, club admins, and coaches
       ;({ rows } = await pool.query(
-        `SELECT * FROM users WHERE (email=$1 OR phone=$1) AND (platform_owner = TRUE OR role = 'admin')`,
+        `SELECT * FROM users WHERE (email=$1 OR phone=$1) AND (platform_owner = TRUE OR role = 'admin' OR role = 'coach')`,
         [identifier.toLowerCase().trim()]
       ))
     }

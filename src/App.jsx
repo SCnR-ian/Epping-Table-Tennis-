@@ -51,7 +51,7 @@ const router = createBrowserRouter(isLanding ? [
   { path: '/onboarding',      element: <ProtectedRoute><OnboardingPage /></ProtectedRoute> },
   { path: '/admin',           element: <AdminRoute><AdminDashboard /></AdminRoute> },
   { path: '/admin/finance',   element: <AdminRoute><FinanceReportPage /></AdminRoute> },
-  { path: '/dashboard',       element: <ProtectedRoute><PlatformDashboardPage /></ProtectedRoute> },
+  { path: '/dashboard',       element: <ProtectedRoute><DashboardPage /></ProtectedRoute> },
   { path: '*',                element: <LandingPage /> },
 ] : [
   {

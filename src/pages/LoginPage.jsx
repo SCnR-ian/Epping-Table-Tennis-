@@ -32,7 +32,10 @@ export default function LoginPage() {
     const v = validate()
     if (Object.keys(v).length) { setErrors(v); return }
     const result = await login(form)
-    if (result.success) navigate(from, { replace: true })
+    if (result.success) {
+      const dest = result.user?.role === 'coach' ? '/dashboard' : from
+      navigate(dest, { replace: true })
+    }
   }
 
   const handleGoogle = () => {
