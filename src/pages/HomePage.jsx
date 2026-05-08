@@ -7,14 +7,7 @@ import { useEditMode } from "@/context/EditModeContext";
 import { homepageAPI, pagesAPI } from "@/api/api";
 import EditableText from "@/components/cms/EditableText";
 
-const FALLBACK_BANNER_IMAGES = [
-  "/images/ETTC1.jpg",
-  "/images/ETTC2.jpg",
-  "/images/ETTC3.jpg",
-  "/images/ETTC4.jpg",
-  "/images/ETTC5.jpg",
-  "/images/ETTC6.jpg",
-]
+const FALLBACK_BANNER_IMAGES = []
 
 // slots: array of null | { id, url }  — or legacy array of strings
 function BannerSlideshow({ className = "", slots }) {
@@ -176,26 +169,21 @@ function EditableBanner({ className, title, slots, onUploadSlot, onDeleteSlot, c
 }
 
 const DEFAULT_HERO = {
-  headline:    'Epping Table Tennis',
-  subheadline: "Sydney's Premier Table Tennis Club",
+  headline:    '',
+  subheadline: '',
 }
 const DEFAULT_INTRO = {
-  headline: 'More Than Just a Club',
-  body1: "Founded in 2015, Epping Table Tennis Club has grown into Sydney's premier destination for players of all levels. Whether you're picking up a paddle for the first time or competing at a national level, you'll find your place here.",
-  body2: "We offer six competition-grade courts, certified coaching, weekly social nights, and a vibrant tournament calendar.",
+  headline: '',
+  body1: '',
+  body2: '',
 }
 const DEFAULT_CONTACT = {
-  phone:    '(02) 9876 5432',
-  email:    'info@eppingttclub.com.au',
-  address:  '33 Oxford St\nEpping NSW 2121\nAustralia',
+  phone:    '',
+  email:    '',
+  address:  '',
   wechat:   '',
-  gettingHere: '2 min walk from Epping Station\nBus stop directly outside\nFree parking on-site',
-  schedule: [
-    { day: 'Mon', time: '4:00 – 8:30 PM' },
-    { day: 'Tue', time: '4:00 – 8:30 PM' },
-    { day: 'Wed', time: '4:00 – 8:30 PM' },
-    { day: 'Sat', time: '1:00 – 6:30 PM' },
-  ],
+  gettingHere: '',
+  schedule: [],
 }
 
 const CARD_FALLBACKS = {
@@ -221,7 +209,7 @@ export default function HomePage() {
   const [intro, setIntro] = useState(DEFAULT_INTRO)
   const [contact, setContact] = useState(DEFAULT_CONTACT)
   const [programs, setPrograms] = useState({ headline: 'Explore Our Training Programs', cardTitles: {} })
-  const [cta, setCta] = useState({ headline: 'Ready to Play?', body: 'Join hundreds of members who train, compete, and improve every week at Epping Table Tennis Club.' })
+  const [cta, setCta] = useState({ headline: 'Ready to Play?', body: '' })
   const [cardTimestamps, setCardTimestamps] = useState({})
   const cardInputRefs = useRef({})
   // Each banner: fixed array of 6 slots — null | { id, url }
@@ -242,12 +230,17 @@ export default function HomePage() {
   // Seed defaults from ClubContext once it loads
   useEffect(() => {
     if (!club) return
+    setHero(h => ({
+      ...h,
+      headline:    h.headline    || club.name,
+      subheadline: h.subheadline || '',
+    }))
     setContact(ct => ({
       ...ct,
-      phone:   club.settings?.contactPhone || ct.phone,
-      email:   club.settings?.contactEmail || ct.email,
-      address: club.settings?.address      || ct.address,
-      wechat:  club.settings?.wechat       ?? ct.wechat,
+      phone:   ct.phone   || club.settings?.contactPhone || '',
+      email:   ct.email   || club.settings?.contactEmail || '',
+      address: ct.address || club.settings?.address      || '',
+      wechat:  ct.wechat  ?? club.settings?.wechat       ?? '',
     }))
   }, [club])
 
