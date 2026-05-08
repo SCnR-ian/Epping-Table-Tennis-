@@ -30,8 +30,9 @@ import CartPage            from '@/pages/CartPage'
 import CheckoutPage           from '@/pages/CheckoutPage'
 import ForgotPasswordPage    from '@/pages/ForgotPasswordPage'
 import ResetPasswordPage     from '@/pages/ResetPasswordPage'
-import LandingPage           from '@/pages/LandingPage'
-import OnboardingPage        from '@/pages/OnboardingPage'
+import LandingPage              from '@/pages/LandingPage'
+import OnboardingPage           from '@/pages/OnboardingPage'
+import PlatformDashboardPage    from '@/pages/PlatformDashboardPage'
 
 // Show landing page when running on the platform root (flinther.com) with no club subdomain
 const hostname  = window.location.hostname
@@ -47,6 +48,7 @@ const router = createBrowserRouter(isLanding ? [
   { path: '/reset-password',  element: <ResetPasswordPage /> },
   { path: '/auth/callback',   element: <OAuthCallbackPage /> },
   { path: '/onboarding',      element: <ProtectedRoute><OnboardingPage /></ProtectedRoute> },
+  { path: '/dashboard',       element: <ProtectedRoute><PlatformDashboardPage /></ProtectedRoute> },
   { path: '*',                element: <LandingPage /> },
 ] : [
   {

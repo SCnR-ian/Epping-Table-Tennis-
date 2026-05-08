@@ -370,6 +370,7 @@ export const financeAPI = {
 // ---------------------------------------------------------------------------
 export const clubAPI = {
   getCurrent: ()       => api.get('/clubs/current'),
+  getMine:    ()       => api.get('/clubs/mine'),
   update:     (data)   => api.patch('/clubs/current', data),
 }
 

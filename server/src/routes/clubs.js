@@ -19,6 +19,23 @@ function requireAdmin(req, res, next) {
   next()
 }
 
+// GET /api/clubs/mine — returns the club the authenticated user belongs to (platform context)
+router.get('/mine', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT c.id, c.name, c.subdomain, c.settings
+       FROM users u JOIN clubs c ON c.id = u.club_id
+       WHERE u.id = $1`,
+      [req.user.id]
+    )
+    if (!rows[0]) return res.json({ club: null })
+    res.json({ club: rows[0] })
+  } catch (err) {
+    console.error('[clubs/mine]', err.message)
+    res.status(500).json({ message: 'Server error.' })
+  }
+})
+
 // GET /api/clubs/current
 router.get('/current', (req, res) => {
   if (!req.club) return res.status(404).json({ message: 'Club not found.' })

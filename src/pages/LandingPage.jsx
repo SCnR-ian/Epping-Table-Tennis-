@@ -293,11 +293,6 @@ function Reveal({ children, delay = 0, className = "" }) {
 // ── Screenshots carousel ──────────────────────────────────────────────────────
 const SLIDES = [
   { src: "/ss1.png", alt: "Admin dashboard", url: "epping.flinther.com/admin" },
-  {
-    src: "/ss2.png",
-    alt: "Booking calendar",
-    url: "epping.flinther.com/admin",
-  },
   { src: "/ss3.png", alt: "Venue", url: null },
 ];
 
