@@ -363,6 +363,7 @@ export default function HomePage() {
             value={hero.subheadline}
             onChange={v => setHero(h => ({ ...h, subheadline: v }))}
             onSave={v => saveHero('subheadline', v)}
+            placeholder="Your tagline"
             className="text-white/60 text-[10px] tracking-[0.4em] uppercase mb-5 font-light"
           />
           <EditableText
@@ -370,6 +371,7 @@ export default function HomePage() {
             value={hero.headline}
             onChange={v => setHero(h => ({ ...h, headline: v }))}
             onSave={v => saveHero('headline', v)}
+            placeholder="Your club name"
             className="font-display text-white text-5xl md:text-6xl lg:text-7xl font-normal tracking-tight mb-7 leading-none"
           />
           <div className="flex items-center justify-center gap-8">
@@ -400,6 +402,7 @@ export default function HomePage() {
             value={intro.headline}
             onChange={v => setIntro(h => ({ ...h, headline: v }))}
             onSave={v => saveIntro('headline', v)}
+            placeholder="Section headline"
             className="font-display text-5xl md:text-6xl font-bold text-black mb-5 leading-tight"
           />
           <EditableText
@@ -408,6 +411,7 @@ export default function HomePage() {
             onChange={v => setIntro(h => ({ ...h, body1: v }))}
             onSave={v => saveIntro('body1', v)}
             multiline
+            placeholder="Tell visitors about your club..."
             className="text-gray-700 leading-relaxed mb-3"
           />
           <EditableText
@@ -416,6 +420,7 @@ export default function HomePage() {
             onChange={v => setIntro(h => ({ ...h, body2: v }))}
             onSave={v => saveIntro('body2', v)}
             multiline
+            placeholder="Add more details here..."
             className="text-gray-700 leading-relaxed mb-8"
           />
           <div className="grid grid-cols-3 gap-8 mb-8 border-t border-gray-100 pt-8">
@@ -673,6 +678,7 @@ export default function HomePage() {
           as="h2"
           value={cta.headline}
           onSave={v => saveCta('headline', v)}
+          placeholder="Call to action headline"
           className="font-display text-5xl md:text-6xl font-light tracking-wide text-black mb-6"
         />
         <EditableText
@@ -680,6 +686,7 @@ export default function HomePage() {
           value={cta.body}
           onSave={v => saveCta('body', v)}
           multiline
+          placeholder="Invite visitors to join your club..."
           className="text-gray-700 mb-10 font-light max-w-md mx-auto leading-relaxed"
         />
         {isAuthenticated ? (
