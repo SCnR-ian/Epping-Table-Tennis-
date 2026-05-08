@@ -66,9 +66,9 @@ router.post('/login', async (req, res) => {
         [identifier.toLowerCase().trim(), req.club.id]
       ))
     } else {
-      // Platform login: look up by platform_owner flag (survives onboarding club_id update)
+      // Platform login: accept platform owners OR club admins
       ;({ rows } = await pool.query(
-        'SELECT * FROM users WHERE (email=$1 OR phone=$1) AND platform_owner = TRUE',
+        `SELECT * FROM users WHERE (email=$1 OR phone=$1) AND (platform_owner = TRUE OR role = 'admin')`,
         [identifier.toLowerCase().trim()]
       ))
     }

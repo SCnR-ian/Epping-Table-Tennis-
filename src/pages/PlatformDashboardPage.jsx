@@ -12,9 +12,16 @@ export default function PlatformDashboardPage() {
 
   useEffect(() => {
     clubAPI.getMine()
-      .then(r => setClub(r.data.club))
+      .then(r => {
+        const c = r.data.club
+        setClub(c)
+        // Club admins go straight to their admin panel
+        if (c && user?.role === 'admin') {
+          window.location.href = `https://${c.subdomain}.${PAGES_HOST}/admin`
+        }
+      })
       .catch(() => setClub(null))
-  }, [])
+  }, [user])
 
   const adminUrl = club ? `https://${club.subdomain}.${PAGES_HOST}/admin` : null
   const [copied, setCopied] = useState(false)
