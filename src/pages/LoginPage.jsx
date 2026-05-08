@@ -9,7 +9,7 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const fromLoc  = location.state?.from
-  const from     = fromLoc ? fromLoc.pathname + (fromLoc.search || '') : '/dashboard'
+  const from     = fromLoc ? fromLoc.pathname + (fromLoc.search || '') : '/admin'
 
   const [form, setForm]     = useState({ identifier: '', password: '' })
   const [errors, setErrors] = useState({})

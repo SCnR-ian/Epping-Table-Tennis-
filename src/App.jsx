@@ -49,6 +49,8 @@ const router = createBrowserRouter(isLanding ? [
   { path: '/reset-password',  element: <ResetPasswordPage /> },
   { path: '/auth/callback',   element: <OAuthCallbackPage /> },
   { path: '/onboarding',      element: <ProtectedRoute><OnboardingPage /></ProtectedRoute> },
+  { path: '/admin',           element: <AdminRoute><AdminDashboard /></AdminRoute> },
+  { path: '/admin/finance',   element: <AdminRoute><FinanceReportPage /></AdminRoute> },
   { path: '/dashboard',       element: <ProtectedRoute><PlatformDashboardPage /></ProtectedRoute> },
   { path: '*',                element: <LandingPage /> },
 ] : [
