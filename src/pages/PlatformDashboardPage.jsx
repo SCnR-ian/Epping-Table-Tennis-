@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { clubAPI } from '@/api/api'
@@ -16,9 +16,13 @@ export default function PlatformDashboardPage() {
       .catch(() => setClub(null))
   }, [])
 
-  const adminUrl = club
-    ? `https://${club.subdomain}.${PAGES_HOST}/admin`
-    : null
+  const adminUrl = club ? `https://${club.subdomain}.${PAGES_HOST}/admin` : null
+  const [copied, setCopied] = useState(false)
+  const copyLink = useCallback(() => {
+    navigator.clipboard.writeText(adminUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }, [adminUrl])
 
   return (
     <div
@@ -77,6 +81,12 @@ export default function PlatformDashboardPage() {
             >
               Go to admin panel →
             </a>
+            <button
+              onClick={copyLink}
+              className="w-full border border-gray-200 rounded-xl py-3 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              {copied ? 'Copied!' : 'Copy link'}
+            </button>
           </div>
         )}
 

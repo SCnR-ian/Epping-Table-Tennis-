@@ -71,12 +71,11 @@ export default function OnboardingPage() {
       if (form.logo) fd.append('logo', form.logo)
 
       await api.post('/clubs/register', fd)
-      // In production redirect to the real subdomain; locally show instructions
       const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
       if (isLocal) {
         setStep('done')
       } else {
-        window.location.href = `https://${form.subdomain}.flinther.com/admin`
+        navigate('/dashboard', { replace: true })
       }
     } catch (e) {
       setError(e?.response?.data?.message || 'Something went wrong. Please try again.')
