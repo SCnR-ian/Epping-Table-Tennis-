@@ -71,6 +71,8 @@ export const authAPI = {
   googleRedirect: () => {
     window.location.href = `${BASE}/auth/google`;
   },
+  getSSOToken:    ()      => api.post('/auth/sso-token'),
+  verifySSOToken: (token) => api.get(`/auth/sso-callback?token=${token}`),
 };
 
 // ---------------------------------------------------------------------------

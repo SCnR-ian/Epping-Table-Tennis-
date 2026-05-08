@@ -33,6 +33,7 @@ import ResetPasswordPage     from '@/pages/ResetPasswordPage'
 import LandingPage              from '@/pages/LandingPage'
 import OnboardingPage           from '@/pages/OnboardingPage'
 import PlatformDashboardPage    from '@/pages/PlatformDashboardPage'
+import SSOCallbackPage          from '@/pages/SSOCallbackPage'
 
 // Show landing page when running on the platform root (flinther.com) with no club subdomain
 const hostname  = window.location.hostname
@@ -65,6 +66,7 @@ const router = createBrowserRouter(isLanding ? [
       { path: '/booking',       element: <BookingPage /> },
       { path: '/coaching',      element: <CoachingPage /> },
       { path: '/auth/callback', element: <OAuthCallbackPage /> },
+      { path: '/auth/sso',      element: <SSOCallbackPage /> },
       { path: '/news',           element: <NewsPage /> },
       { path: '/news/:id',       element: <NewsDetailPage /> },
       { path: '/shopping',      element: <ShoppingPage /> },
