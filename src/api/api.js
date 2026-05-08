@@ -369,9 +369,10 @@ export const financeAPI = {
 // Club (multi-tenancy)
 // ---------------------------------------------------------------------------
 export const clubAPI = {
-  getCurrent: ()       => api.get('/clubs/current'),
-  getMine:    ()       => api.get('/clubs/mine'),
-  update:     (data)   => api.patch('/clubs/current', data),
+  getCurrent:  ()     => api.get('/clubs/current'),
+  getMine:     ()     => api.get('/clubs/mine'),
+  update:      (data) => api.patch('/clubs/current', data),
+  uploadLogo:  (fd)   => api.post('/clubs/logo', fd, { headers: { 'Content-Type': 'multipart/form-data' } }),
 }
 
 // ---------------------------------------------------------------------------

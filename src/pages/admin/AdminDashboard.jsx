@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Camera, Plus, Trash2 } from 'lucide-react'
-import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, venueAPI, articlesAPI, paymentsAPI, courtsAPI } from '@/api/api'
+import { adminAPI, bookingsAPI, coachingAPI, socialAPI, checkinAPI, venueAPI, articlesAPI, paymentsAPI, courtsAPI, clubAPI } from '@/api/api'
 import ShopManager       from './ShopManager'
 import FinanceReportPage from './FinanceReportPage'
 import QRCode from 'react-qr-code'
@@ -126,7 +126,7 @@ function groupByWeek(sessions) {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 
-const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'QR-Code', 'Shop', 'Finance', 'Articles']
+const TABS = ['Bookings', 'Members', 'Coaching', 'Social Play', 'QR-Code', 'Shop', 'Finance', 'Articles', 'Settings']
 
 // Height in px of each 30-minute slot row in the calendar view.
 const SLOT_H = 48
@@ -453,6 +453,60 @@ function ArticlesManager() {
   )
 }
 
+
+function ClubLogoSettings() {
+  const { club, setClub } = useClub()
+  const [uploading, setUploading] = useState(false)
+  const [msg, setMsg] = useState('')
+  const inputRef = useRef(null)
+  const apiBase = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000'
+  const logoUrl = club?.settings?.theme?.logoUrl
+  const fullLogoUrl = logoUrl ? (logoUrl.startsWith('http') ? logoUrl : `${apiBase}${logoUrl}`) : null
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setUploading(true)
+    setMsg('')
+    try {
+      const fd = new FormData()
+      fd.append('logo', file)
+      const r = await clubAPI.uploadLogo(fd)
+      setClub(c => ({ ...c, settings: { ...c.settings, theme: { ...c.settings?.theme, logoUrl: r.data.logoUrl } } }))
+      setMsg('Logo updated.')
+    } catch {
+      setMsg('Upload failed.')
+    } finally {
+      setUploading(false)
+      e.target.value = ''
+    }
+  }
+
+  return (
+    <div className="p-6 max-w-md">
+      <h2 className="text-lg font-medium mb-6">Club Logo</h2>
+      <div className="flex items-center gap-5 mb-6">
+        {fullLogoUrl ? (
+          <img src={fullLogoUrl} alt="Club logo" className="w-20 h-20 object-contain rounded-xl border border-gray-200" />
+        ) : (
+          <div className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center text-gray-300 text-xs">No logo</div>
+        )}
+        <div>
+          <button
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading}
+            className="px-4 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors"
+          >
+            {uploading ? 'Uploading…' : fullLogoUrl ? 'Replace logo' : 'Upload logo'}
+          </button>
+          <p className="text-xs text-gray-400 mt-1.5">PNG or JPG, max 5 MB</p>
+          {msg && <p className="text-xs text-green-600 mt-1">{msg}</p>}
+        </div>
+      </div>
+      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+    </div>
+  )
+}
 
 export default function AdminDashboard() {
   const [activeTab,    setActiveTab]    = useState('Bookings')
@@ -4639,6 +4693,8 @@ const [sessionForm,      setSessionForm]      = useState({
       {/* ── Articles Tab ──────────────────────────────────────────────────── */}
       {activeTab === 'Articles' && <ArticlesManager />}
 
+      {/* ── Settings Tab ──────────────────────────────────────────────────── */}
+      {activeTab === 'Settings' && <ClubLogoSettings />}
 
       {/* ── Cancel Series Selection Modal ─────────────────────────────────── */}
       {cancelSeriesModal && (

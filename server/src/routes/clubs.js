@@ -166,4 +166,26 @@ router.post('/register', requireAuth, upload.single('logo'), async (req, res) =>
   }
 })
 
+// POST /api/clubs/logo — upload/replace club logo
+router.post('/logo', requireAuth, requireAdmin, upload.single('logo'), async (req, res) => {
+  if (!req.club) return res.status(404).json({ message: 'Club not found.' })
+  if (!req.file) return res.status(400).json({ message: 'No file uploaded.' })
+  try {
+    const ext  = path.extname(req.file.originalname) || '.png'
+    const dest = path.join('uploads', 'logos', `club-${req.club.id}${ext}`)
+    fs.renameSync(req.file.path, dest)
+    const logoUrl = `/uploads/logos/club-${req.club.id}${ext}`
+    await pool.query(
+      `UPDATE clubs SET settings = jsonb_set(settings, '{theme,logoUrl}', $1) WHERE id=$2`,
+      [JSON.stringify(logoUrl), req.club.id]
+    )
+    bustClubCache(req.club.subdomain)
+    res.json({ logoUrl })
+  } catch (err) {
+    if (req.file) fs.unlink(req.file.path, () => {})
+    console.error('[clubs/logo]', err.message)
+    res.status(500).json({ message: 'Server error.' })
+  }
+})
+
 module.exports = router
