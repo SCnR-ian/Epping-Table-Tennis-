@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { cloudflare } from '@cloudflare/vite-plugin'
 
 export default defineConfig({
-  plugins: [react(), VitePWA({
+  plugins: [react(), cloudflare(), VitePWA({
     registerType: 'autoUpdate',
     injectRegister: 'auto',
     includeAssets: ['favicon.svg', 'icons/icon-192.png', 'icons/icon-512.png'],
