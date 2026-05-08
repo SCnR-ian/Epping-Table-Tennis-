@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useEditMode } from '@/context/EditModeContext'
+import { useAuth } from '@/context/AuthContext'
 
 /**
  * EditableText — drop-in replacement for h1/h2/p/span
@@ -24,6 +25,8 @@ export default function EditableText({
   ...props
 }) {
   const { isEditing } = useEditMode()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [active, setActive] = useState(false)
   const [draft, setDraft] = useState(value ?? '')
   const savedValue = useRef(value ?? '') // value at the moment editing started
@@ -43,8 +46,16 @@ export default function EditableText({
     }
   }, [active])
 
-  // Not in edit mode — render normally
+  // Not in edit mode — render normally, but show placeholder hint to admins when empty
   if (!isEditing) {
+    const isEmpty = !value && !children
+    if (isEmpty && placeholder && isAdmin) {
+      return (
+        <Tag className={`${className} opacity-40`} {...props}>
+          <span className="italic">{placeholder}</span>
+        </Tag>
+      )
+    }
     return <Tag className={className} {...props}>{children ?? value}</Tag>
   }
 

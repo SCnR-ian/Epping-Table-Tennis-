@@ -7,28 +7,48 @@ import { useEditMode } from "@/context/EditModeContext";
 import { homepageAPI, pagesAPI } from "@/api/api";
 import EditableText from "@/components/cms/EditableText";
 
-const FALLBACK_BANNER_IMAGES = []
+const PLACEHOLDER_BANNER = '/placeholder-banner.svg'
 
 // slots: array of null | { id, url }  — or legacy array of strings
 function BannerSlideshow({ className = "", slots }) {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+
   const srcs = (() => {
     if (slots === null) return [] // still loading — show nothing yet
     const filled = slots.filter(Boolean).map(s => typeof s === 'string' ? s : s.url)
     return filled
   })()
+
+  const isEmpty = srcs.length === 0
   const [current, setCurrent] = useState(0)
   useEffect(() => { setCurrent(0) }, [srcs.length])
   useEffect(() => {
+    if (srcs.length <= 1) return
     const t = setInterval(() => setCurrent(i => (i + 1) % srcs.length), 4000)
     return () => clearInterval(t)
   }, [srcs.length])
+
+  if (isEmpty) {
+    return (
+      <div className={`relative overflow-hidden bg-white ${className}`}>
+        <img src={PLACEHOLDER_BANNER} alt="Placeholder" className="absolute inset-0 w-full h-full object-contain" />
+        {isAdmin && (
+          <div className="absolute bottom-4 left-4 text-xs text-gray-400 bg-white/80 px-3 py-1.5 rounded-full">
+            Click Edit Page to change image
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className={`relative overflow-hidden ${className}`}>
       {srcs.map((src, i) => (
         <img
           key={src}
           src={src}
-          alt="Epping Table Tennis"
+          alt=""
           className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000"
           style={{ opacity: i === current ? 1 : 0 }}
         />

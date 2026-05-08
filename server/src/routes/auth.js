@@ -89,6 +89,31 @@ router.post('/login', async (req, res) => {
   }
 })
 
+// POST /api/auth/sso-token — issue a 60-second token for cross-domain SSO
+router.post('/sso-token', require('../middleware/auth').requireAuth, (req, res) => {
+  const ssoToken = jwt.sign(
+    { id: req.user.id, type: 'sso' },
+    process.env.JWT_SECRET,
+    { expiresIn: '60s' }
+  )
+  res.json({ token: ssoToken })
+})
+
+// GET /api/auth/sso-callback?token=XXX — exchange SSO token for a full session JWT
+router.get('/sso-callback', async (req, res) => {
+  const { token } = req.query
+  if (!token) return res.status(400).json({ message: 'Missing token.' })
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET)
+    if (payload.type !== 'sso') return res.status(401).json({ message: 'Invalid token.' })
+    const { rows } = await pool.query('SELECT * FROM users WHERE id=$1', [payload.id])
+    if (!rows[0]) return res.status(401).json({ message: 'User not found.' })
+    res.json({ token: sign(rows[0]), user: safeUser(rows[0]) })
+  } catch {
+    res.status(401).json({ message: 'Invalid or expired SSO token.' })
+  }
+})
+
 // POST /api/auth/logout  (client just discards token; endpoint for symmetry)
 router.post('/logout', (req, res) => {
   req.logout?.(() => {})
