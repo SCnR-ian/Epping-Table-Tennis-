@@ -13,10 +13,16 @@ export function ClubProvider({ children }) {
         const c = r.data
         setClub(c)
         applyTheme(c.settings?.theme)
+        if (c.name) document.title = c.name
+        const logoUrl = c.settings?.theme?.logoUrl
+        if (logoUrl) {
+          const apiBase = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000'
+          const fullUrl = logoUrl.startsWith('http') ? logoUrl : `${apiBase}${logoUrl}`
+          const link = document.querySelector("link[rel='icon']")
+          if (link) link.href = fullUrl
+        }
       })
-      .catch(() => {
-        // Server unavailable or club not found — proceed with defaults
-      })
+      .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
 
