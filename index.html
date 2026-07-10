@@ -8,6 +8,47 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Club" />
     <link rel="manifest" href="/manifest.json" />
+    <!-- Epping-only PWA branding: swap the shared manifest for Epping's logo + colours
+         on the Epping hostnames only. Leaves flinther / other tenants untouched. -->
+    <script>
+      (function () {
+        try {
+          var h = location.hostname;
+          var isEpping =
+            h === 'eppingtabletennis.com.au' ||
+            h === 'www.eppingtabletennis.com.au' ||
+            h.lastIndexOf('epping.', 0) === 0; // epping.flinther.com etc.
+          if (!isEpping) return;
+          var apply = function () {
+            // Remove any existing manifest links (static + VitePWA-injected) and
+            // point to the Epping-specific manifest so its icons win.
+            document.querySelectorAll('link[rel="manifest"]').forEach(function (l) {
+              l.parentNode && l.parentNode.removeChild(l);
+            });
+            var m = document.createElement('link');
+            m.rel = 'manifest';
+            m.href = '/manifest.epping.json';
+            document.head.appendChild(m);
+            // iOS "Add to Home Screen" icon
+            var a = document.createElement('link');
+            a.rel = 'apple-touch-icon';
+            a.href = '/icons/apple-touch-icon.png';
+            document.head.appendChild(a);
+            // Epping brand colour + titles
+            var tc = document.querySelector('meta[name="theme-color"]');
+            if (tc) tc.setAttribute('content', '#1a4b8c');
+            var at = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+            if (at) at.setAttribute('content', 'Epping TT');
+            document.title = 'Epping Table Tennis';
+          };
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', apply);
+          } else {
+            apply();
+          }
+        } catch (e) {}
+      })();
+    </script>
     <!-- Keep this site out of search engines (private / not for public discovery) -->
     <meta name="robots" content="noindex, nofollow" />
     <meta name="googlebot" content="noindex, nofollow" />
